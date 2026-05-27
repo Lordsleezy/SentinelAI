@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SentinelAI - Desktop Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            border: 1px solid rgba(0, 212, 255, 0.3);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            color: #00d4ff;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 1.1em;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 1em;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+            color: white;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 20px;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            backdrop-filter: blur(10px);
+        }
+
+        .card h2 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            border-bottom: 2px solid rgba(0, 212, 255, 0.3);
+            padding-bottom: 10px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-running {
+            background: #38ef7d;
+            box-shadow: 0 0 10px #38ef7d;
+        }
+
+        .status-paused {
+            background: #f5576c;
+            box-shadow: 0 0 10px #f5576c;
+        }
+
+        .status-offline {
+            background: #888;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-label {
+            color: #aaa;
+        }
+
+        .stat-value {
+            color: #00d4ff;
+            font-weight: bold;
+        }
+
+        .earnings {
+            font-size: 2em;
+            color: #38ef7d;
+            text-align: center;
+            margin: 20px 0;
+            text-shadow: 0 0 10px rgba(56, 239, 125, 0.5);
+        }
+
+        .logs-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 5px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .log-entry {
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .log-timestamp {
+            color: #667eea;
+            margin-right: 10px;
+        }
+
+        .log-event {
+            color: #00d4ff;
+            margin-right: 10px;
+        }
+
+        .log-detail {
+            color: #aaa;
+        }
+
+        .task-list {
+            list-style: none;
+        }
+
+        .task-item {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            border-left: 3px solid #00d4ff;
+        }
+
+        .task-title {
+            color: #fff;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .task-meta {
+            color: #888;
+            font-size: 0.9em;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #666;
+            padding: 20px;
+            font-style: italic;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading {
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚡ SentinelAI</h1>
+            <p class="subtitle">Autonomous AI Operations Platform</p>
+        </header>
+
+        <div class="controls">
+            <button class="btn-success" onclick="resumeOperations()">▶ Resume</button>
+            <button class="btn-warning" onclick="pauseOperations()">⏸ Pause</button>
+            <button class="btn-danger" onclick="emergencyStop()">⏹ Emergency Stop</button>
+            <button class="btn-primary" onclick="refreshDashboard()">🔄 Refresh</button>
+        </div>
+
+        <div class="dashboard-grid">
+            <!-- System Status Card -->
+            <div class="card">
+                <h2>System Status</h2>
+                <div class="stat-row">
+                    <span class="stat-label">Backend</span>
+                    <span class="stat-value">
+                        <span class="status-indicator" id="backend-status"></span>
+                        <span id="backend-text">Loading...</span>
+                    </span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Ollama</span>
+                    <span class="stat-value">
+                        <span class="status-indicator" id="ollama-status"></span>
+                        <span id="ollama-text">Loading...</span>
+                    </span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Active Tasks</span>
+                    <span class="stat-value" id="active-tasks">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Last Scan</span>
+                    <span class="stat-value" id="last-scan">Never</span>
+                </div>
+            </div>
+
+            <!-- Earnings Card -->
+            <div class="card">
+                <h2>Earnings</h2>
+                <div class="earnings" id="total-earnings">$0.00</div>
+                <div class="stat-row">
+                    <span class="stat-label">Pending PRs</span>
+                    <span class="stat-value" id="pending-count">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Merged PRs</span>
+                    <span class="stat-value" id="merged-count">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Success Rate</span>
+                    <span class="stat-value" id="merge-rate">0%</span>
+                </div>
+            </div>
+
+            <!-- Active Tasks Card -->
+            <div class="card">
+                <h2>Active Tasks</h2>
+                <ul class="task-list" id="task-list">
+                    <li class="empty-state">No active tasks</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Logs Card -->
+        <div class="card">
+            <h2>Recent Logs</h2>
+            <div class="logs-container" id="logs-container">
+                <div class="log-entry loading">Loading logs...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-refresh every 5 seconds
+        setInterval(refreshDashboard, 5000);
+
+        // Initial load
+        refreshDashboard();
+
+        async function refreshDashboard() {
+            await Promise.all([
+                updateStatus(),
+                updateEarnings(),
+                updateTasks(),
+                updateLogs()
+            ]);
+        }
+
+        async function updateStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+
+                // Backend status
+                const backendStatus = document.getElementById('backend-status');
+                const backendText = document.getElementById('backend-text');
+                if (data.running) {
+                    backendStatus.className = 'status-indicator ' + (data.paused ? 'status-paused' : 'status-running');
+                    backendText.textContent = data.paused ? 'Paused' : 'Running';
+                } else {
+                    backendStatus.className = 'status-indicator status-offline';
+                    backendText.textContent = 'Offline';
+                }
+
+                // Ollama status
+                const ollamaStatus = document.getElementById('ollama-status');
+                const ollamaText = document.getElementById('ollama-text');
+                if (data.ollama_status === 'running') {
+                    ollamaStatus.className = 'status-indicator status-running';
+                    ollamaText.textContent = 'Running';
+                } else {
+                    ollamaStatus.className = 'status-indicator status-offline';
+                    ollamaText.textContent = 'Offline';
+                }
+
+                document.getElementById('active-tasks').textContent = data.active_tasks || 0;
+                document.getElementById('last-scan').textContent = data.last_scan || 'Never';
+            } catch (error) {
+                console.error('Failed to update status:', error);
+            }
+        }
+
+        async function updateEarnings() {
+            try {
+                const response = await fetch('/api/earnings');
+                const data = await response.json();
+
+                document.getElementById('total-earnings').textContent = '$' + (data.confirmed_earnings || 0).toFixed(2);
+                document.getElementById('pending-count').textContent = data.pending_count || 0;
+                document.getElementById('merged-count').textContent = data.merged_count || 0;
+                document.getElementById('merge-rate').textContent = (data.merge_rate || 0) + '%';
+            } catch (error) {
+                console.error('Failed to update earnings:', error);
+            }
+        }
+
+        async function updateTasks() {
+            try {
+                const response = await fetch('/api/tasks');
+                const data = await response.json();
+                const taskList = document.getElementById('task-list');
+
+                if (data.tasks && data.tasks.length > 0) {
+                    taskList.innerHTML = data.tasks.map(task => `
+                        <li class="task-item">
+                            <div class="task-title">${task.title}</div>
+                            <div class="task-meta">
+                                Complexity: ${task.complexity_score} | 
+                                Bounty: $${task.bounty_amount}
+                            </div>
+                        </li>
+                    `).join('');
+                } else {
+                    taskList.innerHTML = '<li class="empty-state">No active tasks</li>';
+                }
+            } catch (error) {
+                console.error('Failed to update tasks:', error);
+            }
+        }
+
+        async function updateLogs() {
+            try {
+                const response = await fetch('/api/logs');
+                const data = await response.json();
+                const logsContainer = document.getElementById('logs-container');
+
+                if (data.logs && data.logs.length > 0) {
+                    logsContainer.innerHTML = data.logs.map(log => `
+                        <div class="log-entry">
+                            <span class="log-timestamp">${new Date(log.timestamp).toLocaleTimeString()}</span>
+                            <span class="log-event">${log.event}</span>
+                            <span class="log-detail">${log.detail}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    logsContainer.innerHTML = '<div class="empty-state">No logs available</div>';
+                }
+            } catch (error) {
+                console.error('Failed to update logs:', error);
+            }
+        }
+
+        async function pauseOperations() {
+            try {
+                await fetch('/api/pause', { method: 'POST' });
+                await updateStatus();
+            } catch (error) {
+                alert('Failed to pause operations');
+            }
+        }
+
+        async function resumeOperations() {
+            try {
+                await fetch('/api/resume', { method: 'POST' });
+                await updateStatus();
+            } catch (error) {
+                alert('Failed to resume operations');
+            }
+        }
+
+        async function emergencyStop() {
+            if (confirm('Are you sure you want to emergency stop all operations?')) {
+                try {
+                    await fetch('/api/emergency-stop', { method: 'POST' });
+                    await updateStatus();
+                } catch (error) {
+                    alert('Failed to emergency stop');
+                }
+            }
+        }
+    </script>
+</body>
+</html>

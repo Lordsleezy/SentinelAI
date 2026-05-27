@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>SentinelAI - Mobile Control</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 0;
+            overflow-x: hidden;
+        }
+
+        .mobile-header {
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            padding: 15px 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.3);
+        }
+
+        .mobile-header h1 {
+            font-size: 1.5em;
+            color: #00d4ff;
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+        }
+
+        .mobile-header .subtitle {
+            font-size: 0.9em;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-around;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            margin: 10px;
+            border-radius: 10px;
+        }
+
+        .status-item {
+            text-align: center;
+        }
+
+        .status-label {
+            font-size: 0.8em;
+            color: #aaa;
+            margin-bottom: 5px;
+        }
+
+        .status-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-running {
+            background: #38ef7d;
+            box-shadow: 0 0 10px #38ef7d;
+        }
+
+        .status-paused {
+            background: #f5576c;
+            box-shadow: 0 0 10px #f5576c;
+        }
+
+        .status-offline {
+            background: #888;
+        }
+
+        .section {
+            margin: 15px;
+        }
+
+        .section-title {
+            font-size: 1.1em;
+            color: #00d4ff;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 2px solid rgba(0, 212, 255, 0.3);
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+        }
+
+        .approval-card {
+            background: rgba(255, 165, 0, 0.1);
+            border-color: rgba(255, 165, 0, 0.3);
+        }
+
+        .card-title {
+            font-weight: bold;
+            color: #fff;
+            margin-bottom: 8px;
+            font-size: 1em;
+        }
+
+        .card-meta {
+            font-size: 0.85em;
+            color: #aaa;
+            margin-bottom: 10px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px;
+            font-size: 1em;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .btn-approve {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-reject {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+            color: white;
+        }
+
+        .btn-pause {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        .btn-resume {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-stop {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+            color: white;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        .earnings-display {
+            text-align: center;
+            font-size: 2.5em;
+            color: #38ef7d;
+            margin: 20px 0;
+            text-shadow: 0 0 10px rgba(56, 239, 125, 0.5);
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #666;
+            padding: 30px;
+            font-style: italic;
+        }
+
+        .control-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin: 15px;
+        }
+
+        .control-buttons button {
+            padding: 15px;
+        }
+
+        .auth-prompt {
+            background: rgba(255, 165, 0, 0.2);
+            border: 1px solid rgba(255, 165, 0, 0.5);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 15px;
+        }
+
+        .auth-prompt input {
+            width: 100%;
+            padding: 12px;
+            margin-top: 10px;
+            border-radius: 5px;
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            font-size: 1em;
+        }
+
+        .auth-prompt button {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading {
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="mobile-header">
+        <h1>⚡ SentinelAI</h1>
+        <p class="subtitle">Mobile Control Center</p>
+    </div>
+
+    <!-- Auth Prompt -->
+    <div id="auth-prompt" class="auth-prompt">
+        <div style="font-weight: bold; margin-bottom: 10px;">🔐 Authentication Required</div>
+        <div style="font-size: 0.9em; color: #aaa; margin-bottom: 10px;">
+            Enter your SentinelAI auth token to control operations
+        </div>
+        <input type="password" id="auth-token-input" placeholder="Enter auth token">
+        <button class="btn-approve" onclick="saveAuthToken()">Connect</button>
+    </div>
+
+    <!-- Main Content (hidden until authenticated) -->
+    <div id="main-content" class="hidden">
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-label">Backend</div>
+                <div class="status-value">
+                    <span class="status-indicator" id="backend-status"></span>
+                    <span id="backend-text">...</span>
+                </div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Ollama</div>
+                <div class="status-value">
+                    <span class="status-indicator" id="ollama-status"></span>
+                    <span id="ollama-text">...</span>
+                </div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Tasks</div>
+                <div class="status-value" id="active-tasks">0</div>
+            </div>
+        </div>
+
+        <!-- Earnings -->
+        <div class="section">
+            <div class="section-title">Earnings</div>
+            <div class="earnings-display" id="total-earnings">$0.00</div>
+        </div>
+
+        <!-- Pending Approvals -->
+        <div class="section">
+            <div class="section-title">Pending Approvals</div>
+            <div id="approvals-list">
+                <div class="empty-state">No pending approvals</div>
+            </div>
+        </div>
+
+        <!-- Control Buttons -->
+        <div class="section">
+            <div class="section-title">Controls</div>
+            <div class="control-buttons">
+                <button class="btn-resume" onclick="resumeOperations()">▶ Resume</button>
+                <button class="btn-pause" onclick="pauseOperations()">⏸ Pause</button>
+                <button class="btn-stop" onclick="emergencyStop()" style="grid-column: 1 / -1;">⏹ Emergency Stop</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let authToken = localStorage.getItem('sentinelai_auth_token');
+        
+        // Check if authenticated
+        if (authToken) {
+            document.getElementById('auth-prompt').classList.add('hidden');
+            document.getElementById('main-content').classList.remove('hidden');
+            startUpdates();
+        }
+
+        function saveAuthToken() {
+            const token = document.getElementById('auth-token-input').value.trim();
+            if (!token) {
+                alert('Please enter an auth token');
+                return;
+            }
+            
+            authToken = token;
+            localStorage.setItem('sentinelai_auth_token', token);
+            
+            document.getElementById('auth-prompt').classList.add('hidden');
+            document.getElementById('main-content').classList.remove('hidden');
+            startUpdates();
+        }
+
+        function startUpdates() {
+            updateStatus();
+            updateEarnings();
+            updateApprovals();
+            
+            // Auto-refresh every 5 seconds
+            setInterval(() => {
+                updateStatus();
+                updateEarnings();
+                updateApprovals();
+            }, 5000);
+        }
+
+        async function updateStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+
+                // Backend status
+                const backendStatus = document.getElementById('backend-status');
+                const backendText = document.getElementById('backend-text');
+                if (data.running) {
+                    backendStatus.className = 'status-indicator ' + (data.paused ? 'status-paused' : 'status-running');
+                    backendText.textContent = data.paused ? 'Paused' : 'Running';
+                } else {
+                    backendStatus.className = 'status-indicator status-offline';
+                    backendText.textContent = 'Offline';
+                }
+
+                // Ollama status
+                const ollamaStatus = document.getElementById('ollama-status');
+                const ollamaText = document.getElementById('ollama-text');
+                if (data.ollama_status === 'running') {
+                    ollamaStatus.className = 'status-indicator status-running';
+                    ollamaText.textContent = 'OK';
+                } else {
+                    ollamaStatus.className = 'status-indicator status-offline';
+                    ollamaText.textContent = 'Off';
+                }
+
+                document.getElementById('active-tasks').textContent = data.active_tasks || 0;
+            } catch (error) {
+                console.error('Failed to update status:', error);
+            }
+        }
+
+        async function updateEarnings() {
+            try {
+                const response = await fetch('/api/earnings');
+                const data = await response.json();
+                document.getElementById('total-earnings').textContent = '$' + (data.confirmed_earnings || 0).toFixed(2);
+            } catch (error) {
+                console.error('Failed to update earnings:', error);
+            }
+        }
+
+        async function updateApprovals() {
+            try {
+                const response = await fetch('/api/pending-approvals');
+                const data = await response.json();
+                const approvalsList = document.getElementById('approvals-list');
+
+                if (data.pending && data.pending.length > 0) {
+                    approvalsList.innerHTML = data.pending.map(task => `
+                        <div class="card approval-card">
+                            <div class="card-title">${task.title}</div>
+                            <div class="card-meta">
+                                Complexity: ${task.complexity_score} | Bounty: $${task.bounty_amount}
+                            </div>
+                            <div class="button-group">
+                                <button class="btn-approve" onclick="approveTask(${task.id})">✓ Approve</button>
+                                <button class="btn-reject" onclick="rejectTask(${task.id})">✗ Reject</button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    approvalsList.innerHTML = '<div class="empty-state">No pending approvals</div>';
+                }
+            } catch (error) {
+                console.error('Failed to update approvals:', error);
+            }
+        }
+
+        async function approveTask(taskId) {
+            if (!confirm('Approve this task?')) return;
+            
+            try {
+                const response = await fetch(`/api/approve/${taskId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.status === 401) {
+                    alert('Authentication failed. Please re-enter your token.');
+                    localStorage.removeItem('sentinelai_auth_token');
+                    location.reload();
+                    return;
+                }
+                
+                const data = await response.json();
+                if (data.status === 'approved') {
+                    alert('Task approved!');
+                    updateApprovals();
+                }
+            } catch (error) {
+                alert('Failed to approve task');
+            }
+        }
+
+        async function rejectTask(taskId) {
+            if (!confirm('Reject this task?')) return;
+            
+            try {
+                const response = await fetch(`/api/reject/${taskId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.status === 401) {
+                    alert('Authentication failed. Please re-enter your token.');
+                    localStorage.removeItem('sentinelai_auth_token');
+                    location.reload();
+                    return;
+                }
+                
+                const data = await response.json();
+                if (data.status === 'rejected') {
+                    alert('Task rejected');
+                    updateApprovals();
+                }
+            } catch (error) {
+                alert('Failed to reject task');
+            }
+        }
+
+        async function pauseOperations() {
+            try {
+                const response = await fetch('/api/pause', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.status === 401) {
+                    alert('Authentication failed');
+                    return;
+                }
+                
+                await updateStatus();
+            } catch (error) {
+                alert('Failed to pause operations');
+            }
+        }
+
+        async function resumeOperations() {
+            try {
+                const response = await fetch('/api/resume', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.status === 401) {
+                    alert('Authentication failed');
+                    return;
+                }
+                
+                await updateStatus();
+            } catch (error) {
+                alert('Failed to resume operations');
+            }
+        }
+
+        async function emergencyStop() {
+            if (!confirm('Are you sure you want to emergency stop all operations?')) return;
+            
+            try {
+                const response = await fetch('/api/emergency-stop', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.status === 401) {
+                    alert('Authentication failed');
+                    return;
+                }
+                
+                await updateStatus();
+                alert('Emergency stop activated');
+            } catch (error) {
+                alert('Failed to emergency stop');
+            }
+        }
+    </script>
+</body>
+</html>

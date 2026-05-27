@@ -1,0 +1,60 @@
+# ── Core Dependencies ─────────────────────────────────────────────────────────
+# Web framework & server
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+flask==3.0.0
+flask-cors==4.0.0
+
+# Scheduling
+apscheduler==3.10.4
+
+# HTTP client (Ollama + GitHub API)
+httpx==0.27.2
+
+# Browser automation (Algora, IssueHunt)
+playwright==1.49.0
+
+# Git operations
+gitpython==3.1.43
+
+# Environment / config
+python-dotenv==1.0.1
+
+# Data validation (FastAPI dependency)
+pydantic==2.10.3
+
+# ── Testing & Quality ──────────────────────────────────────────────────────────
+# Test execution framework
+pytest==8.3.4
+pytest-timeout==2.3.1
+pytest-asyncio==0.24.0
+
+# ── Utilities ──────────────────────────────────────────────────────────────────
+# .gitignore parsing for repo analysis
+pathspec==0.12.1
+
+# Retry logic with exponential backoff
+tenacity==9.0.0
+
+# Better terminal output (optional but recommended)
+rich==13.9.4
+
+# Encoding detection for non-UTF8 files
+chardet==5.2.0
+
+# Desktop application dependencies
+pystray==0.19.5
+pillow==10.1.0
+
+# System monitoring (Phase 7)
+psutil==5.9.6
+
+# ── Standard Library (no install needed) ───────────────────────────────────────
+# sqlite3  (database)
+# json, re, pathlib, asyncio, logging, argparse, subprocess, shutil, os, sys
+
+# ── AI Inference — 100% LOCAL ──────────────────────────────────────────────────
+# All AI via local Ollama at http://127.0.0.1:11434
+# Model: qwen2.5-coder:14b
+# Setup: ollama pull qwen2.5-coder:14b
+# ZERO paid APIs, ZERO cloud dependencies

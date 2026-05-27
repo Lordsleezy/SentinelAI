@@ -1,0 +1,35 @@
+# ── Development Dependencies ──────────────────────────────────────────────────
+# Install with: pip install -r requirements-dev.txt
+
+# Include all production dependencies
+-r requirements.txt
+
+# ── Code Quality ───────────────────────────────────────────────────────────────
+# Linting
+ruff==0.8.4
+mypy==1.13.0
+
+# Formatting
+black==24.10.0
+
+# ── Testing Extensions ─────────────────────────────────────────────────────────
+# Coverage reporting
+pytest-cov==6.0.0
+
+# Mocking
+pytest-mock==3.14.0
+
+# ── Type Stubs ─────────────────────────────────────────────────────────────────
+types-requests==2.32.0.20241016
+
+# ── Documentation ──────────────────────────────────────────────────────────────
+# API documentation
+mkdocs==1.6.1
+mkdocs-material==9.5.47
+
+# ── Debugging ──────────────────────────────────────────────────────────────────
+# Interactive debugger
+ipdb==0.13.13
+
+# Better tracebacks
+better-exceptions==0.3.3
