@@ -1,0 +1,19 @@
+{
+  "name": "desktop-shell",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-builder"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "electron": "^23.0.0"
+  },
+  "devDependencies": {
+    "electron-builder": "^23.6.0"
+  }
+}

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SentinelAI Desktop</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+      color: #00ff88;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .container {
+      text-align: center;
+      padding: 40px;
+      background: rgba(10, 10, 10, 0.8);
+      border: 2px solid #00ff88;
+      border-radius: 20px;
+      box-shadow: 0 0 30px rgba(0, 255, 136, 0.3);
+      max-width: 600px;
+    }
+
+    h1 {
+      font-size: 3em;
+      margin-bottom: 20px;
+      text-shadow: 0 0 20px rgba(0, 255, 136, 0.8);
+      animation: glow 2s ease-in-out infinite alternate;
+    }
+
+    @keyframes glow {
+      from {
+        text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+      }
+      to {
+        text-shadow: 0 0 30px rgba(0, 255, 136, 1);
+      }
+    }
+
+    .status {
+      font-size: 1.2em;
+      margin: 20px 0;
+      color: #00ccff;
+    }
+
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid rgba(0, 255, 136, 0.3);
+      border-top: 5px solid #00ff88;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 30px auto;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .info {
+      margin-top: 30px;
+      font-size: 0.9em;
+      color: #888;
+    }
+
+    .version {
+      margin-top: 10px;
+      font-size: 0.8em;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>⚡ SentinelAI</h1>
+    <div class="status">Initializing Desktop Shell...</div>
+    <div class="spinner"></div>
+    <div class="info">
+      <p>🤖 AI-Powered Automation Platform</p>
+      <p>🔒 Secure • 🚀 Fast • 💡 Intelligent</p>
+    </div>
+    <div class="version">v1.0.0-alpha</div>
+  </div>
+
+  <script>
+    // Future: Add initialization logic here
+    console.log('SentinelAI Desktop Shell loaded');
+  </script>
+</body>
+</html>
