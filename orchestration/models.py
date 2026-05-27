@@ -28,6 +28,7 @@ class ApprovalStatus(Enum):
 
 
 class AgentRole(Enum):
+    PLANNER = "PlannerAgent"
     RESEARCH = "ResearchAgent"
     CODING = "CodingAgent"
     DEBUGGING = "DebuggingAgent"
@@ -35,6 +36,10 @@ class AgentRole(Enum):
     MONITORING = "MonitoringAgent"
     DEPLOYMENT = "DeploymentAgent"
     REVENUE_DISCOVERY = "RevenueDiscoveryAgent"
+    REFLECTION = "ReflectionAgent"
+    MEMORY = "MemoryAgent"
+    FILESYSTEM = "FilesystemAgent"
+    RESEARCH_COORDINATOR = "ResearchCoordinatorAgent"
 
 
 @dataclass

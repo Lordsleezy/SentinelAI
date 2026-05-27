@@ -15,6 +15,11 @@ import db
 import queue_manager as qm
 from checkpoint_system import SQLiteWorkflowCheckpointer
 from graph_runtime import LangGraphRuntimeAdapter
+from memory.persistent_memory import initialize_memory, get_memory
+from reflection import ReflectionEngine
+from orchestration.execution import ExecutionContextBuilder
+from orchestration.recovery import WorkflowRecoveryPlanner
+from orchestration.state import WorkflowStateMachine
 from workflows import create_initial_state
 
 from . import persistence
@@ -31,6 +36,10 @@ class SentinelOrchestrator:
         self.lock = threading.RLock()
         self.agents = WorkerAgentRegistry()
         self.checkpointer = SQLiteWorkflowCheckpointer()
+        self.context_builder = ExecutionContextBuilder()
+        self.reflection_engine = ReflectionEngine()
+        self.recovery_planner = WorkflowRecoveryPlanner()
+        self.state_machine = WorkflowStateMachine()
         self.graph = LangGraphRuntimeAdapter(
             {
                 "route_task": self._route_task,
@@ -42,6 +51,7 @@ class SentinelOrchestrator:
 
     def initialize(self) -> None:
         persistence.init_orchestration_tables()
+        initialize_memory()
         persistence.log_execution(
             "orchestration_initialized",
             f"langgraph_available={self.graph.langgraph_available}",
@@ -159,6 +169,7 @@ class SentinelOrchestrator:
                     continue
                 state.status = WorkflowStatus.RECOVERED.value
                 state.current_node = "recovered_from_crash"
+                state.memory["recovery_plan"] = self.recovery_planner.plan(state.to_dict())
                 state.add_event("workflow_recovered", {"previous_status": row["status"]})
                 self._save(state)
                 qm.enqueue_task(
@@ -207,13 +218,14 @@ class SentinelOrchestrator:
     def _route_task(self, state: WorkflowState) -> WorkflowState:
         agent = self.agents.choose_agent(state.workflow_type, state.goal)
         state.assigned_agent = agent.name
-        state.current_node = "route_task"
+        state = self.state_machine.transition(state, "route_task")
+        state.memory["execution_context"] = self.context_builder.build(state.to_dict())
         state.add_event("task_routed", {"agent": agent.name})
         self._save(state)
         return state
 
     def _approval_checkpoint(self, state: WorkflowState) -> WorkflowState:
-        state.current_node = "approval_checkpoint"
+        state = self.state_machine.transition(state, "approval_checkpoint")
         if not state.requires_approval:
             state.approval_status = ApprovalStatus.NOT_REQUIRED.value
             state.add_event("approval_skipped", {"reason": "not_required"})
@@ -230,7 +242,7 @@ class SentinelOrchestrator:
         return state
 
     def _execute_agent(self, state: WorkflowState) -> WorkflowState:
-        state.current_node = "execute_agent"
+        state = self.state_machine.transition(state, "execute_agent", WorkflowStatus.RUNNING.value)
         state.status = WorkflowStatus.RUNNING.value
         agent = self.agents.choose_agent(state.workflow_type, state.goal)
         state.assigned_agent = agent.name
@@ -241,15 +253,22 @@ class SentinelOrchestrator:
             state.status = WorkflowStatus.PENDING.value if state.retry_count <= state.max_retries else WorkflowStatus.FAILED.value
         else:
             state.result = result.output
+            state.result["execution_context"] = state.memory.get("execution_context", {})
             state.status = WorkflowStatus.RUNNING.value
             state.add_event("agent_completed", {"agent": result.agent_name})
         self._save(state)
         return state
 
     def _persist_result(self, state: WorkflowState) -> WorkflowState:
-        state.current_node = "persist_result"
+        state = self.state_machine.transition(state, "persist_result")
         if state.status != WorkflowStatus.FAILED.value:
             state.status = WorkflowStatus.COMPLETED.value
+        state.result["reflection"] = self.reflection_engine.reflect(state.to_dict())
+        get_memory().remember_workflow(
+            state.workflow_id or 0,
+            f"{state.workflow_type}: {state.goal}\nstatus={state.status}\nagent={state.assigned_agent}",
+            {"agent": state.assigned_agent, "status": state.status},
+        )
         state.add_event("workflow_result_persisted", {"status": state.status})
         self._save(state)
         return state

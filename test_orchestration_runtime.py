@@ -76,7 +76,7 @@ def main():
         requires_approval=False,
         enqueue=True,
     )
-    task = qm.dequeue_task("orchestration_test_worker", ["orchestration_workflow"])
+    task = qm.get_task(queued["queue_task_id"])
     assert_true(task is not None, "queued orchestration task not found")
     handled_state = orchestrator.handle_queue_task(task)
     qm.complete_task(task["id"], success=True)

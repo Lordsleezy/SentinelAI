@@ -26,6 +26,12 @@ import worker_manager as wm
 import watchdog as wd
 import health_monitor as hm
 import orchestration as orch
+from internet_runtime import get_research_runtime
+from memory.filesystem_index import get_filesystem_indexer
+from memory.persistent_memory import get_memory
+from model_router import get_model_router
+from reflection import ReflectionEngine
+from tool_registry import get_tool_registry
 from executor import run_executor
 from scanner import scan_github_issues
 from openclaw_integration import OpenClawCommandRouter
@@ -677,6 +683,152 @@ def api_orchestration_reject(workflow_id):
         ))
     except Exception as e:
         logger.exception("Error rejecting orchestration workflow")
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── Intelligence Runtime API Endpoints ──────────────────────────────────────
+
+@app.route('/api/memory/search')
+def api_memory_search():
+    """Search persistent vector memory."""
+    try:
+        namespace = request.args.get('namespace', 'workflow')
+        query = request.args.get('q', '')
+        limit = int(request.args.get('limit', 5))
+        if not query:
+            return jsonify({"error": "q required"}), 400
+        return jsonify({"results": get_memory().recall(namespace, query, limit)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/memory/remember', methods=['POST'])
+def api_memory_remember():
+    """Persist a memory item. Requires auth."""
+    try:
+        auth_token = request.headers.get('Authorization')
+        if not verify_auth_token(auth_token):
+            return jsonify({"error": "Unauthorized"}), 401
+        data = request.get_json() or {}
+        namespace = data.get('namespace', 'project')
+        content = data.get('content')
+        if not content:
+            return jsonify({"error": "content required"}), 400
+        memory_id = get_memory().remember(namespace, content, data.get('metadata') or {})
+        return jsonify({"memory_id": memory_id, "namespace": namespace}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/research/search', methods=['POST'])
+def api_research_search():
+    """Run live internet research through configured providers. Requires auth."""
+    try:
+        auth_token = request.headers.get('Authorization')
+        if not verify_auth_token(auth_token):
+            return jsonify({"error": "Unauthorized"}), 401
+        data = request.get_json() or {}
+        query = data.get('query')
+        if not query:
+            return jsonify({"error": "query required"}), 400
+        result = get_research_runtime().search(
+            query,
+            limit=int(data.get('limit', 5)),
+            persist=bool(data.get('persist', True)),
+        )
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("Research search failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/filesystem/index', methods=['POST'])
+def api_filesystem_index():
+    """Index a workspace for persistent filesystem awareness. Requires auth."""
+    try:
+        auth_token = request.headers.get('Authorization')
+        if not verify_auth_token(auth_token):
+            return jsonify({"error": "Unauthorized"}), 401
+        data = request.get_json() or {}
+        root = data.get('root')
+        if not root:
+            return jsonify({"error": "root required"}), 400
+        result = get_filesystem_indexer().index_workspace(root, int(data.get('max_files', 1000)))
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("Filesystem indexing failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/model-router/route', methods=['POST'])
+def api_model_route():
+    """Route a task to the best configured model."""
+    try:
+        data = request.get_json() or {}
+        selection = get_model_router().route(
+            data.get('task_type', 'general'),
+            data.get('prompt', ''),
+            bool(data.get('prefer_local', True)),
+        )
+        return jsonify(selection)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/model-router/status')
+def api_model_router_status():
+    """Get model routing capability registry."""
+    try:
+        return jsonify(get_model_router().status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/tools')
+def api_tools():
+    """List supervised tools."""
+    try:
+        return jsonify({"tools": get_tool_registry().list_tools()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/tools/run', methods=['POST'])
+def api_tool_run():
+    """Run a supervised tool. Mutating/terminal tools require auth."""
+    try:
+        data = request.get_json() or {}
+        name = data.get('name')
+        args = data.get('args') or {}
+        if not name:
+            return jsonify({"error": "name required"}), 400
+        tool = get_tool_registry().tools.get(name)
+        if not tool:
+            return jsonify({"error": "Unknown tool"}), 404
+        if tool.requires_approval:
+            auth_token = request.headers.get('Authorization')
+            if not verify_auth_token(auth_token):
+                return jsonify({"error": "Unauthorized"}), 401
+        result = tool.run(**args)
+        return jsonify(result.__dict__)
+    except Exception as e:
+        logger.exception("Tool run failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/reflection/workflows/<int:workflow_id>', methods=['POST'])
+def api_reflect_workflow(workflow_id):
+    """Run a reflection pass on a workflow. Requires auth."""
+    try:
+        auth_token = request.headers.get('Authorization')
+        if not verify_auth_token(auth_token):
+            return jsonify({"error": "Unauthorized"}), 401
+        workflow = orch.get_orchestrator().get_workflow(workflow_id)
+        if not workflow:
+            return jsonify({"error": "Workflow not found"}), 404
+        return jsonify(ReflectionEngine().reflect(workflow))
+    except Exception as e:
+        logger.exception("Reflection failed")
         return jsonify({"error": str(e)}), 500
 
 

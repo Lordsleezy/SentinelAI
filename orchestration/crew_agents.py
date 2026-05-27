@@ -84,6 +84,8 @@ class SentinelCrewWorker:
         return AgentResult(success=True, agent_name=self.name, output=output)
 
     def _summarize_task(self, objective: str) -> str:
+        if self.role == AgentRole.PLANNER:
+            return f"Plan prepared for: {objective}"
         if self.role == AgentRole.RESEARCH:
             return f"Research scoped for: {objective}"
         if self.role == AgentRole.CODING:
@@ -98,6 +100,14 @@ class SentinelCrewWorker:
             return f"Deployment plan prepared for: {objective}"
         if self.role == AgentRole.REVENUE_DISCOVERY:
             return f"Revenue discovery scan prepared for: {objective}"
+        if self.role == AgentRole.REFLECTION:
+            return f"Reflection pass prepared for: {objective}"
+        if self.role == AgentRole.MEMORY:
+            return f"Memory retrieval prepared for: {objective}"
+        if self.role == AgentRole.FILESYSTEM:
+            return f"Filesystem awareness prepared for: {objective}"
+        if self.role == AgentRole.RESEARCH_COORDINATOR:
+            return f"Research coordination prepared for: {objective}"
         return f"Task prepared for: {objective}"
 
     def _next_steps(self, task: Dict[str, Any]) -> list:
@@ -113,6 +123,11 @@ class WorkerAgentRegistry:
 
     def __init__(self):
         self.agents = {
+            AgentRole.PLANNER.value: SentinelCrewWorker(
+                AgentRole.PLANNER,
+                "Break objectives into safe, resumable workflow steps.",
+                "A planning worker that creates supervised execution paths.",
+            ),
             AgentRole.RESEARCH.value: SentinelCrewWorker(
                 AgentRole.RESEARCH,
                 "Gather reliable context and constraints before execution.",
@@ -148,10 +163,40 @@ class WorkerAgentRegistry:
                 "Find and score revenue opportunities.",
                 "A revenue worker that coordinates with scanner and learning memory.",
             ),
+            AgentRole.REFLECTION.value: SentinelCrewWorker(
+                AgentRole.REFLECTION,
+                "Review execution quality and recommend retry improvements.",
+                "A reflection worker that learns from outcomes and failure modes.",
+            ),
+            AgentRole.MEMORY.value: SentinelCrewWorker(
+                AgentRole.MEMORY,
+                "Retrieve and persist workflow, project, and codebase memory.",
+                "A memory worker that keeps execution context coherent over time.",
+            ),
+            AgentRole.FILESYSTEM.value: SentinelCrewWorker(
+                AgentRole.FILESYSTEM,
+                "Track workspace paths, files, and project structure.",
+                "A filesystem worker that prevents directory and context drift.",
+            ),
+            AgentRole.RESEARCH_COORDINATOR.value: SentinelCrewWorker(
+                AgentRole.RESEARCH_COORDINATOR,
+                "Coordinate live internet and documentation research.",
+                "A research coordinator that stores structured findings for reuse.",
+            ),
         }
 
     def choose_agent(self, workflow_type: str, goal: str) -> SentinelCrewWorker:
         text = f"{workflow_type} {goal}".lower()
+        if any(word in text for word in ("plan", "break down", "orchestrate")):
+            return self.agents[AgentRole.PLANNER.value]
+        if any(word in text for word in ("memory", "recall", "retrieve")):
+            return self.agents[AgentRole.MEMORY.value]
+        if any(word in text for word in ("filesystem", "workspace", "index files", "repo map")):
+            return self.agents[AgentRole.FILESYSTEM.value]
+        if any(word in text for word in ("internet", "web search", "docs", "documentation")):
+            return self.agents[AgentRole.RESEARCH_COORDINATOR.value]
+        if any(word in text for word in ("reflect", "critique", "postmortem")):
+            return self.agents[AgentRole.REFLECTION.value]
         if any(word in text for word in ("debug", "fix failure", "traceback", "error")):
             return self.agents[AgentRole.DEBUGGING.value]
         if any(word in text for word in ("ui", "frontend", "css", "electron")):
