@@ -36,6 +36,10 @@ pathspec==0.12.1
 # Retry logic with exponential backoff
 tenacity==9.0.0
 
+# Orchestration runtime (persistent AI worker workflows)
+langgraph>=0.2.60
+crewai>=0.86.0
+
 # Better terminal output (optional but recommended)
 rich==13.9.4
 

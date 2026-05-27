@@ -25,6 +25,7 @@ import queue_manager as qm
 import worker_manager as wm
 import watchdog as wd
 import health_monitor as hm
+import orchestration as orch
 from executor import run_executor
 from scanner import scan_github_issues
 from openclaw_integration import OpenClawCommandRouter
@@ -553,6 +554,132 @@ def api_record_outcome():
         return jsonify({"error": str(e)}), 500
 
 
+# ─── Orchestration Runtime API Endpoints ─────────────────────────────────────
+
+@app.route('/api/orchestration/status')
+def api_orchestration_status():
+    """Get Sentinel orchestration runtime status."""
+    try:
+        orchestrator = orch.get_orchestrator()
+        return jsonify(orchestrator.status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/orchestration/workflows')
+def api_orchestration_workflows():
+    """List orchestration workflows."""
+    try:
+        status = request.args.get('status')
+        limit = int(request.args.get('limit', 100))
+        orchestrator = orch.get_orchestrator()
+        return jsonify({"workflows": orchestrator.list_workflows(status=status, limit=limit)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/orchestration/workflows/<int:workflow_id>')
+def api_orchestration_workflow(workflow_id):
+    """Get a single orchestration workflow."""
+    try:
+        orchestrator = orch.get_orchestrator()
+        workflow = orchestrator.get_workflow(workflow_id)
+        if not workflow:
+            return jsonify({"error": "Workflow not found"}), 404
+        return jsonify(workflow)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/orchestration/workflows', methods=['POST'])
+def api_orchestration_submit():
+    """Submit a new supervised orchestration workflow."""
+    try:
+        auth_token = request.headers.get('Authorization')
+        if not verify_auth_token(auth_token):
+            return jsonify({"error": "Unauthorized"}), 401
+
+        data = request.get_json() or {}
+        goal = data.get('goal')
+        if not goal:
+            return jsonify({"error": "goal required"}), 400
+
+        orchestrator = orch.get_orchestrator()
+        result = orchestrator.submit_workflow(
+            goal=goal,
+            workflow_type=data.get('workflow_type', 'general'),
+            requires_approval=bool(data.get('requires_approval', True)),
+            max_retries=int(data.get('max_retries', 3)),
+            enqueue=bool(data.get('enqueue', True)),
+        )
+        return jsonify(result), 201
+    except Exception as e:
+        logger.exception("Error submitting orchestration workflow")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/orchestration/workflows/<int:workflow_id>/run', methods=['POST'])
+def api_orchestration_run(workflow_id):
+    """Run or resume a workflow through the orchestration graph."""
+    try:
+        auth_token = request.headers.get('Authorization')
+        if not verify_auth_token(auth_token):
+            return jsonify({"error": "Unauthorized"}), 401
+        orchestrator = orch.get_orchestrator()
+        return jsonify(orchestrator.run_workflow(workflow_id))
+    except Exception as e:
+        logger.exception("Error running orchestration workflow")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/orchestration/approvals')
+def api_orchestration_approvals():
+    """List workflows waiting for human approval."""
+    try:
+        orchestrator = orch.get_orchestrator()
+        return jsonify({"pending": orchestrator.pending_approvals()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/orchestration/workflows/<int:workflow_id>/approve', methods=['POST'])
+def api_orchestration_approve(workflow_id):
+    """Approve an orchestration workflow checkpoint."""
+    try:
+        auth_token = request.headers.get('Authorization')
+        if not verify_auth_token(auth_token):
+            return jsonify({"error": "Unauthorized"}), 401
+        data = request.get_json() or {}
+        orchestrator = orch.get_orchestrator()
+        return jsonify(orchestrator.approve_workflow(
+            workflow_id,
+            decided_by=data.get('decided_by', 'user'),
+            reason=data.get('reason', ''),
+        ))
+    except Exception as e:
+        logger.exception("Error approving orchestration workflow")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/orchestration/workflows/<int:workflow_id>/reject', methods=['POST'])
+def api_orchestration_reject(workflow_id):
+    """Reject an orchestration workflow checkpoint."""
+    try:
+        auth_token = request.headers.get('Authorization')
+        if not verify_auth_token(auth_token):
+            return jsonify({"error": "Unauthorized"}), 401
+        data = request.get_json() or {}
+        orchestrator = orch.get_orchestrator()
+        return jsonify(orchestrator.reject_workflow(
+            workflow_id,
+            decided_by=data.get('decided_by', 'user'),
+            reason=data.get('reason', ''),
+        ))
+    except Exception as e:
+        logger.exception("Error rejecting orchestration workflow")
+        return jsonify({"error": str(e)}), 500
+
+
 # ─── Backend Launcher ─────────────────────────────────────────────────────────
 
 def run_flask_app():
@@ -580,6 +707,14 @@ def start_backend():
         logger.info("Task queue initialized")
     except Exception as e:
         logger.warning(f"Queue initialization failed: {e}")
+
+    # Initialize orchestration runtime
+    try:
+        orchestrator = orch.initialize_orchestration()
+        recovered = orchestrator.recover_workflows()
+        logger.info(f"Orchestration runtime initialized (recovered={recovered})")
+    except Exception as e:
+        logger.warning(f"Orchestration initialization failed: {e}")
     
     # Perform crash recovery
     try:
@@ -591,7 +726,8 @@ def start_backend():
     # Initialize worker manager
     try:
         max_workers = int(os.getenv("MAX_WORKERS", "3"))
-        wm.initialize_workers(max_workers)
+        manager = wm.initialize_workers(max_workers)
+        manager.register_handler("orchestration_workflow", orch.get_orchestrator().handle_queue_task)
         logger.info(f"Worker manager initialized (max_workers={max_workers})")
     except Exception as e:
         logger.warning(f"Worker manager initialization failed: {e}")
