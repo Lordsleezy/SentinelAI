@@ -79,6 +79,17 @@ def init_db():
                 detail           TEXT    DEFAULT '',
                 timestamp        TEXT    DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS capability_registry (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                tool_name   TEXT UNIQUE NOT NULL,
+                description TEXT NOT NULL,
+                entry_point TEXT NOT NULL,
+                tool_type   TEXT NOT NULL DEFAULT 'built',
+                created_at  TEXT NOT NULL,
+                last_used   TEXT,
+                use_count   INTEGER DEFAULT 0
+            );
         """)
 
 
@@ -100,6 +111,27 @@ def insert_opportunity(source: str, title: str, repo_url: str, issue_url: str,
             return cur.lastrowid
     except sqlite3.IntegrityError:
         return None  # Duplicate issue_url — skip silently
+
+
+def cleanup_garbage_opportunities() -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            DELETE FROM opportunities
+             WHERE bounty_amount <= 0
+                OR lower(repo_url) LIKE '%bountyscout%'
+                OR lower(repo_url) LIKE '%bounty-board%'
+                OR lower(repo_url) LIKE '%bounties%'
+                OR lower(repo_url) LIKE '%nips%'
+                OR lower(repo_url) LIKE '%rustchain-bounties%'
+                OR lower(repo_url) LIKE '%/x/y%'
+                OR lower(title) LIKE '%bounty alert%'
+                OR lower(title) LIKE '%artifact%'
+                OR lower(title) LIKE '%test bounty%'
+                OR lower(title) LIKE '%new issue for a bounty%'
+            """
+        )
+        return cur.rowcount
 
 
 def get_opportunity(opp_id: int) -> Optional[Dict]:

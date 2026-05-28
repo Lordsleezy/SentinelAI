@@ -58,8 +58,20 @@ psutil==5.9.6
 # sqlite3  (database)
 # json, re, pathlib, asyncio, logging, argparse, subprocess, shutil, os, sys
 
+# ── Reasoning Quality Enhancements ────────────────────────────────────────────
+# Code complexity analysis (radon)
+radon>=6.0.1
+
+# Semantic RAG embeddings — optional upgrade over built-in hash embeddings.
+# Falls back to LocalEmbeddingProvider if not installed.
+# pip install sentence-transformers
+# sentence-transformers>=2.7.0
+
 # ── AI Inference — 100% LOCAL ──────────────────────────────────────────────────
 # All AI via local Ollama at http://127.0.0.1:11434
 # Model: qwen2.5-coder:14b
 # Setup: ollama pull qwen2.5-coder:14b
 # ZERO paid APIs, ZERO cloud dependencies
+#
+# Optional cross-model verification via Groq free tier (14 400 req/day):
+#   Set GROQ_API_KEY in .env — pipeline continues without it if absent.

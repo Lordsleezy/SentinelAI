@@ -10,13 +10,14 @@ from typing import Any, Dict, List, Optional
 
 import db
 from embeddings import LocalEmbeddingProvider
+from embeddings.local_embeddings import get_best_embedding_provider
 
 
 class SQLiteVectorStore:
-    """Persistent vector memory using SQLite + deterministic embeddings."""
+    """Persistent vector memory using SQLite + best available embeddings."""
 
     def __init__(self, embedding_provider: Optional[LocalEmbeddingProvider] = None):
-        self.embedding_provider = embedding_provider or LocalEmbeddingProvider()
+        self.embedding_provider = embedding_provider or get_best_embedding_provider()
 
     def initialize(self) -> None:
         with db.get_conn() as conn:

@@ -7,6 +7,7 @@ import os
 import sys
 import argparse
 import logging
+import asyncio
 from pathlib import Path
 from typing import Optional, Dict
 from datetime import datetime, timedelta
@@ -16,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import db
 from executor import run_executor
-from scanner import scan_github_issues
+from scanner import run_scan
 
 # Configure logging
 logging.basicConfig(
@@ -221,7 +222,7 @@ class ExecutionTelemetry:
 
 # ─── Live Test Mode ───────────────────────────────────────────────────────────
 
-def run_live_test(auto_approve: bool = False) -> bool:
+def run_live_test(auto_approve: bool = False, dry_run: bool = False) -> bool:
     """
     Run live test mode: full repair loop with safety gates.
     
@@ -251,15 +252,15 @@ def run_live_test(auto_approve: bool = False) -> bool:
         logger.info(f"Selected: {issue['title']}")
         logger.info("")
         
-        # Step 2: Execute repair loop (NOT dry-run)
+        # Step 2: Execute repair loop
         logger.info("[STEP 2] Executing full repair loop...")
         logger.info("This will:")
-        logger.info("  [YES] Clone real repository")
-        logger.info("  [YES] Generate real patches")
-        logger.info("  [YES] Apply patches to files")
-        logger.info("  [YES] Run real tests")
-        logger.info("  [YES] Create git branch")
-        logger.info("  [YES] Commit changes")
+        logger.info(f"  [{'NO' if dry_run else 'YES'}] Clone real repository")
+        logger.info(f"  [{'NO' if dry_run else 'YES'}] Generate real patches")
+        logger.info(f"  [{'NO' if dry_run else 'YES'}] Apply patches to files")
+        logger.info(f"  [{'NO' if dry_run else 'YES'}] Run real tests")
+        logger.info(f"  [{'NO' if dry_run else 'YES'}] Create git branch")
+        logger.info(f"  [{'NO' if dry_run else 'YES'}] Commit changes")
         logger.info("  [NO] Push to remote (safety gate)")
         logger.info("  [NO] Create PR (safety gate)")
         logger.info("")
@@ -273,9 +274,7 @@ def run_live_test(auto_approve: bool = False) -> bool:
         
         telemetry.record_stage("execution_start")
         
-        # Run executor in LIVE mode (dry_run=False)
-        # But we'll modify executor to stop before push/PR
-        result = run_executor(dry_run=False)
+        result = run_executor(dry_run=dry_run)
         
         telemetry.record_stage("execution_complete")
         
@@ -341,6 +340,11 @@ def main():
         action="store_true",
         help="Scan for new issues before running test"
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run executor dry-run after optional scan"
+    )
     
     args = parser.parse_args()
     
@@ -349,14 +353,19 @@ def main():
     
     # Optionally scan for new issues
     if args.scan_first:
-        logger.info("Scanning for new issues...")
+        logger.info("Scanning Algora, IssueHunt, and GitHub for new opportunities...")
         try:
-            scan_github_issues(max_issues=20)
+            inserted = asyncio.run(run_scan(dry_run=False))
+            logger.info(f"Scan inserted {inserted} new opportunities")
+            if inserted == 0:
+                logger.error("Scan completed but inserted zero new opportunities; exiting.")
+                sys.exit(1)
         except Exception as e:
             logger.error(f"Scan failed: {e}")
+            sys.exit(1)
     
     # Run live test
-    success = run_live_test(auto_approve=args.auto_approve)
+    success = run_live_test(auto_approve=args.auto_approve, dry_run=args.dry_run)
     
     sys.exit(0 if success else 1)
 

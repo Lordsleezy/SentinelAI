@@ -259,6 +259,102 @@ def _build_pr_body(issue_details: Dict, fix_result: Dict, issue_url: str) -> str
     )
 
 
+def _get_latest_branch_for_opportunity(opp_id: int) -> Optional[str]:
+    with db.get_conn() as conn:
+        row = conn.execute(
+            """SELECT detail FROM agent_log
+               WHERE opportunity_id = ? AND event = 'branch_create'
+               ORDER BY id DESC LIMIT 1""",
+            (opp_id,)
+        ).fetchone()
+    if not row:
+        return None
+    detail = row["detail"]
+    prefix = "Creating branch: "
+    if detail.startswith(prefix):
+        return detail[len(prefix):].strip()
+    return detail.strip() or None
+
+
+def execute_submit(opp_id: int) -> Dict:
+    opp = db.get_opportunity(opp_id)
+    if not opp:
+        return {"success": False, "error": "Opportunity not found", "opp_id": opp_id}
+
+    if opp.get("status") != "ready_to_submit":
+        return {
+            "success": False,
+            "error": f"Opportunity status must be ready_to_submit, got {opp.get('status')}",
+            "opp_id": opp_id,
+        }
+
+    if not GITHUB_TOKEN or not GITHUB_USERNAME:
+        return {"success": False, "error": "GitHub credentials required for submission", "opp_id": opp_id}
+
+    issue = get_issue_details(opp["issue_url"])
+    if not issue:
+        return {"success": False, "error": "Could not fetch issue details", "opp_id": opp_id}
+
+    branch_name = _get_latest_branch_for_opportunity(opp_id)
+    if not branch_name:
+        return {"success": False, "error": "No prepared branch found", "opp_id": opp_id}
+
+    workspace = WORKSPACE_DIR / f"opp_{opp_id}"
+    if not workspace.exists():
+        return {"success": False, "error": f"Prepared workspace missing: {workspace}", "opp_id": opp_id}
+
+    try:
+        repo_obj = git.Repo(str(workspace))
+    except Exception as e:
+        return {"success": False, "error": f"Could not open prepared repository: {e}", "opp_id": opp_id}
+
+    exec_log = ExecutionLogger(opp_id)
+    current_state = ExecutionState.READY_TO_SUBMIT
+
+    exec_log.log("submit_start", f"Submitting branch: {branch_name}", current_state)
+
+    if not push_branch(repo_obj, branch_name):
+        exec_log.log("push_failed", "Failed to push branch", ExecutionState.FAILED)
+        return {"success": False, "error": "Failed to push branch", "opp_id": opp_id}
+
+    exec_log.log("push_success", f"Pushed branch: {branch_name}", current_state)
+
+    pr_body = _build_pr_body(issue, {"confidence": 0}, opp["issue_url"])
+    pr_url = create_pull_request(
+        issue["owner"],
+        issue["repo"],
+        branch_name,
+        title=f"fix: {issue['title'][:72]}",
+        body=pr_body,
+        default_branch=issue["default_branch"],
+    )
+    if not pr_url:
+        exec_log.log("pr_failed", "PR creation failed", ExecutionState.FAILED)
+        return {"success": False, "error": "PR creation failed", "opp_id": opp_id}
+
+    exec_log.log("pr_created", pr_url, current_state)
+
+    post_issue_comment(
+        issue["owner"], issue["repo"], issue["issue_num"],
+        f"I've submitted a fix for this issue: {pr_url}\n\nPlease review!",
+    )
+
+    db.insert_submission(opp_id, pr_url)
+    db.update_opportunity_status(opp_id, "submitted")
+    exec_log.log("submission_complete", f"PR={pr_url}", current_state)
+
+    cleanup_workspace(workspace)
+
+    return {
+        "success": True,
+        "status": "submitted",
+        "pr_url": pr_url,
+        "opp_id": opp_id,
+        "state": current_state.value,
+        "execution_log": exec_log.logs,
+    }
+
+
 # ─── Main executor ────────────────────────────────────────────────────────────
 
 def run_executor(dry_run: bool = False) -> Optional[Dict]:
@@ -288,6 +384,7 @@ def run_executor(dry_run: bool = False) -> Optional[Dict]:
     workspace = WORKSPACE_DIR / f"opp_{opp_id}"
     repo_obj: Optional[git.Repo] = None
     current_state = ExecutionState.DISCOVERED
+    preserve_workspace = False
 
     try:
         # ── 1. Fetch full issue details ───────────────────────────────────────
@@ -508,54 +605,20 @@ def run_executor(dry_run: bool = False) -> Optional[Dict]:
 
         exec_log.log("commit_success", f"Committed: {commit_msg[:100]}", current_state)
 
-        # ── 15. Push branch ───────────────────────────────────────────────────
-        exec_log.log("push_start", f"Pushing branch: {branch_name}", current_state)
-        
-        if not push_branch(repo_obj, branch_name):
-            exec_log.log("push_failed", "Failed to push branch", ExecutionState.FAILED)
-            db.update_opportunity_status(opp_id, "failed")
-            cleanup_workspace(workspace)
-            return None
-
-        exec_log.log("push_success", f"Pushed branch: {branch_name}", current_state)
-
-        # ── 16. Open PR ───────────────────────────────────────────────────────
-        pr_body = _build_pr_body(issue, result, opp["issue_url"])
-        pr_url = create_pull_request(
-            owner, repo, branch_name,
-            title=f"fix: {issue['title'][:72]}",
-            body=pr_body,
-            default_branch=default_branch,
+        db.update_opportunity_status(opp_id, "ready_to_submit")
+        exec_log.log(
+            "ready_to_submit",
+            f"Prepared branch {branch_name}; awaiting approval before push/PR",
+            current_state
         )
-        if not pr_url:
-            exec_log.log("pr_failed", "PR creation failed", ExecutionState.FAILED)
-            db.update_opportunity_status(opp_id, "failed")
-            cleanup_workspace(workspace)
-            return None
-
-        exec_log.log("pr_created", pr_url, current_state)
-        logger.info(f"PR created: {pr_url}")
-
-        # ── 17. Comment on issue ──────────────────────────────────────────────
-        post_issue_comment(
-            owner, repo, issue_num,
-            f"I've submitted a fix for this issue: {pr_url}\n\n"
-            f"Automated fix — confidence score {confidence}/10. Please review!",
-        )
-
-        # ── 18. Record & mark submitted ───────────────────────────────────────
-        db.insert_submission(opp_id, pr_url)
-        db.update_opportunity_status(opp_id, "submitted")
-        exec_log.log("submission_complete", 
-                    f"PR={pr_url} confidence={confidence}/10",
-                    current_state)
-
-        logger.info(f"✓ Opportunity #{opp_id} submitted — PR: {pr_url}")
+        preserve_workspace = True
+        logger.info(f"✓ Opportunity #{opp_id} ready to submit — awaiting approval")
         logger.info(exec_log.get_summary())
         
         return {
             "success": True,
-            "pr_url": pr_url,
+            "status": "ready_to_submit",
+            "pr_url": None,
             "confidence": confidence,
             "opp_id": opp_id,
             "state": current_state.value,
@@ -586,5 +649,6 @@ def run_executor(dry_run: bool = False) -> Optional[Dict]:
         return None
 
     finally:
-        cleanup_workspace(workspace)
+        if not preserve_workspace:
+            cleanup_workspace(workspace)
         exec_log.log("cleanup_complete", "Workspace cleaned up", current_state)

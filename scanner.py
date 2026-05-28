@@ -25,6 +25,32 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 TARGET_LANGUAGES = {"javascript", "typescript", "python"}
 MAX_COMPLEXITY = 5
 SCAN_INTERVAL_HOURS = int(os.getenv("SCAN_INTERVAL_HOURS", "2"))
+MIN_REPO_STARS = 50
+MIN_GITHUB_REPO_STARS = 100
+MIN_GITCOIN_BOUNTY = 50
+
+REJECT_REPO_TERMS = {
+    "bounty-board",
+    "bounties",
+    "bountyscout",
+    "artifact",
+    "test",
+    "demo",
+    "template",
+    "example",
+}
+
+REJECT_TITLE_TERMS = {
+    "[grant]",
+    "[claim]",
+    "challenge",
+    "contest",
+    "social mining",
+    "artifact",
+    "new issue for a bounty",
+    "bounty alert",
+    "hacktoberfest",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +179,48 @@ def _parse_amount(text: str) -> float:
     return amount
 
 
+def _repo_name_from_url(repo_url: str) -> str:
+    return repo_url.rstrip("/").split("/")[-1].lower()
+
+
+def _passes_quality_filter(
+    title: str,
+    repo_url: str,
+    bounty_amount: float,
+    repo_stars: int,
+    min_stars: int = MIN_REPO_STARS,
+) -> bool:
+    title_l = (title or "").lower()
+    repo_l = (repo_url or "").lower()
+    repo_name = _repo_name_from_url(repo_url)
+
+    if bounty_amount <= 0:
+        return False
+    if repo_stars < min_stars:
+        return False
+    if any(term in repo_l or term in repo_name for term in REJECT_REPO_TERMS):
+        return False
+    if any(term in title_l for term in REJECT_TITLE_TERMS):
+        return False
+    return True
+
+
+def _github_headers() -> Dict[str, str]:
+    headers = {"Accept": "application/vnd.github.v3+json", "User-Agent": "SentinelEarn/1.0"}
+    if GITHUB_TOKEN:
+        headers["Authorization"] = f"token {GITHUB_TOKEN}"
+    return headers
+
+
+async def _fetch_github_repo(client: httpx.AsyncClient, repo_api_url: str, headers: Dict[str, str]) -> Optional[Dict]:
+    if not repo_api_url:
+        return None
+    resp = await client.get(repo_api_url, headers=headers)
+    if resp.status_code != 200:
+        return None
+    return resp.json()
+
+
 def _extract_bounty_from_text(text: str) -> float:
     """Extract bounty amount mentioned anywhere in issue text."""
     for pat in [
@@ -187,7 +255,7 @@ def _detect_language_from_url(url: str) -> str:
         return "typescript"
     if any(x in u for x in ["javascript", "node", "react", "vue", "-js"]):
         return "javascript"
-    return "python"
+    return ""
 
 
 def _calc_age_days(created_at: str) -> float:
@@ -232,18 +300,19 @@ async def scrape_algora() -> List[Dict]:
                         title = (await link.inner_text()).strip()
                         href = await link.get_attribute("href") or ""
                         issue_url = href if href.startswith("http") else f"https://algora.io{href}"
-                        if len(title) > 10:
+                        amount = _extract_bounty_from_text(title)
+                        if len(title) > 10 and amount > 0:
                             complexity = estimate_complexity(title, "", 0)
-                            if complexity <= MAX_COMPLEXITY:
+                            if complexity <= MAX_COMPLEXITY and _passes_quality_filter(title, issue_url, amount, MIN_REPO_STARS):
                                 results.append({
                                     "source": "algora",
                                     "title": title[:255],
                                     "repo_url": "",
                                     "issue_url": issue_url,
-                                    "bounty_amount": 0.0,
+                                    "bounty_amount": amount,
                                     "currency": "USD",
                                     "complexity_score": complexity,
-                                    "score": score_opportunity(0, 0, 1, 0, 30, ""),
+                                    "score": score_opportunity(amount, 0, 1, MIN_REPO_STARS, 30, ""),
                                 })
                     except Exception:
                         continue
@@ -265,7 +334,12 @@ async def scrape_algora() -> List[Dict]:
                         lang_el = await item.query_selector("[class*='lang'], [class*='language']")
                         language = (await lang_el.inner_text() if lang_el else "").strip().lower()
 
-                        if title and issue_url and (not language or language in TARGET_LANGUAGES):
+                        if (
+                            title and issue_url
+                            and amount > 0
+                            and (not language or language in TARGET_LANGUAGES)
+                            and _passes_quality_filter(title, issue_url, amount, MIN_REPO_STARS)
+                        ):
                             complexity = estimate_complexity(title, "", 0)
                             if complexity <= MAX_COMPLEXITY:
                                 results.append({
@@ -318,18 +392,19 @@ async def scrape_issuehunt() -> List[Dict]:
                         title = (await link.inner_text()).strip()
                         href = await link.get_attribute("href") or ""
                         issue_url = href if href.startswith("http") else f"https://issuehunt.io{href}"
-                        if len(title) > 10:
+                        amount = _extract_bounty_from_text(title)
+                        if len(title) > 10 and amount > 0:
                             complexity = estimate_complexity(title, "", 0)
-                            if complexity <= MAX_COMPLEXITY:
+                            if complexity <= MAX_COMPLEXITY and _passes_quality_filter(title, issue_url, amount, MIN_REPO_STARS):
                                 results.append({
                                     "source": "issuehunt",
                                     "title": title[:255],
                                     "repo_url": "",
                                     "issue_url": issue_url,
-                                    "bounty_amount": 0.0,
+                                    "bounty_amount": amount,
                                     "currency": "USD",
                                     "complexity_score": complexity,
-                                    "score": score_opportunity(0, 0, 1, 0, 30, ""),
+                                    "score": score_opportunity(amount, 0, 1, MIN_REPO_STARS, 30, ""),
                                 })
                     except Exception:
                         continue
@@ -353,7 +428,12 @@ async def scrape_issuehunt() -> List[Dict]:
                         lang_el = await item.query_selector("[class*='lang'], [class*='language']")
                         language = (await lang_el.inner_text() if lang_el else "").strip().lower()
 
-                        if title and issue_url and (not language or language in TARGET_LANGUAGES):
+                        if (
+                            title and issue_url
+                            and amount > 0
+                            and (not language or language in TARGET_LANGUAGES)
+                            and _passes_quality_filter(title, issue_url, amount, MIN_REPO_STARS)
+                        ):
                             complexity = estimate_complexity(title, "", 0)
                             if complexity <= MAX_COMPLEXITY:
                                 results.append({
@@ -383,21 +463,75 @@ async def scrape_issuehunt() -> List[Dict]:
 
 # ─── GitHub Issues API Scanner ────────────────────────────────────────────────
 
-async def scan_github_issues() -> List[Dict]:
-    """Search GitHub Issues API for bounty/hacktoberfest labels."""
+async def scan_gitcoin_bounties() -> List[Dict]:
     results = []
-    headers = {"Accept": "application/vnd.github.v3+json", "User-Agent": "SentinelEarn/1.0"}
-    if GITHUB_TOKEN:
-        headers["Authorization"] = f"token {GITHUB_TOKEN}"
+    url = "https://app.gitcoin.co/api/v0.1/bounties/"
+    params = {"limit": 50, "idx_status": "open", "network": "mainnet"}
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        try:
+            resp = await client.get(url, params=params, headers={"User-Agent": "SentinelEarn/1.0"})
+            if resp.status_code != 200:
+                logger.warning(f"Gitcoin API returned {resp.status_code}")
+                return results
+
+            payload = resp.json()
+            items = payload.get("results", payload if isinstance(payload, list) else [])
+            for item in items:
+                title = item.get("title") or item.get("issueTitle") or ""
+                issue_url = item.get("github_url") or item.get("issue_url") or item.get("url") or ""
+                repo_url = item.get("repo_url") or item.get("github_repo_url") or ""
+                amount = _parse_amount(str(
+                    item.get("value_in_usdt")
+                    or item.get("value_in_usd")
+                    or item.get("bounty_amount")
+                    or item.get("amount")
+                    or ""
+                ))
+
+                if amount <= MIN_GITCOIN_BOUNTY or not title or not issue_url:
+                    continue
+
+                language = _detect_language_from_url(repo_url or issue_url)
+                if language not in TARGET_LANGUAGES:
+                    continue
+
+                complexity = estimate_complexity(title, item.get("description", "") or "", 0)
+                if complexity > MAX_COMPLEXITY:
+                    continue
+
+                if not _passes_quality_filter(title, repo_url or issue_url, amount, MIN_REPO_STARS):
+                    continue
+
+                results.append({
+                    "source": "gitcoin",
+                    "title": title[:255],
+                    "repo_url": repo_url,
+                    "issue_url": issue_url,
+                    "bounty_amount": amount,
+                    "currency": "USD",
+                    "complexity_score": complexity,
+                    "score": score_opportunity(amount, 0, 1, MIN_REPO_STARS, 30, language),
+                })
+        except Exception as e:
+            logger.error(f"Gitcoin scan error: {e}")
+
+    logger.info(f"Gitcoin: {len(results)} opportunities found")
+    return results
+
+
+async def scan_github_issues() -> List[Dict]:
+    """Search GitHub Issues API for bounty-labeled good first issues on established repos."""
+    results = []
+    headers = _github_headers()
 
     queries = [
-        "label:bounty is:open is:issue language:python",
-        "label:bounty is:open is:issue language:javascript",
-        "label:bounty is:open is:issue language:typescript",
-        "label:hacktoberfest is:open is:issue language:python",
-        "label:hacktoberfest is:open is:issue language:javascript",
-        '"bounty" in:title is:open is:issue language:python',
-        '"bounty" in:title is:open is:issue language:javascript',
+        'label:bounty label:"good first issue" is:open is:issue language:python',
+        'label:bounty label:"good first issue" is:open is:issue language:javascript',
+        'label:bounty label:"good first issue" is:open is:issue language:typescript',
+        '"$" "good first issue" "bounty" is:open is:issue language:python',
+        '"$" "good first issue" "bounty" is:open is:issue language:javascript',
+        '"$" "good first issue" "bounty" is:open is:issue language:typescript',
     ]
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -422,19 +556,25 @@ async def scan_github_issues() -> List[Dict]:
                             labels = item.get("labels", [])
                             label_names = [lb["name"].lower() for lb in labels]
 
-                            language = _detect_language_from_labels(label_names)
-                            if not language:
-                                language = _detect_language_from_url(repo_url)
+                            repo = await _fetch_github_repo(client, repo_api_url, headers)
+                            if not repo:
+                                continue
+
+                            repo_stars = int(repo.get("stargazers_count") or 0)
+                            language = (repo.get("language") or "").lower()
+                            if language not in TARGET_LANGUAGES:
+                                language = _detect_language_from_labels(label_names)
                             if language not in TARGET_LANGUAGES:
                                 continue
 
                             amount = _extract_bounty_from_text(title + " " + body)
                             age_days = _calc_age_days(item.get("created_at", ""))
-                            # Repo stars not in search results — default to 0
-                            repo_stars = 0
+                            if not _passes_quality_filter(title, repo_url, amount, repo_stars, MIN_GITHUB_REPO_STARS):
+                                continue
 
                             s_score = score_opportunity(
-                                amount, comment_count, len(labels), repo_stars, age_days, language
+                                amount, comment_count, len(labels), repo_stars, age_days, language,
+                                platform="github", title=title, labels=label_names, repo_url=repo_url
                             )
                             complexity = estimate_complexity(title, body, comment_count)
 
@@ -472,13 +612,23 @@ async def scan_github_issues() -> List[Dict]:
 
 async def run_scan(dry_run: bool = False) -> int:
     """Run all scanners, deduplicate, score, insert. Returns new opportunity count."""
-    db.log_event("scan_started", "Full scan of Algora, IssueHunt, GitHub")
+    db.log_event("scan_started", "Full scan of Algora, IssueHunt, Gitcoin, GitHub")
 
     algora = await scrape_algora()
     issuehunt = await scrape_issuehunt()
+    gitcoin = await scan_gitcoin_bounties()
     github = await scan_github_issues()
 
-    all_results = algora + issuehunt + github
+    all_results = [
+        opp for opp in algora + issuehunt + gitcoin + github
+        if _passes_quality_filter(
+            opp.get("title", ""),
+            opp.get("repo_url", "") or opp.get("issue_url", ""),
+            float(opp.get("bounty_amount") or 0),
+            MIN_GITHUB_REPO_STARS if opp.get("source") == "github" else MIN_REPO_STARS,
+            MIN_GITHUB_REPO_STARS if opp.get("source") == "github" else MIN_REPO_STARS,
+        )
+    ]
     all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
 
     added = 0

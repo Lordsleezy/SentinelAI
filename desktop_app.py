@@ -9,6 +9,7 @@ import subprocess
 import threading
 import webbrowser
 import logging
+import asyncio
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
@@ -32,8 +33,9 @@ from memory.persistent_memory import get_memory
 from model_router import get_model_router
 from reflection import ReflectionEngine
 from tool_registry import get_tool_registry
-from executor import run_executor
-from scanner import scan_github_issues
+from tools.registry import find_tool_for_task, list_tools, register_builtin_tools
+from executor import run_executor, execute_submit
+from scanner import run_scan
 from openclaw_integration import OpenClawCommandRouter
 
 # Configure logging
@@ -57,6 +59,57 @@ backend_state = {
     "last_scan": None,
     "total_earnings": 0.0
 }
+
+SCAN_INTERVAL_SECONDS = 30 * 60
+
+
+def enqueue_new_repair_opportunities() -> int:
+    enqueued = 0
+    opportunities = db.list_opportunities(status="new", limit=100)
+    tasks = qm.list_tasks(limit=500)
+    queued_ids = {
+        task.get("opportunity_id")
+        for task in tasks
+        if task.get("task_type") == "repair_execute"
+        and task.get("status") in ("pending", "running")
+    }
+
+    for opp in opportunities:
+        opp_id = opp["id"]
+        if opp_id in queued_ids:
+            continue
+        qm.enqueue_task(
+            "repair_execute",
+            priority=3,
+            opportunity_id=opp_id,
+            task_data={"opportunity_id": opp_id},
+        )
+        enqueued += 1
+
+    if enqueued:
+        logger.info(f"Enqueued {enqueued} new repair opportunities")
+    return enqueued
+
+
+def handle_repair_execute(task):
+    if backend_state.get("paused"):
+        raise RuntimeError("Backend is paused")
+    return run_executor(dry_run=False)
+
+
+def background_scan_loop():
+    import time
+
+    while backend_state.get("running"):
+        try:
+            inserted = asyncio.run(run_scan(dry_run=False))
+            backend_state["last_scan"] = datetime.now().isoformat()
+            logger.info(f"Background scan inserted {inserted} new opportunities")
+            enqueue_new_repair_opportunities()
+        except Exception as e:
+            logger.exception(f"Background scan failed: {e}")
+
+        time.sleep(SCAN_INTERVAL_SECONDS)
 
 # Authentication
 AUTH_TOKEN = os.getenv("SENTINELAI_AUTH_TOKEN", "sentinelai_default_token_change_me")
@@ -305,7 +358,22 @@ def api_approve(opp_id):
         if not verify_auth_token(auth_token):
             return jsonify({"error": "Unauthorized"}), 401
         
-        # Update opportunity status
+        opp = db.get_opportunity(opp_id)
+        if not opp:
+            return jsonify({"error": "Opportunity not found"}), 404
+
+        if opp.get("status") == "ready_to_submit":
+            result = execute_submit(opp_id)
+            if not result or not result.get("success"):
+                return jsonify({
+                    "status": "submit_failed",
+                    "opportunity_id": opp_id,
+                    "error": result.get("error") if result else "Unknown error"
+                }), 500
+            db.log_event("task_approved", f"Task #{opp_id} approved and submitted via API", opp_id)
+            logger.info(f"Task #{opp_id} approved and submitted")
+            return jsonify(result)
+
         db.update_opportunity_status(opp_id, "approved")
         db.log_event("task_approved", f"Task #{opp_id} approved via API", opp_id)
         logger.info(f"Task #{opp_id} approved")
@@ -908,6 +976,26 @@ def api_tool_run():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/tools/registry')
+def api_tools_registry():
+    try:
+        return jsonify({"tools": list_tools()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/tools/find', methods=['POST'])
+def api_tools_find():
+    try:
+        data = request.get_json() or {}
+        task = data.get("task")
+        if not task:
+            return jsonify({"error": "task required"}), 400
+        return jsonify({"tool": find_tool_for_task(task)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/reflection/workflows/<int:workflow_id>', methods=['POST'])
 def api_reflect_workflow(workflow_id):
     """Run a reflection pass on a workflow. Requires auth."""
@@ -941,6 +1029,13 @@ def start_backend():
     
     # Initialize database
     db.init_db()
+
+    # Register built-in capability tools
+    try:
+        register_builtin_tools()
+        logger.info("Built-in capability tools registered")
+    except Exception as e:
+        logger.warning(f"Capability registry initialization failed: {e}")
     
     # Initialize learning memory system
     try:
@@ -976,6 +1071,10 @@ def start_backend():
         max_workers = int(os.getenv("MAX_WORKERS", "3"))
         manager = wm.initialize_workers(max_workers)
         manager.register_handler("orchestration_workflow", orch.get_orchestrator().handle_queue_task)
+        manager.register_handler("repair_execute", handle_repair_execute)
+        manager.create_worker("repair_worker_1", ["repair_execute"])
+        manager.create_worker("repair_worker_2", ["repair_execute"])
+        manager.start_all()
         logger.info(f"Worker manager initialized (max_workers={max_workers})")
     except Exception as e:
         logger.warning(f"Worker manager initialization failed: {e}")
@@ -1009,6 +1108,14 @@ def start_backend():
     backend_state["running"] = True
     backend_state["startup_complete"] = True
     logger.info("Backend started on http://127.0.0.1:5001")
+
+    try:
+        enqueue_new_repair_opportunities()
+        scan_thread = threading.Thread(target=background_scan_loop, daemon=True)
+        scan_thread.start()
+        logger.info("Background scan loop started")
+    except Exception as e:
+        logger.warning(f"Background scan loop failed to start: {e}")
 
 
 # ─── Main Entry Point ─────────────────────────────────────────────────────────
