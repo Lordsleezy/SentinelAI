@@ -3,445 +3,1210 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SentinelAI - Desktop Dashboard</title>
+    <title>Sentinel Prime Command Center</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        :root {
+            color-scheme: dark;
+            --bg: #02030a;
+            --ink: #f7fbff;
+            --muted: #9da7bd;
+            --dim: #667089;
+            --cyan: #7de9ff;
+            --blue: #6ea8ff;
+            --violet: #b991ff;
+            --white-glow: rgba(255, 255, 255, 0.72);
+            --glass: rgba(9, 14, 28, 0.58);
+            --glass-strong: rgba(12, 18, 36, 0.78);
+            --line: rgba(255, 255, 255, 0.19);
+            --line-hot: rgba(125, 233, 255, 0.54);
+            --success: #83ffd0;
+            --warn: #ffd36a;
+            --danger: #ff6f9f;
+            --radius: 8px;
+            --sidebar: 276px;
         }
+
+        * { box-sizing: border-box; }
+
+        html, body { min-height: 100%; }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
-            color: #e0e0e0;
+            margin: 0;
             min-height: 100vh;
-            padding: 20px;
+            overflow: hidden;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: "Segoe UI", Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            letter-spacing: 0;
         }
 
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
+        body::before,
+        body::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
         }
 
-        header {
-            text-align: center;
-            margin-bottom: 30px;
-            padding: 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            border: 1px solid rgba(0, 212, 255, 0.3);
+        body::before {
+            background:
+                radial-gradient(circle at 22% 18%, rgba(125, 233, 255, 0.15), transparent 25%),
+                radial-gradient(circle at 78% 12%, rgba(185, 145, 255, 0.18), transparent 28%),
+                radial-gradient(circle at 55% 80%, rgba(110, 168, 255, 0.12), transparent 30%),
+                linear-gradient(135deg, #03040b 0%, #090a18 42%, #02030a 100%);
         }
+
+        body::after {
+            opacity: 0.72;
+            background-image:
+                radial-gradient(circle, rgba(255,255,255,0.92) 0 1px, transparent 1.5px),
+                radial-gradient(circle, rgba(125,233,255,0.78) 0 1px, transparent 1.4px),
+                linear-gradient(rgba(125, 233, 255, 0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(125, 233, 255, 0.04) 1px, transparent 1px);
+            background-size: 112px 112px, 170px 170px, 54px 54px, 54px 54px;
+            background-position: 8px 12px, 60px 80px, 0 0, 0 0;
+            mask-image: linear-gradient(to bottom, black, rgba(0,0,0,0.76), transparent 92%);
+        }
+
+        button, input, textarea, select {
+            font: inherit;
+            color: inherit;
+        }
+
+        .app {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            grid-template-columns: var(--sidebar) minmax(0, 1fr);
+            height: 100vh;
+        }
+
+        .sidebar {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            padding: 22px 18px;
+            border-right: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(5, 8, 18, 0.88), rgba(3, 5, 12, 0.72));
+            box-shadow: 24px 0 80px rgba(0, 0, 0, 0.34);
+            backdrop-filter: blur(22px);
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+        }
+
+        .brand {
+            display: grid;
+            grid-template-columns: 44px minmax(0, 1fr);
+            gap: 12px;
+            align-items: center;
+            padding: 8px;
+        }
+
+        .brand-mark {
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius);
+            display: grid;
+            place-items: center;
+            border: 1px solid rgba(255,255,255,0.44);
+            background:
+                linear-gradient(135deg, rgba(125,233,255,0.22), rgba(185,145,255,0.12)),
+                rgba(255,255,255,0.05);
+            color: white;
+            box-shadow: 0 0 24px rgba(125,233,255,0.28), inset 0 0 22px rgba(255,255,255,0.08);
+            font-weight: 900;
+        }
+
+        .brand-title {
+            font-size: 14px;
+            text-transform: uppercase;
+            font-weight: 850;
+            letter-spacing: 0.18em;
+        }
+
+        .brand-subtitle {
+            margin-top: 3px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .nav {
+            display: grid;
+            gap: 8px;
+        }
+
+        .nav-button {
+            width: 100%;
+            min-height: 52px;
+            display: grid;
+            grid-template-columns: 28px minmax(0, 1fr);
+            gap: 10px;
+            align-items: center;
+            text-align: left;
+            padding: 10px 12px;
+            border-radius: var(--radius);
+            border: 1px solid transparent;
+            background: transparent;
+            cursor: pointer;
+            color: var(--muted);
+        }
+
+        .nav-button:hover,
+        .nav-button.active {
+            color: var(--ink);
+            border-color: var(--line-hot);
+            background: linear-gradient(135deg, rgba(125,233,255,0.13), rgba(185,145,255,0.08));
+            box-shadow: inset 0 0 22px rgba(125,233,255,0.08), 0 0 18px rgba(125,233,255,0.12);
+        }
+
+        .nav-icon {
+            width: 28px;
+            height: 28px;
+            display: grid;
+            place-items: center;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 7px;
+            color: var(--cyan);
+            background: rgba(255,255,255,0.04);
+            font-weight: 800;
+            font-size: 12px;
+        }
+
+        .nav-title { font-size: 14px; font-weight: 760; }
+        .nav-meta { margin-top: 2px; font-size: 11px; color: var(--dim); }
+
+        .sidebar-status {
+            margin-top: auto;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: rgba(255,255,255,0.045);
+            padding: 14px;
+            box-shadow: inset 0 0 28px rgba(255,255,255,0.035);
+        }
+
+        .status-line {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 7px 0;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .pulse {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            color: var(--success);
+            font-weight: 750;
+        }
+
+        .pulse::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: var(--success);
+            box-shadow: 0 0 14px var(--success);
+        }
+
+        .main {
+            min-width: 0;
+            height: 100vh;
+            overflow: auto;
+            padding: 24px;
+        }
+
+        .screen { display: none; }
+        .screen.active { display: block; }
+
+        .screen-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 20px;
+            margin-bottom: 18px;
+        }
+
+        .eyebrow {
+            color: var(--cyan);
+            text-transform: uppercase;
+            font-size: 11px;
+            font-weight: 850;
+            letter-spacing: 0.16em;
+        }
+
+        h1, h2, h3, p { margin: 0; }
 
         h1 {
-            font-size: 2.5em;
-            color: #00d4ff;
-            text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
-            margin-bottom: 10px;
+            margin-top: 8px;
+            font-size: clamp(30px, 4vw, 58px);
+            line-height: 0.98;
+            letter-spacing: 0;
+            text-shadow: 0 0 26px rgba(125,233,255,0.32);
         }
 
-        .subtitle {
-            color: #888;
-            font-size: 1.1em;
+        .lead {
+            max-width: 760px;
+            margin-top: 12px;
+            color: var(--muted);
+            line-height: 1.55;
         }
 
-        .controls {
+        .pill-row {
             display: flex;
-            gap: 15px;
-            justify-content: center;
-            margin-bottom: 30px;
             flex-wrap: wrap;
+            gap: 8px;
         }
 
-        button {
-            padding: 12px 24px;
-            font-size: 1em;
-            border: none;
-            border-radius: 5px;
+        .pill,
+        .chip {
+            min-height: 30px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0 11px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: rgba(255,255,255,0.055);
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 720;
+            white-space: nowrap;
+        }
+
+        .chip {
             cursor: pointer;
-            transition: all 0.3s;
-            font-weight: bold;
+            color: var(--ink);
         }
 
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+        .chip:hover {
+            border-color: var(--line-hot);
+            box-shadow: 0 0 18px rgba(125,233,255,0.14);
         }
 
-        .btn-success {
-            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-            color: white;
+        .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 999px;
+            background: var(--success);
+            box-shadow: 0 0 12px var(--success);
         }
 
-        .btn-warning {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            color: white;
-        }
-
-        .btn-danger {
-            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
-            color: white;
-        }
-
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        .glass {
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background:
+                linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.025)),
+                var(--glass);
+            box-shadow: 0 24px 80px rgba(0,0,0,0.36), inset 0 0 32px rgba(255,255,255,0.035);
+            backdrop-filter: blur(22px);
         }
 
         .dashboard-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+            grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.7fr);
+            gap: 16px;
         }
 
-        .card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            padding: 20px;
-            border: 1px solid rgba(0, 212, 255, 0.2);
-            backdrop-filter: blur(10px);
+        .tesseract-hero {
+            min-height: 520px;
+            position: relative;
+            overflow: hidden;
         }
 
-        .card h2 {
-            color: #00d4ff;
-            margin-bottom: 15px;
-            font-size: 1.3em;
-            border-bottom: 2px solid rgba(0, 212, 255, 0.3);
-            padding-bottom: 10px;
+        .hero-copy {
+            position: absolute;
+            left: 22px;
+            bottom: 20px;
+            max-width: 430px;
+            z-index: 3;
         }
 
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
+        .hero-copy h2 {
+            font-size: 24px;
+            margin-bottom: 8px;
         }
 
-        .status-running {
-            background: #38ef7d;
-            box-shadow: 0 0 10px #38ef7d;
+        .hero-copy p {
+            color: var(--muted);
+            line-height: 1.5;
         }
 
-        .status-paused {
-            background: #f5576c;
-            box-shadow: 0 0 10px #f5576c;
+        #tesseractCanvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
         }
 
-        .status-offline {
-            background: #888;
+        .orbit-label {
+            position: absolute;
+            z-index: 2;
+            color: rgba(255,255,255,0.86);
+            border: 1px solid rgba(255,255,255,0.22);
+            background: rgba(3, 6, 16, 0.45);
+            backdrop-filter: blur(14px);
+            border-radius: 999px;
+            padding: 7px 10px;
+            font-size: 11px;
+            box-shadow: 0 0 18px rgba(125,233,255,0.15);
         }
 
-        .stat-row {
+        .orbit-label.one { left: 7%; top: 18%; }
+        .orbit-label.two { right: 10%; top: 24%; }
+        .orbit-label.three { right: 12%; bottom: 23%; }
+        .orbit-label.four { left: 13%; bottom: 32%; }
+
+        .status-stack {
+            display: grid;
+            gap: 12px;
+        }
+
+        .status-card,
+        .product-card,
+        .settings-section,
+        .chat-panel,
+        .builder-panel {
+            padding: 16px;
+        }
+
+        .card-header {
             display: flex;
+            align-items: center;
             justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 13px;
+        }
+
+        .card-title {
+            font-size: 15px;
+            font-weight: 820;
+        }
+
+        .card-kicker {
+            margin-top: 3px;
+            color: var(--dim);
+            font-size: 12px;
+        }
+
+        .metric {
+            font-size: 26px;
+            font-weight: 850;
+            color: var(--ink);
+            text-shadow: 0 0 18px rgba(125,233,255,0.2);
+        }
+
+        .list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .list-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
             padding: 10px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-top: 1px solid rgba(255,255,255,0.09);
+            color: var(--muted);
+            font-size: 13px;
         }
 
-        .stat-label {
-            color: #aaa;
+        .value { color: var(--ink); font-weight: 750; }
+        .private-badge { color: var(--warn); border-color: rgba(255,211,106,0.34); }
+
+        .chat-layout,
+        .forge-layout,
+        .earn-layout,
+        .settings-layout {
+            display: grid;
+            gap: 16px;
         }
 
-        .stat-value {
-            color: #00d4ff;
-            font-weight: bold;
+        .chat-layout {
+            grid-template-columns: minmax(0, 1fr) 330px;
         }
 
-        .earnings {
-            font-size: 2em;
-            color: #38ef7d;
+        .chat-panel {
+            height: calc(100vh - 172px);
+            min-height: 560px;
+            display: grid;
+            grid-template-rows: auto minmax(0, 1fr) auto;
+            gap: 14px;
+        }
+
+        .messages {
+            min-height: 0;
+            overflow: auto;
+            display: grid;
+            align-content: start;
+            gap: 12px;
+            padding-right: 4px;
+        }
+
+        .message {
+            max-width: 78%;
+            padding: 13px 14px;
+            border-radius: var(--radius);
+            border: 1px solid rgba(255,255,255,0.14);
+            background: rgba(255,255,255,0.045);
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .message.ai {
+            max-width: 86%;
+            color: var(--ink);
+            background: linear-gradient(135deg, rgba(125,233,255,0.12), rgba(185,145,255,0.08));
+            box-shadow: 0 0 28px rgba(125,233,255,0.09);
+        }
+
+        .message.user {
+            justify-self: end;
+            color: white;
+            background: rgba(255,255,255,0.08);
+        }
+
+        .composer {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: end;
+        }
+
+        textarea,
+        input,
+        select {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: rgba(2, 4, 12, 0.62);
+            outline: none;
+            padding: 12px 13px;
+            color: var(--ink);
+        }
+
+        textarea:focus,
+        input:focus,
+        select:focus {
+            border-color: var(--line-hot);
+            box-shadow: 0 0 0 3px rgba(125,233,255,0.1);
+        }
+
+        .send-btn,
+        .primary-btn {
+            min-height: 44px;
+            border: 1px solid rgba(255,255,255,0.42);
+            border-radius: var(--radius);
+            background: linear-gradient(135deg, rgba(125,233,255,0.25), rgba(185,145,255,0.18));
+            color: white;
+            padding: 0 16px;
+            cursor: pointer;
+            font-weight: 820;
+            box-shadow: 0 0 28px rgba(125,233,255,0.15);
+        }
+
+        .send-btn:hover,
+        .primary-btn:hover { border-color: white; }
+
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(150px, 1fr));
+            gap: 12px;
+        }
+
+        .product-card {
+            min-height: 156px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .product-card p {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .forge-layout {
+            grid-template-columns: minmax(0, 1fr) 360px;
+        }
+
+        .builder-panel textarea {
+            min-height: 170px;
+            resize: vertical;
+        }
+
+        .builder-grid,
+        .earn-grid,
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .terminal {
+            min-height: 260px;
+            max-height: 360px;
+            overflow: auto;
+            border-radius: var(--radius);
+            border: 1px solid rgba(125,233,255,0.22);
+            background: rgba(0,0,0,0.38);
+            padding: 13px;
+            color: #c9f7ff;
+            font-family: "Cascadia Mono", Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.65;
+        }
+
+        .preview-pane {
+            min-height: 260px;
+            display: grid;
+            place-items: center;
             text-align: center;
-            margin: 20px 0;
-            text-shadow: 0 0 10px rgba(56, 239, 125, 0.5);
+            color: var(--muted);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: var(--radius);
+            background:
+                linear-gradient(135deg, rgba(125,233,255,0.08), transparent),
+                repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 18px);
         }
 
-        .logs-container {
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 5px;
-            padding: 15px;
-            max-height: 300px;
-            overflow-y: auto;
-            font-family: 'Courier New', monospace;
-            font-size: 0.9em;
+        .earn-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
         }
 
-        .log-entry {
-            padding: 5px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        .settings-layout {
+            grid-template-columns: 280px minmax(0, 1fr);
+            align-items: start;
         }
 
-        .log-timestamp {
-            color: #667eea;
-            margin-right: 10px;
+        .settings-nav {
+            position: sticky;
+            top: 24px;
+            display: grid;
+            gap: 8px;
+            padding: 12px;
         }
 
-        .log-event {
-            color: #00d4ff;
-            margin-right: 10px;
+        .settings-nav button {
+            border: 1px solid transparent;
+            border-radius: var(--radius);
+            background: rgba(255,255,255,0.04);
+            color: var(--muted);
+            min-height: 38px;
+            text-align: left;
+            padding: 0 11px;
+            cursor: pointer;
         }
 
-        .log-detail {
-            color: #aaa;
+        .settings-nav button:hover,
+        .settings-nav button.active {
+            color: white;
+            border-color: var(--line-hot);
+            background: rgba(125,233,255,0.09);
         }
 
-        .task-list {
-            list-style: none;
+        .settings-content {
+            display: grid;
+            gap: 12px;
         }
 
-        .task-item {
-            background: rgba(0, 0, 0, 0.2);
-            padding: 10px;
-            margin-bottom: 10px;
-            border-radius: 5px;
-            border-left: 3px solid #00d4ff;
+        .settings-pane { display: none; }
+        .settings-pane.active { display: block; }
+
+        .field-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
         }
 
-        .task-title {
-            color: #fff;
-            font-weight: bold;
-            margin-bottom: 5px;
+        .field label {
+            display: block;
+            margin-bottom: 7px;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 760;
         }
 
-        .task-meta {
-            color: #888;
-            font-size: 0.9em;
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 0;
+            border-top: 1px solid rgba(255,255,255,0.09);
         }
 
-        .empty-state {
-            text-align: center;
-            color: #666;
-            padding: 20px;
-            font-style: italic;
+        .switch {
+            width: 44px;
+            height: 24px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: rgba(255,255,255,0.08);
+            position: relative;
         }
 
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+        .switch::after {
+            content: "";
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 16px;
+            height: 16px;
+            border-radius: 999px;
+            background: var(--muted);
+            transition: transform 160ms ease, background 160ms ease;
         }
 
-        .loading {
-            animation: pulse 2s infinite;
+        .switch.on {
+            border-color: rgba(125,233,255,0.58);
+            background: rgba(125,233,255,0.16);
+        }
+
+        .switch.on::after {
+            transform: translateX(20px);
+            background: var(--cyan);
+            box-shadow: 0 0 14px var(--cyan);
+        }
+
+        @media (max-width: 1180px) {
+            .dashboard-grid,
+            .chat-layout,
+            .forge-layout,
+            .settings-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .earn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .chat-panel { height: auto; }
+            .settings-nav { position: static; }
+        }
+
+        @media (max-width: 820px) {
+            body { overflow: auto; }
+            .app { grid-template-columns: 1fr; height: auto; }
+            .sidebar { position: relative; height: auto; }
+            .main { height: auto; padding: 16px; }
+            .screen-header { flex-direction: column; }
+            .builder-grid,
+            .earn-grid,
+            .settings-grid,
+            .field-grid,
+            .product-grid {
+                grid-template-columns: 1fr;
+            }
+            .tesseract-hero { min-height: 420px; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>⚡ SentinelAI</h1>
-            <p class="subtitle">Autonomous AI Operations Platform</p>
-        </header>
-
-        <div class="controls">
-            <button class="btn-success" onclick="resumeOperations()">▶ Resume</button>
-            <button class="btn-warning" onclick="pauseOperations()">⏸ Pause</button>
-            <button class="btn-danger" onclick="emergencyStop()">⏹ Emergency Stop</button>
-            <button class="btn-primary" onclick="refreshDashboard()">🔄 Refresh</button>
-        </div>
-
-        <div class="dashboard-grid">
-            <!-- System Status Card -->
-            <div class="card">
-                <h2>System Status</h2>
-                <div class="stat-row">
-                    <span class="stat-label">Backend</span>
-                    <span class="stat-value">
-                        <span class="status-indicator" id="backend-status"></span>
-                        <span id="backend-text">Loading...</span>
-                    </span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Ollama</span>
-                    <span class="stat-value">
-                        <span class="status-indicator" id="ollama-status"></span>
-                        <span id="ollama-text">Loading...</span>
-                    </span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Active Tasks</span>
-                    <span class="stat-value" id="active-tasks">0</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Last Scan</span>
-                    <span class="stat-value" id="last-scan">Never</span>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">SP</div>
+                <div>
+                    <div class="brand-title">Sentinel Prime</div>
+                    <div class="brand-subtitle">Private AI command layer</div>
                 </div>
             </div>
 
-            <!-- Earnings Card -->
-            <div class="card">
-                <h2>Earnings</h2>
-                <div class="earnings" id="total-earnings">$0.00</div>
-                <div class="stat-row">
-                    <span class="stat-label">Pending PRs</span>
-                    <span class="stat-value" id="pending-count">0</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Merged PRs</span>
-                    <span class="stat-value" id="merged-count">0</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Success Rate</span>
-                    <span class="stat-value" id="merge-rate">0%</span>
-                </div>
-            </div>
+            <nav class="nav" aria-label="Primary">
+                <button class="nav-button active" data-tab="ai">
+                    <span class="nav-icon">AI</span>
+                    <span><span class="nav-title">Sentinel AI</span><span class="nav-meta">AI Chat / Command Center</span></span>
+                </button>
+                <button class="nav-button" data-tab="forge">
+                    <span class="nav-icon">FG</span>
+                    <span><span class="nav-title">Forge</span><span class="nav-meta">AI software builder</span></span>
+                </button>
+                <button class="nav-button" data-tab="earn">
+                    <span class="nav-icon">IN</span>
+                    <span><span class="nav-title">Sentinel Earn</span><span class="nav-meta">Private internal automation</span></span>
+                </button>
+                <button class="nav-button" data-tab="settings">
+                    <span class="nav-icon">ST</span>
+                    <span><span class="nav-title">Settings</span><span class="nav-meta">Providers, runtime, devices</span></span>
+                </button>
+            </nav>
 
-            <!-- Active Tasks Card -->
-            <div class="card">
-                <h2>Active Tasks</h2>
-                <ul class="task-list" id="task-list">
-                    <li class="empty-state">No active tasks</li>
-                </ul>
+            <div class="sidebar-status">
+                <div class="status-line"><span>Core</span><span class="pulse">Online</span></div>
+                <div class="status-line"><span>Runtime</span><span>Local-first</span></div>
+                <div class="status-line"><span>Memory</span><span>Encrypted local</span></div>
+                <div class="status-line"><span>Preview</span><span id="previewClock">Live</span></div>
             </div>
-        </div>
+        </aside>
 
-        <!-- Logs Card -->
-        <div class="card">
-            <h2>Recent Logs</h2>
-            <div class="logs-container" id="logs-container">
-                <div class="log-entry loading">Loading logs...</div>
-            </div>
-        </div>
+        <main class="main">
+            <section class="screen active" id="screen-ai">
+                <div class="screen-header">
+                    <div>
+                        <div class="eyebrow">Sentinel AI / AI Chat</div>
+                        <h1>Unified AI command center.</h1>
+                        <p class="lead">Sentinel AI is the orchestration brain across your private assistant, Forge builds, connected tools, local memory, security products, and device workflows.</p>
+                    </div>
+                    <div class="pill-row">
+                        <span class="pill"><span class="dot"></span> Private by design</span>
+                        <span class="pill">No public Earn surfaces</span>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="tesseract-hero glass">
+                        <canvas id="tesseractCanvas"></canvas>
+                        <span class="orbit-label one">Sentinel AI</span>
+                        <span class="orbit-label two">Forge</span>
+                        <span class="orbit-label three">Guardian / Shield</span>
+                        <span class="orbit-label four">Vision / Terminal</span>
+                        <div class="hero-copy">
+                            <h2>Sentinel Prime neural lattice</h2>
+                            <p>A living control surface for routing models, memory, build systems, device debugging, and private automation through one local-first interface.</p>
+                        </div>
+                    </div>
+
+                    <div class="status-stack">
+                        <div class="status-card glass">
+                            <div class="card-header">
+                                <div><div class="card-title">Active Model</div><div class="card-kicker">Routing preference</div></div>
+                                <span class="pill"><span class="dot"></span> Ready</span>
+                            </div>
+                            <div class="metric">GPT-5 / Local fallback</div>
+                            <div class="list">
+                                <div class="list-row"><span>Memory</span><span class="value">Indexed, local</span></div>
+                                <div class="list-row"><span>Tools</span><span class="value">12 connected</span></div>
+                                <div class="list-row"><span>Runtime</span><span class="value">Desktop shell</span></div>
+                            </div>
+                        </div>
+                        <div class="status-card glass">
+                            <div class="card-header">
+                                <div><div class="card-title">Product Mesh</div><div class="card-kicker">Standalone products, one AI layer</div></div>
+                            </div>
+                            <div class="list">
+                                <div class="list-row"><span>Forge</span><span class="value">Builder linked</span></div>
+                                <div class="list-row"><span>Sentinel Shield</span><span class="value">Android protection</span></div>
+                                <div class="list-row"><span>Sentinel Vision</span><span class="value">Screen/device debug</span></div>
+                                <div class="list-row"><span>Sentinel Terminal</span><span class="value">Remote machines</span></div>
+                                <div class="list-row"><span>Sentinel Guardian</span><span class="value">Security intelligence</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-layout" style="margin-top:16px;">
+                    <div class="chat-panel glass">
+                        <div>
+                            <div class="card-title">AI Chat</div>
+                            <div class="card-kicker">Ask Sentinel to inspect, build, debug, route, or summarize.</div>
+                        </div>
+                        <div class="messages" id="messages">
+                            <div class="message ai">Sentinel AI is online. Workspace scanning, Forge handoff, runtime checks, and progress summaries are staged for local execution.</div>
+                            <div class="message user">Show me the current product command surface.</div>
+                            <div class="message ai">Command surface loaded: Sentinel AI as the orchestration brain, Forge as the builder, Settings for providers/devices, and Sentinel Earn isolated as private internal automation.</div>
+                        </div>
+                        <div>
+                            <div class="pill-row" style="margin-bottom:10px;">
+                                <button class="chip" data-prompt="Scan workspace">Scan workspace</button>
+                                <button class="chip" data-tab-jump="forge">Open Forge</button>
+                                <button class="chip" data-prompt="Check systems">Check systems</button>
+                                <button class="chip" data-prompt="Summarize progress">Summarize progress</button>
+                            </div>
+                            <div class="composer">
+                                <textarea id="chatInput" rows="2" placeholder="Ask Sentinel AI to orchestrate, build, inspect, or debug..."></textarea>
+                                <button class="send-btn" id="sendChat">Send</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="status-stack">
+                        <div class="status-card glass">
+                            <div class="card-title">Command Status</div>
+                            <div class="list">
+                                <div class="list-row"><span>Active model</span><span class="value">Auto route</span></div>
+                                <div class="list-row"><span>Memory status</span><span class="value">Local index</span></div>
+                                <div class="list-row"><span>Connected tools</span><span class="value">Filesystem, GitHub, browser, devices</span></div>
+                                <div class="list-row"><span>Local runtime</span><span class="value">Healthy</span></div>
+                            </div>
+                        </div>
+                        <div class="status-card glass">
+                            <div class="card-title">Suggested Next Moves</div>
+                            <div class="list">
+                                <div class="list-row"><span>Connect GitHub</span><span class="value">Settings</span></div>
+                                <div class="list-row"><span>Build a prototype</span><span class="value">Forge</span></div>
+                                <div class="list-row"><span>Run device debug</span><span class="value">Vision</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="screen" id="screen-forge">
+                <div class="screen-header">
+                    <div>
+                        <div class="eyebrow">Forge by Sentinel</div>
+                        <h1>Build software from intent.</h1>
+                        <p class="lead">Forge is the AI software builder area for apps, sites, tools, Android workflows, live previews, device debugging, and GitHub export.</p>
+                    </div>
+                    <div class="pill-row"><span class="pill"><span class="dot"></span> Builder staged</span><span class="pill">Local preview ready</span></div>
+                </div>
+
+                <div class="forge-layout">
+                    <div class="builder-panel glass">
+                        <div class="card-header">
+                            <div><div class="card-title">Build Prompt</div><div class="card-kicker">Describe the app, site, tool, or Android workflow.</div></div>
+                            <button class="primary-btn">Queue Build</button>
+                        </div>
+                        <textarea placeholder="Build a privacy-first Android utility with local AI triage, GitHub export, and live device testing..."></textarea>
+                        <div class="builder-grid" style="margin-top:12px;">
+                            <div class="product-card glass"><h3>Web app builder</h3><p>Generate app structure, UI, routes, and live browser preview.</p><span class="pill">Ready</span></div>
+                            <div class="product-card glass"><h3>Android app builder</h3><p>Prototype mobile apps and hand off to connected devices.</p><span class="pill">ADB-aware</span></div>
+                            <div class="product-card glass"><h3>Device testing/debugging</h3><p>Coordinate logs, screenshots, crash traces, and fixes.</p><span class="pill">Vision linked</span></div>
+                            <div class="product-card glass"><h3>GitHub export</h3><p>Create repos, branches, commits, pull requests, and releases.</p><span class="pill">Needs auth</span></div>
+                            <div class="product-card glass"><h3>Live preview</h3><p>Serve builds locally and refresh as Sentinel edits.</p><span class="pill">Running</span></div>
+                        </div>
+                    </div>
+
+                    <div class="status-stack">
+                        <div class="status-card glass">
+                            <div class="card-title">Preview Status</div>
+                            <div class="preview-pane">Live preview viewport<br><span style="font-size:12px;">Awaiting Forge build artifact</span></div>
+                        </div>
+                        <div class="status-card glass">
+                            <div class="card-title">Connected Devices</div>
+                            <div class="list">
+                                <div class="list-row"><span>Android debug bridge</span><span class="value">Not connected</span></div>
+                                <div class="list-row"><span>Screen capture</span><span class="value">Standing by</span></div>
+                                <div class="list-row"><span>Remote terminal</span><span class="value">Available</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass" style="margin-top:16px; padding:16px;">
+                    <div class="card-title">Build Logs</div>
+                    <div class="terminal" style="margin-top:12px;">[forge] Waiting for prompt...
+[preview] Local server available
+[github] Export requires connection in Settings
+[device] No Android device attached
+[sentinel] Builder pipeline ready</div>
+                </div>
+            </section>
+
+            <section class="screen" id="screen-earn">
+                <div class="screen-header">
+                    <div>
+                        <div class="eyebrow">Sentinel Earn</div>
+                        <h1>Private internal automation.</h1>
+                        <p class="lead">Internal revenue/project automation controls for experiments, lead systems, task queues, automations, and operational logs. This is not presented as a public product.</p>
+                    </div>
+                    <div class="pill-row"><span class="pill private-badge">Private/Internal</span><span class="pill">Local operator view</span></div>
+                </div>
+
+                <div class="earn-grid">
+                    <div class="status-card glass"><div class="card-title">Active Experiments</div><div class="metric">4</div><div class="card-kicker">Private tests in progress</div></div>
+                    <div class="status-card glass"><div class="card-title">Lead Systems</div><div class="metric">2</div><div class="card-kicker">Internal pipelines only</div></div>
+                    <div class="status-card glass"><div class="card-title">Automations</div><div class="metric">9</div><div class="card-kicker">Paused unless approved</div></div>
+                    <div class="status-card glass"><div class="card-title">Tasks</div><div class="metric">27</div><div class="card-kicker">Queue depth</div></div>
+                </div>
+
+                <div class="dashboard-grid" style="margin-top:16px;">
+                    <div class="glass" style="padding:16px;">
+                        <div class="card-title">Internal Workstream</div>
+                        <div class="list" style="margin-top:12px;">
+                            <div class="list-row"><span>Project automation scan</span><span class="value">Queued</span></div>
+                            <div class="list-row"><span>Revenue experiment review</span><span class="value">Needs approval</span></div>
+                            <div class="list-row"><span>Lead triage</span><span class="value">Draft mode</span></div>
+                            <div class="list-row"><span>System safety checks</span><span class="value">Enabled</span></div>
+                        </div>
+                    </div>
+                    <div class="glass" style="padding:16px;">
+                        <div class="card-title">Private Logs</div>
+                        <div class="terminal" style="margin-top:12px;">[internal] Earn dashboard isolated
+[automation] No public product copy exposed
+[tasks] 27 queued, 3 require review
+[safety] Approval gates enabled</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="screen" id="screen-settings">
+                <div class="screen-header">
+                    <div>
+                        <div class="eyebrow">Settings</div>
+                        <h1>Connect the local command layer.</h1>
+                        <p class="lead">Configure providers, routing, GitHub, memory, devices, debug preferences, privacy, and the Sentinel Prime interface. Values shown here are placeholders/local state only.</p>
+                    </div>
+                    <div class="pill-row"><span class="pill">No hardcoded keys</span><span class="pill">Local state</span></div>
+                </div>
+
+                <div class="settings-layout">
+                    <div class="settings-nav glass">
+                        <button class="active" data-settings="providers">API Providers</button>
+                        <button data-settings="github">GitHub</button>
+                        <button data-settings="routing">Model Routing</button>
+                        <button data-settings="memory">Memory / Database</button>
+                        <button data-settings="devices">Device Debugging</button>
+                        <button data-settings="theme">Theme</button>
+                        <button data-settings="security">Security / Privacy</button>
+                    </div>
+
+                    <div class="settings-content">
+                        <div class="settings-section glass settings-pane active" id="settings-providers">
+                            <div class="card-title">API Providers</div>
+                            <div class="field-grid" style="margin-top:14px;">
+                                <div class="field"><label>OpenAI API key</label><input type="password" placeholder="sk-... stored locally"></div>
+                                <div class="field"><label>Anthropic API key</label><input type="password" placeholder="sk-ant-... stored locally"></div>
+                                <div class="field"><label>Gemini API key</label><input type="password" placeholder="AIza... stored locally"></div>
+                                <div class="field"><label>Local Ollama URL</label><input value="http://127.0.0.1:11434"></div>
+                            </div>
+                        </div>
+                        <div class="settings-section glass settings-pane" id="settings-github">
+                            <div class="card-title">GitHub Connection</div>
+                            <div class="field-grid" style="margin-top:14px;">
+                                <div class="field"><label>GitHub token</label><input type="password" placeholder="ghp_... stored locally"></div>
+                                <div class="field"><label>Default owner/org</label><input placeholder="Lordsleezy"></div>
+                                <div class="field"><label>Export behavior</label><select><option>Create branch + PR</option><option>Commit directly</option><option>Export zip only</option></select></div>
+                                <div class="field"><label>Default visibility</label><select><option>Private</option><option>Public</option></select></div>
+                            </div>
+                        </div>
+                        <div class="settings-section glass settings-pane" id="settings-routing">
+                            <div class="card-title">Model Routing Preferences</div>
+                            <div class="field-grid" style="margin-top:14px;">
+                                <div class="field"><label>Primary coding model</label><select><option>Auto</option><option>GPT-5</option><option>Claude</option><option>Gemini</option><option>Local Ollama</option></select></div>
+                                <div class="field"><label>Fallback policy</label><select><option>Local fallback first</option><option>Cloud fallback first</option><option>Ask before switching</option></select></div>
+                            </div>
+                            <div class="toggle-row"><span>Route private files to local models when possible</span><span class="switch on"></span></div>
+                            <div class="toggle-row"><span>Show routing decisions in chat</span><span class="switch on"></span></div>
+                        </div>
+                        <div class="settings-section glass settings-pane" id="settings-memory">
+                            <div class="card-title">Memory / Database Settings</div>
+                            <div class="field-grid" style="margin-top:14px;">
+                                <div class="field"><label>Memory store</label><select><option>Local SQLite</option><option>Local vector store</option><option>Disabled</option></select></div>
+                                <div class="field"><label>Workspace index path</label><input placeholder="Select local workspace"></div>
+                            </div>
+                            <div class="toggle-row"><span>Persistent memory</span><span class="switch on"></span></div>
+                            <div class="toggle-row"><span>Index project files automatically</span><span class="switch"></span></div>
+                        </div>
+                        <div class="settings-section glass settings-pane" id="settings-devices">
+                            <div class="card-title">Device / Debug Settings</div>
+                            <div class="field-grid" style="margin-top:14px;">
+                                <div class="field"><label>ADB path</label><input placeholder="C:\\Android\\platform-tools\\adb.exe"></div>
+                                <div class="field"><label>Default device target</label><input placeholder="No device selected"></div>
+                            </div>
+                            <div class="toggle-row"><span>Enable device logs</span><span class="switch on"></span></div>
+                            <div class="toggle-row"><span>Allow screen capture for Sentinel Vision</span><span class="switch"></span></div>
+                        </div>
+                        <div class="settings-section glass settings-pane" id="settings-theme">
+                            <div class="card-title">Theme Settings</div>
+                            <div class="field-grid" style="margin-top:14px;">
+                                <div class="field"><label>Interface mode</label><select><option>Holographic starfield</option><option>Low glow</option><option>High contrast</option></select></div>
+                                <div class="field"><label>Tesseract intensity</label><select><option>Balanced</option><option>Calm</option><option>High energy</option></select></div>
+                            </div>
+                            <div class="toggle-row"><span>Animated background</span><span class="switch on"></span></div>
+                        </div>
+                        <div class="settings-section glass settings-pane" id="settings-security">
+                            <div class="card-title">Security / Privacy Settings</div>
+                            <div class="toggle-row"><span>Keep API keys local</span><span class="switch on"></span></div>
+                            <div class="toggle-row"><span>Require approval before network actions</span><span class="switch on"></span></div>
+                            <div class="toggle-row"><span>Redact secrets from logs</span><span class="switch on"></span></div>
+                            <div class="toggle-row"><span>Allow anonymous telemetry</span><span class="switch"></span></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
     </div>
 
     <script>
-        // Auto-refresh every 5 seconds
-        setInterval(refreshDashboard, 5000);
+        const tabs = document.querySelectorAll(".nav-button");
+        const screens = document.querySelectorAll(".screen");
+        const settingsButtons = document.querySelectorAll(".settings-nav button");
+        const settingsPanes = document.querySelectorAll(".settings-pane");
 
-        // Initial load
-        refreshDashboard();
-
-        async function refreshDashboard() {
-            await Promise.all([
-                updateStatus(),
-                updateEarnings(),
-                updateTasks(),
-                updateLogs()
-            ]);
+        function activateTab(name) {
+            tabs.forEach(btn => btn.classList.toggle("active", btn.dataset.tab === name));
+            screens.forEach(screen => screen.classList.toggle("active", screen.id === "screen-" + name));
+            if (name === "ai") requestAnimationFrame(resizeTesseract);
         }
 
-        async function updateStatus() {
-            try {
-                const response = await fetch('/api/status');
-                const data = await response.json();
+        tabs.forEach(btn => btn.addEventListener("click", () => activateTab(btn.dataset.tab)));
 
-                // Backend status
-                const backendStatus = document.getElementById('backend-status');
-                const backendText = document.getElementById('backend-text');
-                if (data.running) {
-                    backendStatus.className = 'status-indicator ' + (data.paused ? 'status-paused' : 'status-running');
-                    backendText.textContent = data.paused ? 'Paused' : 'Running';
-                } else {
-                    backendStatus.className = 'status-indicator status-offline';
-                    backendText.textContent = 'Offline';
-                }
+        document.querySelectorAll("[data-tab-jump]").forEach(btn => {
+            btn.addEventListener("click", () => activateTab(btn.dataset.tabJump));
+        });
 
-                // Ollama status
-                const ollamaStatus = document.getElementById('ollama-status');
-                const ollamaText = document.getElementById('ollama-text');
-                if (data.ollama_status === 'running') {
-                    ollamaStatus.className = 'status-indicator status-running';
-                    ollamaText.textContent = 'Running';
-                } else {
-                    ollamaStatus.className = 'status-indicator status-offline';
-                    ollamaText.textContent = 'Offline';
-                }
+        settingsButtons.forEach(btn => {
+            btn.addEventListener("click", () => {
+                const key = btn.dataset.settings;
+                settingsButtons.forEach(item => item.classList.toggle("active", item === btn));
+                settingsPanes.forEach(pane => pane.classList.toggle("active", pane.id === "settings-" + key));
+            });
+        });
 
-                document.getElementById('active-tasks').textContent = data.active_tasks || 0;
-                document.getElementById('last-scan').textContent = data.last_scan || 'Never';
-            } catch (error) {
-                console.error('Failed to update status:', error);
+        document.querySelectorAll(".switch").forEach(toggle => {
+            toggle.addEventListener("click", () => toggle.classList.toggle("on"));
+        });
+
+        const messages = document.getElementById("messages");
+        const chatInput = document.getElementById("chatInput");
+        const sendChat = document.getElementById("sendChat");
+
+        function addMessage(text, type) {
+            const div = document.createElement("div");
+            div.className = "message " + type;
+            div.textContent = text;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function submitChat(value) {
+            const text = value.trim();
+            if (!text) return;
+            addMessage(text, "user");
+            addMessage("Command staged locally: " + text + ". Backend execution will connect through the Sentinel Prime runtime.", "ai");
+            chatInput.value = "";
+        }
+
+        sendChat.addEventListener("click", () => submitChat(chatInput.value));
+        chatInput.addEventListener("keydown", event => {
+            if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) submitChat(chatInput.value);
+        });
+        document.querySelectorAll("[data-prompt]").forEach(btn => {
+            btn.addEventListener("click", () => submitChat(btn.dataset.prompt));
+        });
+
+        setInterval(() => {
+            const clock = document.getElementById("previewClock");
+            if (clock) clock.textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        }, 1000);
+
+        const canvas = document.getElementById("tesseractCanvas");
+        const ctx = canvas.getContext("2d");
+        let width = 1;
+        let height = 1;
+        let pointerX = 0;
+        let pointerY = 0;
+
+        const vertices = [];
+        for (let x of [-1, 1]) for (let y of [-1, 1]) for (let z of [-1, 1]) for (let w of [-1, 1]) {
+            vertices.push([x, y, z, w]);
+        }
+
+        const edges = [];
+        for (let i = 0; i < vertices.length; i++) {
+            for (let j = i + 1; j < vertices.length; j++) {
+                let diff = 0;
+                for (let k = 0; k < 4; k++) if (vertices[i][k] !== vertices[j][k]) diff++;
+                if (diff === 1) edges.push([i, j]);
             }
         }
 
-        async function updateEarnings() {
-            try {
-                const response = await fetch('/api/earnings');
-                const data = await response.json();
-
-                document.getElementById('total-earnings').textContent = '$' + (data.confirmed_earnings || 0).toFixed(2);
-                document.getElementById('pending-count').textContent = data.pending_count || 0;
-                document.getElementById('merged-count').textContent = data.merged_count || 0;
-                document.getElementById('merge-rate').textContent = (data.merge_rate || 0) + '%';
-            } catch (error) {
-                console.error('Failed to update earnings:', error);
-            }
+        function rotatePlane(point, a, b, angle) {
+            const next = point.slice();
+            const ca = Math.cos(angle);
+            const sa = Math.sin(angle);
+            next[a] = point[a] * ca - point[b] * sa;
+            next[b] = point[a] * sa + point[b] * ca;
+            return next;
         }
 
-        async function updateTasks() {
-            try {
-                const response = await fetch('/api/tasks');
-                const data = await response.json();
-                const taskList = document.getElementById('task-list');
-
-                if (data.tasks && data.tasks.length > 0) {
-                    taskList.innerHTML = data.tasks.map(task => `
-                        <li class="task-item">
-                            <div class="task-title">${task.title}</div>
-                            <div class="task-meta">
-                                Complexity: ${task.complexity_score} | 
-                                Bounty: $${task.bounty_amount}
-                            </div>
-                        </li>
-                    `).join('');
-                } else {
-                    taskList.innerHTML = '<li class="empty-state">No active tasks</li>';
-                }
-            } catch (error) {
-                console.error('Failed to update tasks:', error);
-            }
+        function project4D(point) {
+            const wDistance = 3.4;
+            const wScale = wDistance / (wDistance - point[3]);
+            const x3 = point[0] * wScale;
+            const y3 = point[1] * wScale;
+            const z3 = point[2] * wScale;
+            const zDistance = 4.4;
+            const zScale = zDistance / (zDistance - z3);
+            const scale = Math.min(width, height) * 0.19;
+            return {
+                x: width / 2 + x3 * zScale * scale,
+                y: height / 2 + y3 * zScale * scale,
+                depth: zScale * wScale,
+            };
         }
 
-        async function updateLogs() {
-            try {
-                const response = await fetch('/api/logs');
-                const data = await response.json();
-                const logsContainer = document.getElementById('logs-container');
-
-                if (data.logs && data.logs.length > 0) {
-                    logsContainer.innerHTML = data.logs.map(log => `
-                        <div class="log-entry">
-                            <span class="log-timestamp">${new Date(log.timestamp).toLocaleTimeString()}</span>
-                            <span class="log-event">${log.event}</span>
-                            <span class="log-detail">${log.detail}</span>
-                        </div>
-                    `).join('');
-                } else {
-                    logsContainer.innerHTML = '<div class="empty-state">No logs available</div>';
-                }
-            } catch (error) {
-                console.error('Failed to update logs:', error);
-            }
+        function resizeTesseract() {
+            const rect = canvas.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            width = Math.max(1, rect.width);
+            height = Math.max(1, rect.height);
+            canvas.width = Math.floor(width * dpr);
+            canvas.height = Math.floor(height * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
 
-        async function pauseOperations() {
-            try {
-                await fetch('/api/pause', { method: 'POST' });
-                await updateStatus();
-            } catch (error) {
-                alert('Failed to pause operations');
+        function drawTesseract(time) {
+            ctx.clearRect(0, 0, width, height);
+            const t = time * 0.00022;
+            const mx = pointerX * 0.28;
+            const my = pointerY * 0.22;
+
+            const points = vertices.map(vertex => {
+                let p = vertex;
+                p = rotatePlane(p, 0, 1, t * 1.5 + mx);
+                p = rotatePlane(p, 0, 2, t * 0.9 + my);
+                p = rotatePlane(p, 1, 3, t * 1.1);
+                p = rotatePlane(p, 2, 3, t * 0.8 + mx * 0.5);
+                return project4D(p);
+            });
+
+            const gradient = ctx.createRadialGradient(width / 2, height / 2, 20, width / 2, height / 2, Math.min(width, height) * 0.48);
+            gradient.addColorStop(0, "rgba(125, 233, 255, 0.16)");
+            gradient.addColorStop(0.48, "rgba(185, 145, 255, 0.08)");
+            gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+
+            for (let i = 0; i < 90; i++) {
+                const angle = i * 1.618 + t * 0.8;
+                const radius = (Math.sin(i * 12.989) * 0.5 + 0.5) * Math.min(width, height) * 0.47;
+                const x = width / 2 + Math.cos(angle) * radius;
+                const y = height / 2 + Math.sin(angle * 0.7) * radius * 0.56;
+                ctx.fillStyle = i % 5 === 0 ? "rgba(185,145,255,0.48)" : "rgba(255,255,255,0.34)";
+                ctx.fillRect(x, y, 1.3, 1.3);
             }
+
+            edges.forEach(([a, b]) => {
+                const p1 = points[a];
+                const p2 = points[b];
+                const alpha = Math.min(0.95, 0.22 + (p1.depth + p2.depth) * 0.16);
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.strokeStyle = `rgba(166, 236, 255, ${alpha})`;
+                ctx.lineWidth = 1.2;
+                ctx.shadowColor = "rgba(125, 233, 255, 0.75)";
+                ctx.shadowBlur = 12;
+                ctx.stroke();
+            });
+
+            points.forEach(point => {
+                const r = Math.max(2, point.depth * 2.4);
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, r, 0, Math.PI * 2);
+                ctx.fillStyle = "rgba(255,255,255,0.92)";
+                ctx.shadowColor = "rgba(255,255,255,0.85)";
+                ctx.shadowBlur = 18;
+                ctx.fill();
+            });
+
+            requestAnimationFrame(drawTesseract);
         }
 
-        async function resumeOperations() {
-            try {
-                await fetch('/api/resume', { method: 'POST' });
-                await updateStatus();
-            } catch (error) {
-                alert('Failed to resume operations');
-            }
-        }
-
-        async function emergencyStop() {
-            if (confirm('Are you sure you want to emergency stop all operations?')) {
-                try {
-                    await fetch('/api/emergency-stop', { method: 'POST' });
-                    await updateStatus();
-                } catch (error) {
-                    alert('Failed to emergency stop');
-                }
-            }
-        }
+        canvas.addEventListener("mousemove", event => {
+            const rect = canvas.getBoundingClientRect();
+            pointerX = ((event.clientX - rect.left) / rect.width - 0.5) * 2;
+            pointerY = ((event.clientY - rect.top) / rect.height - 0.5) * 2;
+        });
+        canvas.addEventListener("mouseleave", () => { pointerX = 0; pointerY = 0; });
+        window.addEventListener("resize", resizeTesseract);
+        resizeTesseract();
+        requestAnimationFrame(drawTesseract);
     </script>
 </body>
 </html>
