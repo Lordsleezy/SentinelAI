@@ -51,6 +51,7 @@ CORS(app)
 backend_state = {
     "running": False,
     "paused": False,
+    "startup_complete": False,
     "active_tasks": [],
     "ollama_status": "unknown",
     "last_scan": None,
@@ -162,6 +163,97 @@ def api_status():
         "total_earnings": backend_state["total_earnings"],
         "last_scan": backend_state["last_scan"]
     })
+
+
+@app.route('/api/health/live')
+def api_health_live():
+    """Liveness probe — returns 200 as long as Flask is running."""
+    return jsonify({"alive": True, "timestamp": datetime.now().isoformat()}), 200
+
+
+@app.route('/api/health/ready')
+def api_health_ready():
+    """
+    Readiness probe for Electron lifecycle polling.
+    Returns 200 + ready=True only when all subsystems are initialized.
+    """
+    checks = {}
+    try:
+        db.get_recent_logs(limit=1)
+        checks["database"] = True
+    except Exception:
+        checks["database"] = False
+
+    try:
+        qm.get_queue_stats()
+        checks["queue"] = True
+    except Exception:
+        checks["queue"] = False
+
+    try:
+        manager = wm.get_manager()
+        checks["workers"] = len(manager.workers) > 0
+    except Exception:
+        checks["workers"] = False
+
+    try:
+        watchdog = wd.get_watchdog()
+        checks["watchdog"] = watchdog.running
+    except Exception:
+        checks["watchdog"] = False
+
+    try:
+        monitor = hm.get_monitor()
+        checks["health_monitor"] = monitor.running
+    except Exception:
+        checks["health_monitor"] = False
+
+    checks["startup_complete"] = bool(backend_state.get("startup_complete"))
+    all_ready = all(checks.values())
+
+    return jsonify({
+        "ready": all_ready,
+        "checks": checks,
+        "timestamp": datetime.now().isoformat()
+    }), 200 if all_ready else 503
+
+
+@app.route('/api/shutdown', methods=['POST'])
+def api_shutdown():
+    """Graceful shutdown endpoint called by Electron before exiting."""
+    try:
+        auth_token = request.headers.get('Authorization')
+        if not verify_auth_token(auth_token):
+            return jsonify({"error": "Unauthorized"}), 401
+
+        logger.info("Graceful shutdown requested via /api/shutdown")
+        backend_state["running"] = False
+
+        def _shutdown():
+            import time
+            time.sleep(0.5)
+            try:
+                manager = wm.get_manager()
+                manager.pause_all()
+            except Exception:
+                pass
+            try:
+                watchdog = wd.get_watchdog()
+                watchdog.stop()
+            except Exception:
+                pass
+            try:
+                monitor = hm.get_monitor()
+                monitor.stop()
+            except Exception:
+                pass
+            logger.info("Backend shutdown complete")
+            os._exit(0)
+
+        threading.Thread(target=_shutdown, daemon=True).start()
+        return jsonify({"status": "shutting_down"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/tasks')
@@ -836,7 +928,11 @@ def api_reflect_workflow(workflow_id):
 
 def run_flask_app():
     """Run Flask app in background thread."""
-    app.run(host='0.0.0.0', port=5001, debug=False, use_reloader=False)
+    host = os.getenv("FLASK_HOST", "127.0.0.1")
+    port = int(os.getenv("FLASK_PORT", "5001"))
+    if host not in ("127.0.0.1", "localhost"):
+        logger.warning(f"Flask binding to {host} — ensure firewall is configured!")
+    app.run(host=host, port=port, debug=False, use_reloader=False)
 
 
 def start_backend():
@@ -905,9 +1001,14 @@ def start_backend():
     # Start Flask in background thread
     flask_thread = threading.Thread(target=run_flask_app, daemon=True)
     flask_thread.start()
-    
+
+    # Small delay to allow Flask to bind before marking ready
+    import time
+    time.sleep(0.8)
+
     backend_state["running"] = True
-    logger.info("Backend started on http://localhost:5001")
+    backend_state["startup_complete"] = True
+    logger.info("Backend started on http://127.0.0.1:5001")
 
 
 # ─── Main Entry Point ─────────────────────────────────────────────────────────

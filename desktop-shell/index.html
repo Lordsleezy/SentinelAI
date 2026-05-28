@@ -3,13 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SentinelAI Desktop</title>
+  <title>SentinelAI</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -21,83 +17,129 @@
       align-items: center;
       justify-content: center;
       overflow: hidden;
+      user-select: none;
+      -webkit-app-region: drag;
     }
 
     .container {
       text-align: center;
-      padding: 40px;
-      background: rgba(10, 10, 10, 0.8);
-      border: 2px solid #00ff88;
-      border-radius: 20px;
-      box-shadow: 0 0 30px rgba(0, 255, 136, 0.3);
-      max-width: 600px;
+      padding: 40px 50px;
+      background: rgba(10, 10, 10, 0.85);
+      border: 1px solid rgba(0, 255, 136, 0.4);
+      border-radius: 16px;
+      box-shadow: 0 0 40px rgba(0, 255, 136, 0.15), 0 0 80px rgba(0, 0, 0, 0.6);
+      min-width: 360px;
     }
 
     h1 {
-      font-size: 3em;
-      margin-bottom: 20px;
-      text-shadow: 0 0 20px rgba(0, 255, 136, 0.8);
+      font-size: 2.6em;
+      font-weight: 700;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
       animation: glow 2s ease-in-out infinite alternate;
     }
 
-    @keyframes glow {
-      from {
-        text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
-      }
-      to {
-        text-shadow: 0 0 30px rgba(0, 255, 136, 1);
-      }
+    .tagline {
+      font-size: 0.75em;
+      color: #00ccff;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      margin-bottom: 32px;
+      opacity: 0.8;
     }
 
-    .status {
-      font-size: 1.2em;
-      margin: 20px 0;
-      color: #00ccff;
+    @keyframes glow {
+      from { text-shadow: 0 0 8px rgba(0, 255, 136, 0.5); }
+      to   { text-shadow: 0 0 24px rgba(0, 255, 136, 1), 0 0 48px rgba(0, 255, 136, 0.3); }
     }
 
     .spinner {
-      width: 50px;
-      height: 50px;
-      border: 5px solid rgba(0, 255, 136, 0.3);
-      border-top: 5px solid #00ff88;
+      width: 44px;
+      height: 44px;
+      border: 3px solid rgba(0, 255, 136, 0.2);
+      border-top: 3px solid #00ff88;
       border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 30px auto;
+      animation: spin 0.9s linear infinite;
+      margin: 0 auto 24px;
     }
 
     @keyframes spin {
-      0% { transform: rotate(0deg); }
+      0%   { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
 
-    .info {
-      margin-top: 30px;
+    .status {
       font-size: 0.9em;
-      color: #888;
+      color: #aaa;
+      min-height: 1.4em;
+      margin-bottom: 18px;
+      transition: opacity 0.2s ease;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 3px;
+      background: rgba(0, 255, 136, 0.12);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #00ff88, #00ccff);
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .info {
+      font-size: 0.78em;
+      color: #555;
+      line-height: 1.7;
     }
 
     .version {
-      margin-top: 10px;
-      font-size: 0.8em;
-      color: #666;
+      margin-top: 12px;
+      font-size: 0.72em;
+      color: #444;
     }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>⚡ SentinelAI</h1>
-    <div class="status">Initializing Desktop Shell...</div>
+    <div class="tagline">Orchestration OS</div>
     <div class="spinner"></div>
-    <div class="info">
-      <p>🤖 AI-Powered Automation Platform</p>
-      <p>🔒 Secure • 🚀 Fast • 💡 Intelligent</p>
+    <div class="status" id="status">Initializing...</div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progress"></div>
     </div>
-    <div class="version">v1.0.0-alpha</div>
+    <div class="info">
+      <div>Runtime Intelligence · Autonomous Workflows</div>
+      <div>Multi-Agent Coordination · Persistent Memory</div>
+    </div>
+    <div class="version">v1.0.0</div>
   </div>
 
   <script>
-    // Future: Add initialization logic here
-    console.log('SentinelAI Desktop Shell loaded');
+    // nodeIntegration is enabled for this splash window so we can use IPC
+    try {
+      const { ipcRenderer } = require('electron');
+
+      ipcRenderer.on('splash-message', (_event, msg) => {
+        const el = document.getElementById('status');
+        if (el) el.textContent = msg;
+      });
+
+      ipcRenderer.on('splash-progress', (_event, pct) => {
+        const el = document.getElementById('progress');
+        if (el) el.style.width = pct + '%';
+      });
+    } catch (e) {
+      // Fallback if running outside Electron (browser preview)
+      console.log('IPC not available:', e.message);
+    }
   </script>
 </body>
 </html>
