@@ -10,7 +10,7 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 120
 
     steps:
@@ -23,7 +23,7 @@ jobs:
           python-version: '3.11'
 
       - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
 
@@ -47,7 +47,7 @@ jobs:
       - name: Install Node dependencies
         run: |
           cd desktop-shell
-          npm install
+          npm install --legacy-peer-deps
 
       - name: Create application icon
         run: node create_icon.js
@@ -60,7 +60,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload installer as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: SentinelAI-Windows-Installer
           path: installer_dist/*.exe
