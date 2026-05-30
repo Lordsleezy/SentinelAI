@@ -2,9 +2,10 @@ name: Build SentinelAI Windows Installer
 
 on:
   push:
-    branches: [master]
-  tags:
-    - 'v*'
+    branches:
+      - master
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
