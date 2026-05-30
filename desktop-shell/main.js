@@ -510,6 +510,33 @@ function spawnPtyTerminal() {
 }
 
 // ============================================================================
+// SETUP WIZARD
+// ============================================================================
+
+function isFirstRun() {
+  // Check if .env file exists in parent directory
+  const envPath = path.join(__dirname, '..', '.env');
+  return !fs.existsSync(envPath);
+}
+
+function createSetupWizardWindow() {
+  const setupWindow = new BrowserWindow({
+    width: 800,
+    height: 900,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  });
+
+  setupWindow.loadFile(path.join(__dirname, 'setup_wizard.html'));
+  setupWindow.show();
+
+  return setupWindow;
+}
+
+// ============================================================================
 // IPC HANDLERS
 // ============================================================================
 
@@ -551,6 +578,44 @@ function setupIPC() {
   ipcMain.on('show-notification', (_event, { title, body }) => {
     new Notification({ title, body }).show();
   });
+
+  // Setup wizard completion
+  ipcMain.on('setup-complete', (event, config) => {
+    console.log('[IPC] Setup wizard completed - writing .env');
+
+    // Convert config to .env format
+    const envContent = Object.entries(config)
+      .filter(([_, v]) => v !== null && v !== undefined && v !== '')
+      .map(([k, v]) => {
+        const key = k.toUpperCase();
+        const value = typeof v === 'boolean' ? (v ? 'true' : 'false') : v;
+        return `${key}=${value}`;
+      })
+      .join('\n');
+
+    // Write .env file
+    const envPath = path.join(__dirname, '..', '.env');
+    try {
+      fs.writeFileSync(envPath, envContent, 'utf8');
+      console.log('[IPC] .env file written successfully');
+
+      // Close setup window and launch main windows
+      const setupWin = BrowserWindow.fromWebContents(event.sender);
+      if (setupWin && !setupWin.isDestroyed()) {
+        setupWin.close();
+      }
+
+      // Launch main windows after small delay
+      setTimeout(() => {
+        createOrbWindow();
+        createWorkerWindow('forge');
+        startBackendMonitor();
+      }, 500);
+    } catch (err) {
+      console.error('[IPC] Failed to write .env:', err);
+      event.reply('setup-error', { error: err.message });
+    }
+  });
 }
 
 // ============================================================================
@@ -579,6 +644,15 @@ async function startupSequence() {
     await validateBackendHealth();
 
     updateSplash('Opening dashboard...', 92);
+
+    // Check if first run - show setup wizard
+    if (isFirstRun()) {
+      console.log('[Startup] First run detected - launching setup wizard');
+      updateSplash('First-run setup...', 95);
+      splashWindow.hide();
+      createSetupWizardWindow();
+      return; // Don't launch main windows yet
+    }
 
     // Launch BOTH windows on startup
     createOrbWindow();           // Window 1 - The Orb (persistent)

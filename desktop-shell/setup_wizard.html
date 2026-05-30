@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SentinelAI Setup Wizard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .wizard-container {
+      width: 90%;
+      max-width: 700px;
+      background: rgba(18, 18, 31, 0.95);
+      border: 1px solid rgba(0, 255, 136, 0.2);
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      margin-bottom: 40px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #00ff88, #00ccff);
+      width: 11%;
+      transition: width 0.3s ease;
+    }
+
+    .page { display: none; }
+    .page.active { display: block; }
+
+    h1 {
+      margin-bottom: 8px;
+      color: #00ff88;
+      font-size: 24px;
+    }
+
+    .subtitle {
+      color: #888;
+      margin-bottom: 24px;
+      font-size: 14px;
+    }
+
+    .form-group {
+      margin-bottom: 18px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: #b0b0b0;
+      font-weight: 500;
+    }
+
+    input, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(0, 255, 136, 0.2);
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus, textarea:focus {
+      border-color: rgba(0, 255, 136, 0.5);
+      box-shadow: 0 0 8px rgba(0, 255, 136, 0.1);
+    }
+
+    input::placeholder {
+      color: #555;
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    input[type="checkbox"] {
+      width: auto;
+      cursor: pointer;
+    }
+
+    .helper-text {
+      font-size: 12px;
+      color: #777;
+      margin-top: 4px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-top: 30px;
+    }
+
+    button {
+      flex: 1;
+      padding: 12px 20px;
+      border: 1px solid rgba(0, 255, 136, 0.3);
+      background: rgba(0, 255, 136, 0.1);
+      color: #00ff88;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    button:hover {
+      background: rgba(0, 255, 136, 0.2);
+      border-color: rgba(0, 255, 136, 0.6);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.skip {
+      background: rgba(100, 100, 100, 0.1);
+      color: #888;
+      border-color: rgba(100, 100, 100, 0.3);
+    }
+
+    button.skip:hover {
+      background: rgba(100, 100, 100, 0.2);
+    }
+
+    .completion-box {
+      background: rgba(0, 255, 136, 0.05);
+      border: 1px solid rgba(0, 255, 136, 0.2);
+      border-radius: 8px;
+      padding: 16px;
+      margin: 20px 0;
+    }
+
+    .completion-item {
+      margin: 8px 0;
+      font-size: 13px;
+      color: #d0d0d0;
+    }
+
+    .completion-item.optional {
+      color: #888;
+    }
+
+    .icon {
+      display: inline-block;
+      margin-right: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wizard-container">
+    <div class="progress-bar">
+      <div class="progress-fill"></div>
+    </div>
+
+    <!-- Page 1: Welcome -->
+    <div class="page active">
+      <h1>👋 Welcome to SentinelAI</h1>
+      <p class="subtitle">Let's get you set up in 9 simple steps</p>
+      <div style="color: #aaa; line-height: 1.6; margin: 24px 0;">
+        <p>SentinelAI is an intelligent desktop assistant that can:</p>
+        <ul style="margin-left: 20px; margin-top: 12px;">
+          <li>Search the web and retrieve information</li>
+          <li>Control your smart home devices</li>
+          <li>Manage your finances and crypto portfolio</li>
+          <li>Control Spotify and play music</li>
+          <li>Bridge your messaging apps</li>
+          <li>Track packages and stay organized</li>
+        </ul>
+      </div>
+      <p class="subtitle" style="margin-top: 24px;">This setup wizard will configure everything.</p>
+    </div>
+
+    <!-- Page 2: GitHub Credentials -->
+    <div class="page">
+      <h1>🔐 GitHub Credentials</h1>
+      <p class="subtitle">For PR submissions and automation</p>
+      <div class="form-group">
+        <label>GitHub Username</label>
+        <input type="text" id="github_username" placeholder="your-github-username">
+      </div>
+      <div class="form-group">
+        <label>GitHub Personal Access Token</label>
+        <input type="password" id="github_token" placeholder="ghp_...">
+        <p class="helper-text">Create at: https://github.com/settings/tokens?type=beta</p>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-group">
+          <input type="checkbox" id="dry_run" checked>
+          <span>Dry run mode (test without making actual changes)</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Page 3: AI & APIs -->
+    <div class="page">
+      <h1>🤖 AI & APIs</h1>
+      <p class="subtitle">Configure AI models and API keys</p>
+      <div class="form-group">
+        <label>Anthropic API Key (Claude)</label>
+        <input type="password" id="anthropic_api_key" placeholder="sk_live_...">
+        <p class="helper-text">Optional - for confidence escalation. Get at: console.anthropic.com</p>
+      </div>
+      <div class="form-group">
+        <label>Ollama Host</label>
+        <input type="text" id="ollama_host" placeholder="http://127.0.0.1:11434" value="http://127.0.0.1:11434">
+        <p class="helper-text">Local AI server. Download at: ollama.com</p>
+      </div>
+      <div class="form-group">
+        <label>Ollama Model</label>
+        <input type="text" id="ollama_model" placeholder="qwen2.5-coder:14b" value="qwen2.5-coder:14b">
+      </div>
+    </div>
+
+    <!-- Page 4: Smart Home -->
+    <div class="page">
+      <h1>🏠 Smart Home</h1>
+      <p class="subtitle">Connect Home Assistant and cameras</p>
+      <div class="form-group">
+        <label>Home Assistant URL</label>
+        <input type="text" id="ha_url" placeholder="http://homeassistant.local:8123">
+        <p class="helper-text">Optional - for smart home automation</p>
+      </div>
+      <div class="form-group">
+        <label>Home Assistant Access Token</label>
+        <input type="password" id="ha_token" placeholder="eyJ...">
+        <p class="helper-text">Long-lived token from HA Settings</p>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-group">
+          <input type="checkbox" id="blink_enabled">
+          <span>Enable Blink cameras</span>
+        </label>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-group">
+          <input type="checkbox" id="eufy_enabled">
+          <span>Enable Eufy cameras</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Page 5: Messaging -->
+    <div class="page">
+      <h1>💬 Messaging</h1>
+      <p class="subtitle">Connect Telegram and WhatsApp</p>
+      <div class="form-group">
+        <label>Telegram Bot Token</label>
+        <input type="password" id="telegram_token" placeholder="123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh">
+        <p class="helper-text">Create bot at: @BotFather on Telegram</p>
+      </div>
+      <div class="form-group">
+        <label>Telegram User ID</label>
+        <input type="text" id="telegram_user_id" placeholder="123456789">
+        <p class="helper-text">Get from: @userinfobot on Telegram</p>
+      </div>
+      <div class="form-group">
+        <label>WhatsApp Number (optional)</label>
+        <input type="text" id="whatsapp_number" placeholder="+1234567890">
+        <p class="helper-text">Full international format</p>
+      </div>
+    </div>
+
+    <!-- Page 6: Finance -->
+    <div class="page">
+      <h1>💰 Finance</h1>
+      <p class="subtitle">Connect your financial apps</p>
+      <div class="form-group">
+        <label>Firefly III URL</label>
+        <input type="text" id="firefly_url" placeholder="http://localhost:8080">
+        <p class="helper-text">Self-hosted personal finance app</p>
+      </div>
+      <div class="form-group">
+        <label>Firefly III Token</label>
+        <input type="password" id="firefly_token" placeholder="eyJ...">
+        <p class="helper-text">Personal access token from Firefly Settings</p>
+      </div>
+      <div class="form-group">
+        <label>Brave Search API Key (optional)</label>
+        <input type="password" id="brave_key" placeholder="your_brave_search_key">
+        <p class="helper-text">For web search without tracking</p>
+      </div>
+    </div>
+
+    <!-- Page 7: Entertainment -->
+    <div class="page">
+      <h1>🎵 Entertainment</h1>
+      <p class="subtitle">Connect Spotify and media services</p>
+      <div class="form-group">
+        <label>Spotify Client ID</label>
+        <input type="text" id="spotify_id" placeholder="your_spotify_client_id">
+        <p class="helper-text">Create app at: developer.spotify.com/dashboard</p>
+      </div>
+      <div class="form-group">
+        <label>Spotify Client Secret</label>
+        <input type="password" id="spotify_secret" placeholder="your_spotify_client_secret">
+      </div>
+      <div class="form-group">
+        <label>Spotify Redirect URI</label>
+        <input type="text" id="spotify_redirect" placeholder="http://localhost:8888/callback" value="http://localhost:8888/callback">
+      </div>
+    </div>
+
+    <!-- Page 8: Wearables & Health -->
+    <div class="page">
+      <h1>⌚ Wearables & Health</h1>
+      <p class="subtitle">Connect health tracking devices</p>
+      <div class="form-group">
+        <label>Open Wearables API Token</label>
+        <input type="password" id="wearables_token" placeholder="your_wearables_token">
+        <p class="helper-text">Optional - for health and fitness tracking</p>
+      </div>
+      <div class="form-group">
+        <label>Miniflux URL (News Feed)</label>
+        <input type="text" id="miniflux_url" placeholder="http://localhost:8085">
+        <p class="helper-text">Self-hosted RSS reader</p>
+      </div>
+      <div class="form-group">
+        <label>Miniflux API Key</label>
+        <input type="password" id="miniflux_key" placeholder="your_miniflux_api_key">
+      </div>
+    </div>
+
+    <!-- Page 9: Complete -->
+    <div class="page">
+      <h1>✅ Setup Complete!</h1>
+      <p class="subtitle">Your configuration is ready</p>
+      <div class="completion-box">
+        <div class="completion-item"><span class="icon">✓</span>GitHub credentials configured</div>
+        <div class="completion-item"><span class="icon">✓</span>AI models and APIs ready</div>
+        <div class="completion-item"><span class="icon">✓</span>Smart home connected</div>
+        <div class="completion-item"><span class="icon">✓</span>Messaging bridges active</div>
+        <div class="completion-item"><span class="icon">✓</span>Financial integration ready</div>
+        <div class="completion-item optional"><span class="icon">•</span>Optional services can be added later</div>
+      </div>
+      <p style="color: #aaa; margin-top: 20px; font-size: 13px; line-height: 1.6;">
+        SentinelAI is now launching. You can edit your configuration anytime by modifying the .env file.
+      </p>
+    </div>
+
+    <div class="controls">
+      <button id="prevBtn" onclick="prevPage()" style="display: none;">← Back</button>
+      <button id="skipBtn" class="skip" onclick="skipPage()">Skip</button>
+      <button id="nextBtn" onclick="nextPage()">Next →</button>
+      <button id="finishBtn" onclick="finishSetup()" style="display: none;">Launch SentinelAI 🚀</button>
+    </div>
+  </div>
+
+  <script>
+    let currentPage = 0;
+    const totalPages = 9;
+
+    function updateUI() {
+      const pages = document.querySelectorAll('.page');
+      pages.forEach((p, i) => p.classList.toggle('active', i === currentPage));
+
+      const progress = ((currentPage + 1) / totalPages) * 100;
+      document.querySelector('.progress-fill').style.width = progress + '%';
+
+      document.getElementById('prevBtn').style.display = currentPage > 0 ? 'block' : 'none';
+      document.getElementById('skipBtn').style.display = currentPage < 8 ? 'block' : 'none';
+      document.getElementById('nextBtn').style.display = currentPage < 8 ? 'block' : 'none';
+      document.getElementById('finishBtn').style.display = currentPage === 8 ? 'block' : 'none';
+    }
+
+    function nextPage() {
+      if (currentPage < totalPages - 1) {
+        currentPage++;
+        updateUI();
+      }
+    }
+
+    function prevPage() {
+      if (currentPage > 0) {
+        currentPage--;
+        updateUI();
+      }
+    }
+
+    function skipPage() {
+      nextPage();
+    }
+
+    function collectConfig() {
+      return {
+        github_username: document.getElementById('github_username')?.value || '',
+        github_token: document.getElementById('github_token')?.value || '',
+        dry_run: document.getElementById('dry_run')?.checked || false,
+        anthropic_api_key: document.getElementById('anthropic_api_key')?.value || '',
+        ollama_host: document.getElementById('ollama_host')?.value || 'http://127.0.0.1:11434',
+        ollama_model: document.getElementById('ollama_model')?.value || 'qwen2.5-coder:14b',
+        ha_url: document.getElementById('ha_url')?.value || '',
+        ha_token: document.getElementById('ha_token')?.value || '',
+        telegram_token: document.getElementById('telegram_token')?.value || '',
+        telegram_user_id: document.getElementById('telegram_user_id')?.value || '',
+        whatsapp_number: document.getElementById('whatsapp_number')?.value || '',
+        firefly_url: document.getElementById('firefly_url')?.value || '',
+        firefly_token: document.getElementById('firefly_token')?.value || '',
+        brave_key: document.getElementById('brave_key')?.value || '',
+        spotify_id: document.getElementById('spotify_id')?.value || '',
+        spotify_secret: document.getElementById('spotify_secret')?.value || '',
+        spotify_redirect: document.getElementById('spotify_redirect')?.value || 'http://localhost:8888/callback',
+        wearables_token: document.getElementById('wearables_token')?.value || '',
+        miniflux_url: document.getElementById('miniflux_url')?.value || '',
+        miniflux_key: document.getElementById('miniflux_key')?.value || ''
+      };
+    }
+
+    function finishSetup() {
+      const config = collectConfig();
+
+      // Send to Electron main process
+      if (window.ipcRenderer) {
+        window.ipcRenderer.send('setup-complete', config);
+      } else {
+        console.log('Setup config:', config);
+        // Fallback: post to backend
+        fetch('http://127.0.0.1:5001/api/setup/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config)
+        }).then(() => {
+          window.close();
+        });
+      }
+    }
+
+    updateUI();
+  </script>
+</body>
+</html>
