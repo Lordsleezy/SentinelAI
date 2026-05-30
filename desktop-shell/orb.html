@@ -223,6 +223,212 @@
       background: rgba(0,255,136,0.3);
       border-radius: 2px;
     }
+
+    .tier-badge {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      transition: all 0.2s;
+      z-index: 100;
+    }
+
+    .tier-badge.free {
+      background: rgba(100,100,100,0.2);
+      border: 1px solid rgba(100,100,100,0.4);
+      color: #999;
+    }
+
+    .tier-badge.pro {
+      background: rgba(255,215,0,0.15);
+      border: 1px solid rgba(255,215,0,0.4);
+      color: #ffd700;
+      box-shadow: 0 0 12px rgba(255,215,0,0.2);
+    }
+
+    .tier-badge:hover {
+      opacity: 1;
+      transform: scale(1.05);
+    }
+
+    #upgrade-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+    }
+
+    #upgrade-modal.visible {
+      display: flex;
+    }
+
+    #upgrade-modal-content {
+      background: rgba(18,18,31,0.98);
+      border: 1px solid rgba(0,255,136,0.3);
+      border-radius: 12px;
+      padding: 32px;
+      max-width: 500px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+
+    #upgrade-modal-content h2 {
+      margin-bottom: 12px;
+      color: #ffd700;
+      font-size: 22px;
+    }
+
+    #upgrade-modal-content p {
+      color: #aaa;
+      margin-bottom: 24px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    #upgrade-modal-buttons {
+      display: flex;
+      gap: 12px;
+    }
+
+    #upgrade-modal-buttons button {
+      flex: 1;
+      padding: 12px;
+      border: 1px solid rgba(0,255,136,0.3);
+      background: rgba(0,255,136,0.1);
+      color: #00ff88;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    #upgrade-modal-buttons button:hover {
+      background: rgba(0,255,136,0.2);
+      border-color: rgba(0,255,136,0.6);
+    }
+
+    #upgrade-modal-buttons button.secondary {
+      background: rgba(100,100,100,0.1);
+      border-color: rgba(100,100,100,0.3);
+      color: #888;
+    }
+
+    #upgrade-modal-buttons button.secondary:hover {
+      background: rgba(100,100,100,0.2);
+      border-color: rgba(100,100,100,0.5);
+    }
+
+    #activation-panel {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(18,18,31,0.98);
+      border: 1px solid rgba(0,255,136,0.3);
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 400px;
+      display: none;
+      z-index: 2100;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+
+    #activation-panel.visible {
+      display: block;
+    }
+
+    #activation-panel h3 {
+      margin-bottom: 16px;
+      color: #00ff88;
+      font-size: 16px;
+    }
+
+    #activation-panel input {
+      width: 100%;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(0,255,136,0.2);
+      border-radius: 6px;
+      color: #e0e0e0;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    #activation-panel input:focus {
+      border-color: rgba(0,255,136,0.5);
+      outline: none;
+    }
+
+    #activation-panel .message {
+      font-size: 12px;
+      margin-bottom: 12px;
+      padding: 8px;
+      border-radius: 4px;
+      display: none;
+    }
+
+    #activation-panel .message.success {
+      background: rgba(0,255,136,0.1);
+      color: #00ff88;
+      border: 1px solid rgba(0,255,136,0.2);
+      display: block;
+    }
+
+    #activation-panel .message.error {
+      background: rgba(255,107,107,0.1);
+      color: #ff6b6b;
+      border: 1px solid rgba(255,107,107,0.2);
+      display: block;
+    }
+
+    #activation-panel .buttons {
+      display: flex;
+      gap: 8px;
+    }
+
+    #activation-panel .buttons button {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid rgba(0,255,136,0.3);
+      background: rgba(0,255,136,0.1);
+      color: #00ff88;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    #activation-panel .buttons button:hover {
+      background: rgba(0,255,136,0.2);
+    }
+
+    .usage-counter {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      font-size: 11px;
+      color: #888;
+      max-width: 200px;
+    }
+
+    .usage-counter.free {
+      display: block;
+    }
+
+    .usage-counter.pro {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -230,6 +436,29 @@
     <div id="orb-root" style="width: 400px; height: 400px;"></div>
     <div id="response-area"></div>
     <div id="plan-preview"></div>
+    <div class="tier-badge" id="tier-badge">FREE</div>
+    <div class="usage-counter" id="usage-counter"></div>
+  </div>
+
+  <div id="upgrade-modal">
+    <div id="upgrade-modal-content">
+      <h2>Upgrade to SentinelAI Pro</h2>
+      <p id="upgrade-message"></p>
+      <div id="upgrade-modal-buttons">
+        <button onclick="appShowActivationPanel()">Activate License Key</button>
+        <button class="secondary" onclick="openPricingPage()">Get Pro — $199</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="activation-panel">
+    <h3>Activate SentinelAI Pro</h3>
+    <input type="text" id="license-key-input" placeholder="Enter your license key">
+    <div class="message" id="activation-message"></div>
+    <div class="buttons">
+      <button onclick="appActivateLicense()">Activate</button>
+      <button class="secondary" onclick="appCloseActivationPanel()">Cancel</button>
+    </div>
   </div>
 
   <div id="input-section">
@@ -481,6 +710,119 @@
       div.textContent = str;
       return div.innerHTML;
     }
+
+    // ─── License Management ──────────────────────────────────────────────────
+
+    let licenseStatus = null;
+
+    async function loadLicenseStatus() {
+      try {
+        const res = await fetch('http://127.0.0.1:5001/license/status');
+        licenseStatus = await res.json();
+        updateLicenseUI();
+      } catch (e) {
+        console.error('Failed to load license status:', e);
+      }
+    }
+
+    function updateLicenseUI() {
+      if (!licenseStatus) return;
+
+      const badge = document.getElementById('tier-badge');
+      const counter = document.getElementById('usage-counter');
+
+      if (licenseStatus.is_pro) {
+        badge.textContent = 'PRO';
+        badge.classList.add('pro');
+        badge.classList.remove('free');
+        counter.classList.add('pro');
+        counter.classList.remove('free');
+        counter.textContent = '';
+      } else {
+        badge.textContent = 'FREE';
+        badge.classList.add('free');
+        badge.classList.remove('pro');
+        counter.classList.add('free');
+        counter.classList.remove('pro');
+
+        // Show usage
+        const usage = licenseStatus.usage || {};
+        const limits = licenseStatus.limits || {};
+        const parts = [];
+        for (const [key, max] of Object.entries(limits)) {
+          const current = usage[key] || 0;
+          parts.push(`${key.replace(/_/g, ' ')}: ${current}/${max}`);
+        }
+        counter.textContent = parts.join(' · ');
+      }
+    }
+
+    window.appShowActivationPanel = function() {
+      document.getElementById('upgrade-modal').classList.remove('visible');
+      document.getElementById('activation-panel').classList.add('visible');
+      document.getElementById('license-key-input').focus();
+    };
+
+    window.appCloseActivationPanel = function() {
+      document.getElementById('activation-panel').classList.remove('visible');
+      document.getElementById('license-key-input').value = '';
+      document.getElementById('activation-message').textContent = '';
+      document.getElementById('activation-message').className = 'message';
+    };
+
+    window.appActivateLicense = async function() {
+      const key = document.getElementById('license-key-input').value.trim();
+      if (!key) {
+        showActivationMessage('Please enter a license key', 'error');
+        return;
+      }
+
+      try {
+        const res = await fetch('http://127.0.0.1:5001/license/activate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          showActivationMessage('Pro activated! All features unlocked.', 'success');
+          await loadLicenseStatus();
+          setTimeout(() => {
+            appCloseActivationPanel();
+          }, 1500);
+        } else {
+          showActivationMessage(data.message || 'Activation failed', 'error');
+        }
+      } catch (e) {
+        showActivationMessage('Activation failed: ' + e.message, 'error');
+      }
+    };
+
+    function showActivationMessage(msg, type) {
+      const msgEl = document.getElementById('activation-message');
+      msgEl.textContent = msg;
+      msgEl.className = 'message ' + type;
+    }
+
+    window.showUpgradeModal = function(message) {
+      document.getElementById('upgrade-message').textContent = message;
+      document.getElementById('upgrade-modal').classList.add('visible');
+    };
+
+    window.openPricingPage = function() {
+      const url = 'https://sentinelprime.org/pricing';
+      if (window.ipcRenderer && window.ipcRenderer.send) {
+        window.ipcRenderer.send('open-url', url);
+      } else {
+        window.open(url, '_blank');
+      }
+    };
+
+    // Load license status on startup
+    loadLicenseStatus();
+    setInterval(loadLicenseStatus, 30000); // Refresh every 30 seconds
   </script>
 </body>
 </html>

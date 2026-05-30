@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Products - Sentinel Prime</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="page.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="logo" href="index.html">SENTINELPRIME</a>
+  <div class="nav-links">
+    <a href="products.html">Products</a>
+    <a href="pricing.html">Pricing</a>
+    <a href="download.html">Download</a>
+    <a href="about.html">About</a>
+    <a href="contact.html">Contact</a>
+    <a class="nav-cta" href="checkout.html">Buy Pro &rarr;</a>
+  </div>
+</nav>
+
+<main>
+  <section class="page-hero">
+    <div class="wrap">
+      <p class="eyebrow">SentinelAI</p>
+      <h1>The autonomous AI OS for your life</h1>
+      <p class="lead">SentinelAI is a local-first personal operating system built around an orb interface. Speak or type a request, and Sentinel routes it to the right worker automatically: automation, code, search, security, markets, memory, home control, or a new tool it builds for you.</p>
+      <div class="buttons">
+        <a class="button" href="download.html">Download</a>
+        <a class="button secondary" href="pricing.html">Free Tier | Pro $199</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap grid-2">
+      <div class="panel">
+        <p class="eyebrow">How The Orb Works</p>
+        <h2>One interface. Many workers.</h2>
+        <p class="copy">The orb is the user-facing brain. It listens for intent, chooses the right worker, checks whether approval is needed, and gives the result back in plain language. OpenClaw handles commands, Forge writes and repairs code, Guardian scans and protects, Earn finds opportunities, Market tracks paper trading, Voice handles wake word flows, and the Home Assistant bridge connects your smart home.</p>
+      </div>
+      <div class="panel">
+        <p class="eyebrow">Self-Extending</p>
+        <h2>When a tool does not exist, Sentinel can build it.</h2>
+        <p class="copy">SentinelAI can search for existing capability, route known work to existing workers, or ask for approval before Forge builds a new tool. This keeps automation useful without letting an AI silently expand itself behind your back.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <p class="eyebrow">Capabilities</p>
+      <h2>Built for the daily surface area of life.</h2>
+      <ul class="feature-list">
+        <li>Always-listening wake word: "Hey Sentinel"</li>
+        <li>Smart home control: lights, locks, cameras, thermostat</li>
+        <li>Calendar, contacts, and reminders</li>
+        <li>Web search and page summarization</li>
+        <li>Freelance job scanning: HackerOne, Upwork, RemoteOK</li>
+        <li>Paper trading market dashboard: Freqtrade + OpenBB</li>
+        <li>Code writing and repair with Forge</li>
+        <li>Health tracking with wearables integration</li>
+        <li>Finance tracking with Firefly III</li>
+        <li>Spotify music control</li>
+        <li>Package tracking</li>
+        <li>Obsidian-compatible memory vault</li>
+        <li>Self-extending capability system</li>
+        <li>Telegram and WhatsApp remote control from anywhere</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap grid-2">
+      <div class="panel">
+        <span class="badge">Coming Soon</span>
+        <p class="eyebrow" style="margin-top:22px">Sentinel Drive</p>
+        <h2>Your encrypted portable AI stack</h2>
+        <p class="copy">Sentinel Drive is the hardware layer: an encrypted USB/drive product that carries your entire SentinelAI setup. Plug it into a machine and bring your vault, private browser, local models, workers, and encrypted storage with you.</p>
+        <p class="copy">The goal is simple: your AI life travels with you, but your data stays yours.</p>
+      </div>
+      <div class="form-panel">
+        <p class="eyebrow">Launch Notification</p>
+        <h2>Notify me when Sentinel Drive launches</h2>
+        <form id="driveNotifyForm">
+          <input required type="email" name="email" placeholder="you@example.com">
+          <button class="button" type="submit">Notify Me</button>
+          <div class="form-status" id="driveNotifyStatus"></div>
+        </form>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="footer-links">
+    <a href="index.html">Home</a><a href="products.html">Products</a><a href="download.html">Download</a><a href="pricing.html">Pricing</a><a href="about.html">About</a><a href="contact.html">Contact</a><a href="https://github.com/Lordsleezy/sentinelprime" target="_blank" rel="noopener">GitHub</a>
+  </div>
+  <div>&copy; 2026 Sentinel Prime Inc. - paul@sentinelprime.org</div>
+</footer>
+
+<script>
+document.getElementById("driveNotifyForm").addEventListener("submit", function (event) {
+  event.preventDefault();
+  document.getElementById("driveNotifyStatus").textContent = "Thanks. We will email you when Sentinel Drive is ready.";
+});
+</script>
+</body>
+</html>

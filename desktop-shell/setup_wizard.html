@@ -347,8 +347,13 @@
 
     <!-- Page 9: Complete -->
     <div class="page">
-      <h1>✅ Setup Complete!</h1>
-      <p class="subtitle">Your configuration is ready</p>
+      <h1>✅ Almost Ready!</h1>
+      <p class="subtitle">One final step: activate your license (optional)</p>
+      <div class="form-group">
+        <label>Pro License Key (optional)</label>
+        <input type="text" id="license_key" placeholder="Leave blank to start with Free tier">
+        <p class="helper-text">You can activate Pro anytime from the settings menu</p>
+      </div>
       <div class="completion-box">
         <div class="completion-item"><span class="icon">✓</span>GitHub credentials configured</div>
         <div class="completion-item"><span class="icon">✓</span>AI models and APIs ready</div>
@@ -406,7 +411,7 @@
     }
 
     function collectConfig() {
-      return {
+      const config = {
         github_username: document.getElementById('github_username')?.value || '',
         github_token: document.getElementById('github_token')?.value || '',
         dry_run: document.getElementById('dry_run')?.checked || false,
@@ -426,8 +431,10 @@
         spotify_redirect: document.getElementById('spotify_redirect')?.value || 'http://localhost:8888/callback',
         wearables_token: document.getElementById('wearables_token')?.value || '',
         miniflux_url: document.getElementById('miniflux_url')?.value || '',
-        miniflux_key: document.getElementById('miniflux_key')?.value || ''
+        miniflux_key: document.getElementById('miniflux_key')?.value || '',
+        license_key: document.getElementById('license_key')?.value || ''
       };
+      return config;
     }
 
     function finishSetup() {

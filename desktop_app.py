@@ -38,6 +38,7 @@ from executor import run_executor, execute_submit
 from scanner import run_scan
 from openclaw_integration import OpenClawCommandRouter
 from workers.forge_worker import run_approved_forge_task
+from workers.licensing.license_manager import get_license_manager
 from notifications import send_notification
 from memory_manager import get_memory_manager
 
@@ -51,6 +52,9 @@ logger = logging.getLogger(__name__)
 # Flask app
 app = Flask(__name__)
 CORS(app)
+
+# License manager (initialized at startup)
+license_manager = get_license_manager()
 
 # ─── Real-time events (Task 4) — graceful fallback to polling ──────────────────
 # When flask-socketio is installed we push events to the HUD instantly; if not,
@@ -518,11 +522,19 @@ def api_forge_tasks():
 @app.route('/api/forge/request', methods=['POST'])
 def api_forge_request():
     try:
+        # Check forge task limit for free tier
+        limit_check = license_manager.check_limit("forge_tasks")
+        if not limit_check["allowed"]:
+            return jsonify({"error": limit_check["message"], "code": "limit_reached"}), 403
+
         data = request.get_json() or {}
         prompt = (data.get("prompt") or "").strip()
         if not prompt:
             return jsonify({"error": "prompt required"}), 400
+
         task_id = db.create_forge_task(prompt)
+        license_manager.increment_usage("forge_tasks")  # Track usage
+
         db.log_event("forge_approval_required", f"Forge task #{task_id} requires approval")
         send_notification(
             "SentinelAI Forge approval needed",
@@ -2087,9 +2099,17 @@ def api_openclaw_calendar_upcoming():
 def api_openclaw_web_search():
     """Web search via Brave"""
     try:
+        # Check web search limit for free tier
+        limit_check = license_manager.check_limit("web_searches")
+        if not limit_check["allowed"]:
+            return jsonify({"status": "error", "message": limit_check["message"], "code": "limit_reached"}), 403
+
         from workers.openclaw.openclaw_worker import handle_intent
         data = request.get_json() or {}
         result = handle_intent("web.search", data)
+
+        license_manager.increment_usage("web_searches")  # Track usage
+
         return jsonify(result)
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -2149,6 +2169,10 @@ def api_messaging_status():
 def api_home_status():
     """Home Assistant status"""
     try:
+        feature_check = license_manager.check_feature("home_assistant")
+        if not feature_check["allowed"]:
+            return jsonify({"status": "error", "error": feature_check["message"], "code": "pro_required"}), 403
+
         from workers.home.home_assistant import get_ha_bridge
         ha = get_ha_bridge()
         return jsonify({
@@ -2164,6 +2188,10 @@ def api_home_status():
 def api_home_cameras():
     """List cameras"""
     try:
+        feature_check = license_manager.check_feature("cameras")
+        if not feature_check["allowed"]:
+            return jsonify({"status": "error", "error": feature_check["message"], "code": "pro_required"}), 403
+
         from workers.home.camera_worker import list_cameras
         cameras = list_cameras()
         return jsonify({"status": "ok", "data": cameras})
@@ -2175,6 +2203,10 @@ def api_home_cameras():
 def api_home_camera_look():
     """Look at specific camera"""
     try:
+        feature_check = license_manager.check_feature("cameras")
+        if not feature_check["allowed"]:
+            return jsonify({"status": "error", "error": feature_check["message"], "code": "pro_required"}), 403
+
         from workers.home.camera_worker import look_at
         data = request.get_json() or {}
         camera_name = data.get('camera_name', '')
@@ -2188,6 +2220,10 @@ def api_home_camera_look():
 def api_home_camera_look_all():
     """Look at all cameras"""
     try:
+        feature_check = license_manager.check_feature("cameras")
+        if not feature_check["allowed"]:
+            return jsonify({"status": "error", "error": feature_check["message"], "code": "pro_required"}), 403
+
         from workers.home.camera_worker import look_at_all
         result = look_at_all()
         return jsonify(result)
@@ -2554,6 +2590,60 @@ def api_orchestration_test():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ─── Licensing & Tier API ────────────────────────────────────────────────────
+
+@app.route('/license/status', methods=['GET'])
+def api_license_status():
+    """Get current license status"""
+    try:
+        status = license_manager.get_status()
+        return jsonify(status)
+    except Exception as e:
+        logger.error(f"License status check failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/license/activate', methods=['POST'])
+def api_license_activate():
+    """Activate a pro license"""
+    try:
+        data = request.get_json()
+        key = data.get('key', '').strip()
+
+        if not key:
+            return jsonify({"success": False, "message": "License key required"}), 400
+
+        result = license_manager.activate(key)
+        status_code = 200 if result['success'] else 400
+
+        return jsonify(result), status_code
+    except Exception as e:
+        logger.error(f"License activation failed: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/license/deactivate', methods=['POST'])
+def api_license_deactivate():
+    """Deactivate pro license"""
+    try:
+        result = license_manager.deactivate()
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"License deactivation failed: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/license/check/<feature_name>', methods=['GET'])
+def api_license_check(feature_name):
+    """Check if a feature is allowed"""
+    try:
+        result = license_manager.check_feature(feature_name)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"License check failed: {e}")
+        return jsonify({"allowed": False, "error": str(e)}), 500
 
 
 # ─── Backend Launcher ─────────────────────────────────────────────────────────

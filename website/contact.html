@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contact - Sentinel Prime</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="page.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="logo" href="index.html">SENTINELPRIME</a>
+  <div class="nav-links">
+    <a href="products.html">Products</a><a href="pricing.html">Pricing</a><a href="download.html">Download</a><a href="about.html">About</a><a href="contact.html">Contact</a><a class="nav-cta" href="checkout.html">Buy Pro &rarr;</a>
+  </div>
+</nav>
+
+<main>
+  <section class="page-hero">
+    <div class="wrap narrow">
+      <p class="eyebrow">Contact</p>
+      <h1>Talk to Sentinel Prime.</h1>
+      <p class="lead">Questions, support, partnerships, press, and bug reports. We'll respond within 24-48 hours.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap grid-2">
+      <div class="form-panel">
+        <form id="contactForm">
+          <input required name="name" placeholder="Name">
+          <input required type="email" name="email" placeholder="Email">
+          <select required name="subject">
+            <option value="">Subject</option>
+            <option>General</option>
+            <option>Support</option>
+            <option>Business/Partnership</option>
+            <option>Press</option>
+            <option>Bug Report</option>
+          </select>
+          <textarea required name="message" placeholder="Message"></textarea>
+          <button class="button" type="submit">Submit</button>
+          <div class="form-status" id="contactStatus"></div>
+        </form>
+      </div>
+      <div class="panel">
+        <p class="eyebrow">Direct Contact</p>
+        <h2>paul@sentinelprime.org</h2>
+        <p class="copy">GitHub: <a style="color:#fff" href="https://github.com/Lordsleezy" target="_blank" rel="noopener">github.com/Lordsleezy</a></p>
+        <p class="copy">Free tier support is handled through GitHub Issues. Pro tier includes direct email support at paul@sentinelprime.org.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="footer-links">
+    <a href="index.html">Home</a><a href="products.html">Products</a><a href="download.html">Download</a><a href="pricing.html">Pricing</a><a href="about.html">About</a><a href="contact.html">Contact</a><a href="https://github.com/Lordsleezy/sentinelprime" target="_blank" rel="noopener">GitHub</a>
+  </div>
+  <div>&copy; 2026 Sentinel Prime Inc. - paul@sentinelprime.org</div>
+</footer>
+
+<script>
+document.getElementById("contactForm").addEventListener("submit", async function (event) {
+  event.preventDefault();
+  const status = document.getElementById("contactStatus");
+  status.className = "form-status";
+  status.textContent = "Sending...";
+  const payload = Object.fromEntries(new FormData(event.currentTarget));
+  if (!payload.name || !payload.email || !payload.subject || !payload.message) {
+    status.classList.add("error");
+    status.textContent = "Please fill out every field.";
+    return;
+  }
+  try {
+    const response = await fetch("/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) throw new Error("Contact endpoint unavailable");
+    status.classList.add("success");
+    status.textContent = "Message sent. We'll respond within 24-48 hours.";
+    event.currentTarget.reset();
+  } catch (error) {
+    status.classList.add("error");
+    status.textContent = "Contact endpoint unavailable. Email paul@sentinelprime.org directly.";
+  }
+});
+</script>
+</body>
+</html>

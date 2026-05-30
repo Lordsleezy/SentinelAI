@@ -156,6 +156,12 @@ body.site-ready .nav { pointer-events: auto; }
   text-transform: uppercase;
 }
 .nav-links a:hover { color: #fff; text-shadow: 0 0 16px var(--hud-blue); }
+.nav-links .nav-cta {
+  padding: 10px 14px;
+  border: 1px solid rgba(0, 212, 255, 0.55);
+  background: rgba(0, 212, 255, 0.08);
+  color: #fff;
+}
 
 main {
   position: relative;
@@ -248,6 +254,70 @@ h1, h2 { margin: 0; }
   margin: 24px 0 0;
   color: rgba(255,255,255,0.72);
   font: 400 clamp(0.96rem, 1.7vw, 1.14rem) / 1.75 "Share Tech Mono", monospace;
+}
+
+.info-panel {
+  padding: clamp(24px, 4vw, 46px);
+  border: 1px solid rgba(0, 212, 255, 0.15);
+  border-radius: 4px;
+  background: rgba(0, 4, 8, 0.82);
+  backdrop-filter: blur(18px);
+}
+
+.body-copy {
+  display: grid;
+  gap: 18px;
+  margin-top: 24px;
+  color: rgba(255,255,255,0.72);
+  font: 400 clamp(0.95rem, 1.45vw, 1.08rem) / 1.75 "Share Tech Mono", monospace;
+}
+
+.feature-grid {
+  width: min(1180px, 100%);
+  margin: 42px auto 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.feature-card,
+.tier-card {
+  padding: 22px;
+  border: 1px solid rgba(0, 212, 255, 0.15);
+  border-radius: 4px;
+  background: rgba(0, 4, 8, 0.85);
+  backdrop-filter: blur(16px);
+}
+
+.feature-card h3,
+.tier-card h3 {
+  margin: 0 0 10px;
+  font: 700 0.95rem "Syne", sans-serif;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.feature-card p,
+.tier-card p {
+  margin: 0;
+  color: rgba(255,255,255,0.65);
+  font: 400 0.86rem / 1.55 "Share Tech Mono", monospace;
+}
+
+.stats-strip {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.tier-grid {
+  width: min(1000px, 100%);
+  margin: 40px auto 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
 }
 
 .product-list {
@@ -368,11 +438,29 @@ footer {
   opacity: 0;
 }
 
+.footer-links {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.footer-links a {
+  color: rgba(255,255,255,0.56);
+  text-decoration: none;
+}
+
+.footer-links a:hover { color: #fff; }
+
 @media (max-width: 800px) {
   .nav { padding: 18px; }
   .nav-links { gap: 12px; }
   .nav-links a { font-size: 0.62rem; }
   .content-grid { grid-template-columns: 1fr; }
+  .feature-grid,
+  .stats-strip,
+  .tier-grid { grid-template-columns: 1fr; }
   .stats { grid-template-columns: 1fr; }
   .section { padding: 110px 20px; }
 }
@@ -393,11 +481,14 @@ footer {
 </div>
 
 <nav class="nav" id="nav">
-  <a class="logo" href="#top">SENTINELPRIME</a>
+  <a class="logo" href="index.html">SENTINELPRIME</a>
   <div class="nav-links">
-    <a href="#products">Products</a>
-    <a href="#drive">Drive</a>
-    <a href="#download">Download</a>
+    <a href="products.html">Products</a>
+    <a href="pricing.html">Pricing</a>
+    <a href="download.html">Download</a>
+    <a href="about.html">About</a>
+    <a href="contact.html">Contact</a>
+    <a class="nav-cta" href="checkout.html">Buy Pro &rarr;</a>
     <a href="https://github.com/Lordsleezy/sentinelprime" target="_blank" rel="noopener">GitHub</a>
   </div>
 </nav>
@@ -407,56 +498,62 @@ footer {
     <div>
       <p class="eyebrow">The AI Operating System</p>
       <h1>The Future Runs Locally</h1>
-      <p class="sub">SentinelPrime is a private local AI ecosystem for workers, security, automation, and revenue. No subscriptions. No cloud. No compromise.</p>
+      <p class="sub">SentinelPrime is a private local AI ecosystem for workers, security, automation, memory, markets, smart home control, and real-world productivity.</p>
       <div class="buttons">
-        <a class="button" href="#download">Download</a>
+        <a class="button" href="download.html">Download</a>
         <a class="button" href="https://github.com/Lordsleezy/sentinelprime" target="_blank" rel="noopener">View GitHub</a>
       </div>
     </div>
   </section>
 
-  <section class="section" id="products">
+  <section class="section" id="sentinel">
     <div class="content-grid">
-      <div>
-        <p class="eyebrow">Product Galaxy</p>
-        <h2 class="section-title">One local brain. Six connected systems.</h2>
-        <p class="section-copy">Each product is a worker in the same private constellation: plan, build, scan, automate, store, and remember without sending your work to the cloud.</p>
+      <div class="info-panel">
+        <p class="eyebrow">What Is SentinelAI</p>
+        <h2 class="section-title">Meet Sentinel - Your Personal AI Operating System</h2>
       </div>
-      <div class="product-list">
-        <article class="product-card" style="--accent:#00d4ff"><span class="product-dot"></span><div><h3>SENTINELAI</h3><p>Autonomous operations brain for routing, planning, and local task execution.</p></div></article>
-        <article class="product-card" style="--accent:#7b2ff7"><span class="product-dot"></span><div><h3>OPENCLAW</h3><p>Natural language command layer that turns intent into real actions.</p></div></article>
-        <article class="product-card" style="--accent:#ff6b35"><span class="product-dot"></span><div><h3>FORGE</h3><p>Builds missing tools, code, and workflows when the system needs new capability.</p></div></article>
-        <article class="product-card" style="--accent:#00ff88"><span class="product-dot"></span><div><h3>GUARDIAN</h3><p>Security worker for scanning, monitoring, and recovery.</p></div></article>
-        <article class="product-card" style="--accent:#ffffff"><span class="product-dot"></span><div><h3>SENTINEL DRIVE</h3><p>Encrypted portable software layer for private AI on your own hardware.</p></div></article>
-        <article class="product-card" style="--accent:#ff9944"><span class="product-dot"></span><div><h3>PERSONAL AI</h3><p>A unified assistant that keeps your tools, memory, and automations together.</p></div></article>
+      <div class="info-panel body-copy">
+        <p>SentinelAI is a local-first AI assistant and automation platform that runs entirely on your own hardware. It gives you a personal AI operating system without renting your life back from a cloud subscription.</p>
+        <p>You talk to Sentinel through an orb interface. Ask for what you need, and the system routes your request to the right worker automatically: search, code, repair, organize, monitor, summarize, automate, or build something new.</p>
+        <p>Sentinel can control your smart home, manage your calendar, track your finances, find freelance work, trade markets in paper mode, write and repair code, monitor your health data, capture memory and notes, and more.</p>
+        <p>Everything runs on your machine. No subscriptions. No cloud requirement. Your data never leaves unless you explicitly connect an integration that needs the internet.</p>
       </div>
     </div>
-  </section>
-
-  <section class="section" id="drive">
-    <div class="content-grid">
-      <div class="drive-panel">
-        <p class="eyebrow">Sentinel Drive</p>
-        <h2 class="section-title">Your entire digital life, encrypted and portable.</h2>
-        <div class="drive-lines">
-          <div>Plug in. Power up. Every model, tool, and workflow becomes available.</div>
-          <div>Your data stays local and under your control.</div>
-          <div>Designed for the physical product layer: encrypted storage, vault, scanner, and private browser.</div>
-        </div>
-      </div>
-      <div>
-        <p class="eyebrow">Private By Default</p>
-        <h2 class="section-title">The cloud is optional. Ownership is not.</h2>
-        <p class="section-copy">SentinelPrime is designed around local-first execution, approval gates, and hardware-aware model routing so the system can run on the machine in front of you.</p>
-      </div>
+    <div class="feature-grid">
+      <article class="feature-card"><h3>Voice Control</h3><p>Wake word and voice workflows built around the Sentinel orb.</p></article>
+      <article class="feature-card"><h3>Smart Home</h3><p>Control lights, locks, cameras, thermostats, and routines.</p></article>
+      <article class="feature-card"><h3>Code & Repair</h3><p>Forge writes code, fixes bugs, and extends the system.</p></article>
+      <article class="feature-card"><h3>Earn & Market</h3><p>Scan freelance work and run paper trading dashboards locally.</p></article>
+      <article class="feature-card"><h3>Memory & Notes</h3><p>Local memory vault and Obsidian-compatible notes.</p></article>
+      <article class="feature-card"><h3>Health & Finance</h3><p>Bring wearables, budgets, and personal signals into one private OS.</p></article>
     </div>
   </section>
 
   <section class="section">
-    <div class="stats">
-      <div class="stat"><div><strong>5</strong><span>AI WORKERS</span></div></div>
-      <div class="stat"><div><strong>1</strong><span>UNIFIED BRAIN</span></div></div>
+    <div class="stats-strip">
+      <div class="stat"><div><strong>6</strong><span>AI WORKERS</span></div></div>
+      <div class="stat"><div><strong>100%</strong><span>LOCAL</span></div></div>
       <div class="stat"><div><strong>0</strong><span>CLOUD REQUIRED</span></div></div>
+      <div class="stat"><div><strong>FREE</strong><span>TIER AVAILABLE</span></div></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div>
+      <p class="eyebrow" style="text-align:center">Choose Your Tier</p>
+      <h2 class="section-title" style="text-align:center">Start free. Unlock the full local OS when ready.</h2>
+      <div class="tier-grid">
+        <article class="tier-card">
+          <h3>Free Tier</h3>
+          <p>Core orb interface, Forge, limited Earn scanning, memory, web search, calendar, and notes.</p>
+          <div class="buttons"><a class="button" href="pricing.html">Compare Tiers</a></div>
+        </article>
+        <article class="tier-card">
+          <h3>Pro - $199 One-Time</h3>
+          <p>All integrations, market dashboard, smart home, voice activation, messaging bridges, proactive agents, and priority support.</p>
+          <div class="buttons"><a class="button" href="pricing.html">See Pro</a></div>
+        </article>
+      </div>
     </div>
   </section>
 
@@ -466,14 +563,25 @@ footer {
       <h2>The Future Runs Locally</h2>
       <p>No subscriptions. No cloud. No compromise.</p>
       <div class="buttons">
-        <a class="button" href="https://github.com/Lordsleezy/sentinelprime" target="_blank" rel="noopener">GitHub &rarr;</a>
-        <a class="button" href="#top">Back To Top</a>
+        <a class="button" href="download.html">Download Free</a>
+        <a class="button" href="checkout.html">Buy Pro &rarr;</a>
       </div>
     </div>
   </section>
 </main>
 
-<footer id="footer">SENTINEL PRIME - The AI Operating System - github.com/Lordsleezy/sentinelprime</footer>
+<footer id="footer">
+  <div class="footer-links">
+    <a href="index.html">Home</a>
+    <a href="products.html">Products</a>
+    <a href="download.html">Download</a>
+    <a href="pricing.html">Pricing</a>
+    <a href="about.html">About</a>
+    <a href="contact.html">Contact</a>
+    <a href="https://github.com/Lordsleezy/sentinelprime" target="_blank" rel="noopener">GitHub</a>
+  </div>
+  <div>&copy; 2026 Sentinel Prime Inc. - paul@sentinelprime.org</div>
+</footer>
 
 <script>
 (function () {

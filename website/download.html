@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Download - Sentinel Prime</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="page.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="logo" href="index.html">SENTINELPRIME</a>
+  <div class="nav-links">
+    <a href="products.html">Products</a><a href="pricing.html">Pricing</a><a href="download.html">Download</a><a href="about.html">About</a><a href="contact.html">Contact</a><a class="nav-cta" href="checkout.html">Buy Pro &rarr;</a>
+  </div>
+</nav>
+
+<main>
+  <section class="page-hero">
+    <div class="wrap narrow">
+      <p class="eyebrow">Download</p>
+      <h1>Install SentinelAI on Windows.</h1>
+      <p class="lead">No account required. No email. Just download and run the free local desktop app. Pro unlocks with an activation code after purchase.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap grid-2">
+      <div class="panel">
+        <p class="eyebrow">Free Download</p>
+        <h2>SentinelAI Free - Windows x64</h2>
+        <p class="copy">Download the latest public release from GitHub. The free tier includes the core orb interface, Forge, memory, web search, calendar, notes, and limited Earn scanning.</p>
+        <div class="buttons">
+          <a class="button" href="https://github.com/Lordsleezy/SentinelAI/releases/latest" target="_blank" rel="noopener">Download SentinelAI Free - Windows x64</a>
+        </div>
+        <ul class="plain-list">
+          <li>Windows 10/11 x64</li>
+          <li>Minimum 16GB RAM</li>
+          <li>8GB VRAM GPU recommended</li>
+          <li>CPU-only mode works but is slower</li>
+        </ul>
+      </div>
+
+      <div class="form-panel">
+        <p class="eyebrow">Pro Download</p>
+        <h2>Already have a Pro license?</h2>
+        <p class="copy">Enter your activation code. If valid, the Pro download link will unlock here.</p>
+        <form id="activateForm">
+          <input required name="code" placeholder="Enter your activation code">
+          <input required name="machine_id" placeholder="Machine ID">
+          <button class="button" type="submit">Validate</button>
+          <div class="form-status" id="activateStatus"></div>
+        </form>
+        <div id="proLink" style="display:none" class="buttons">
+          <a class="button" href="https://github.com/Lordsleezy/SentinelAI/releases/latest" target="_blank" rel="noopener">Download Pro Installer</a>
+        </div>
+        <p class="copy">Purchase Pro on the pricing page to get an activation code.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap panel">
+      <p class="eyebrow">Install</p>
+      <h2>Setup takes minutes.</h2>
+      <ol class="steps">
+        <li>Download the Windows x64 installer.</li>
+        <li>Run the installer.</li>
+        <li>Follow the SentinelAI setup wizard.</li>
+        <li>Enter your activation code if you purchased Pro.</li>
+        <li>Launch Sentinel and start locally.</li>
+      </ol>
+      <div class="buttons">
+        <a class="button secondary" href="https://github.com/Lordsleezy/SentinelAI#readme" target="_blank" rel="noopener">Read GitHub Docs</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="footer-links">
+    <a href="index.html">Home</a><a href="products.html">Products</a><a href="download.html">Download</a><a href="pricing.html">Pricing</a><a href="about.html">About</a><a href="contact.html">Contact</a><a href="https://github.com/Lordsleezy/sentinelprime" target="_blank" rel="noopener">GitHub</a>
+  </div>
+  <div>&copy; 2026 Sentinel Prime Inc. - paul@sentinelprime.org</div>
+</footer>
+
+<script>
+document.getElementById("activateForm").addEventListener("submit", async function (event) {
+  event.preventDefault();
+  const status = document.getElementById("activateStatus");
+  status.className = "form-status";
+  status.textContent = "Validating...";
+  const payload = Object.fromEntries(new FormData(event.currentTarget));
+  try {
+    const response = await fetch("/api/activate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (data.valid) {
+      status.classList.add("success");
+      status.textContent = "Valid Pro code. Download unlocked.";
+      document.getElementById("proLink").style.display = "flex";
+    } else {
+      status.classList.add("error");
+      status.textContent = "Invalid or already activated code.";
+    }
+  } catch (error) {
+    status.classList.add("error");
+    status.textContent = "Activation server unavailable. Try again later.";
+  }
+});
+</script>
+</body>
+</html>
