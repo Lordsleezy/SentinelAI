@@ -44,6 +44,20 @@ jobs:
         env:
           PYTHONPATH: .
 
+      - name: Verify backend build
+        run: |
+          if not exist "dist\sentinel_backend\sentinel_backend.exe" (echo BACKEND BUILD FAILED && exit 1)
+          echo Backend build successful
+          dir dist\sentinel_backend\
+
+      - name: Copy backend to backend_dist
+        run: |
+          if exist "backend_dist" rmdir /s /q backend_dist
+          mkdir backend_dist
+          xcopy dist\sentinel_backend backend_dist\sentinel_backend\ /E /I /Y
+          echo Backend copied to backend_dist
+          dir /s backend_dist\
+
       - name: Install Node dependencies
         run: |
           cd desktop-shell
