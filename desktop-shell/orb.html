@@ -111,6 +111,110 @@
       display: block;
     }
 
+    #plan-preview {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(18,18,31,0.98);
+      border: 1px solid rgba(0,255,136,0.3);
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 600px;
+      max-height: 80vh;
+      overflow-y: auto;
+      display: none;
+      z-index: 1000;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+
+    #plan-preview.visible {
+      display: block;
+    }
+
+    #plan-preview h2 {
+      margin-bottom: 16px;
+      color: #00ff88;
+      font-size: 18px;
+    }
+
+    #plan-preview .plan-complexity {
+      display: inline-block;
+      padding: 4px 12px;
+      background: rgba(0,255,136,0.1);
+      border: 1px solid rgba(0,255,136,0.3);
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 16px;
+      color: #00ff88;
+    }
+
+    .plan-subtask {
+      margin-bottom: 12px;
+      padding: 12px;
+      background: rgba(255,255,255,0.05);
+      border-left: 2px solid rgba(0,255,136,0.3);
+      border-radius: 4px;
+    }
+
+    .plan-subtask-index {
+      font-weight: bold;
+      color: #00ff88;
+    }
+
+    .plan-subtask-type {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 8px;
+      background: rgba(0,200,255,0.2);
+      border-radius: 4px;
+      margin-left: 8px;
+      color: #00ccff;
+    }
+
+    .plan-subtask-text {
+      margin-top: 6px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #d0d0d0;
+    }
+
+    #plan-controls {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+      border-top: 1px solid rgba(0,255,136,0.1);
+      padding-top: 16px;
+    }
+
+    .plan-btn {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid rgba(0,255,136,0.3);
+      border-radius: 6px;
+      background: rgba(0,255,136,0.1);
+      color: #00ff88;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    .plan-btn:hover {
+      background: rgba(0,255,136,0.2);
+      border-color: rgba(0,255,136,0.5);
+    }
+
+    .plan-btn.deny {
+      color: #ff6b6b;
+      border-color: rgba(255,107,107,0.3);
+      background: rgba(255,107,107,0.05);
+    }
+
+    .plan-btn.deny:hover {
+      background: rgba(255,107,107,0.15);
+      border-color: rgba(255,107,107,0.5);
+    }
+
     ::-webkit-scrollbar {
       width: 4px;
     }
@@ -125,6 +229,7 @@
   <div id="orb-container">
     <div id="orb-root" style="width: 400px; height: 400px;"></div>
     <div id="response-area"></div>
+    <div id="plan-preview"></div>
   </div>
 
   <div id="input-section">
@@ -215,7 +320,10 @@
     // Worker status polling
     const statusLine = document.getElementById('status-line');
     const responseArea = document.getElementById('response-area');
+    const planPreview = document.getElementById('plan-preview');
     const chatInput = document.getElementById('chat-input');
+
+    let currentPlanId = null;
 
     async function updateWorkerStatus() {
       try {
@@ -237,6 +345,86 @@
       }
     }
 
+    function showPlanPreview(plan) {
+      currentPlanId = plan.plan_id;
+      const complexity = plan.complexity === 'complex' ? 'Complex' : 'Simple';
+      const subtasksHtml = plan.subtasks.map((st, i) => `
+        <div class="plan-subtask">
+          <span class="plan-subtask-index">#${st.index}</span>
+          <span class="plan-subtask-type">${escapeHtml(st.type)}</span>
+          <div class="plan-subtask-text">${escapeHtml(st.task)}</div>
+        </div>
+      `).join('');
+
+      planPreview.innerHTML = `
+        <h2>Execution Plan</h2>
+        <div class="plan-complexity">${complexity} Task</div>
+        ${subtasksHtml}
+        <div id="plan-controls">
+          <button class="plan-btn" onclick="approvePlan()">Execute Plan</button>
+          <button class="plan-btn deny" onclick="denyPlan()">Cancel</button>
+        </div>
+      `;
+      planPreview.classList.add('visible');
+    }
+
+    window.approvePlan = async function() {
+      if (!currentPlanId) return;
+      planPreview.classList.remove('visible');
+      orbState = 'thinking';
+      renderOrb();
+
+      try {
+        const res = await fetch(`http://127.0.0.1:5001/orchestration/plan/${currentPlanId}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+
+        orbState = 'speaking';
+        renderOrb();
+
+        responseArea.textContent = data.response || 'Task completed';
+        responseArea.classList.add('visible');
+
+        setTimeout(() => {
+          responseArea.classList.remove('visible');
+          orbState = 'idle';
+          renderOrb();
+        }, 5000);
+
+      } catch (err) {
+        console.error('Plan approval failed:', err);
+        orbState = 'idle';
+        renderOrb();
+      }
+    };
+
+    window.denyPlan = async function() {
+      if (!currentPlanId) return;
+      planPreview.classList.remove('visible');
+
+      try {
+        await fetch(`http://127.0.0.1:5001/orchestration/plan/${currentPlanId}/deny`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        orbState = 'idle';
+        renderOrb();
+
+        responseArea.textContent = 'Plan cancelled';
+        responseArea.classList.add('visible');
+
+        setTimeout(() => {
+          responseArea.classList.remove('visible');
+        }, 3000);
+
+      } catch (err) {
+        console.error('Plan denial failed:', err);
+      }
+    };
+
     setInterval(updateWorkerStatus, 3000);
     updateWorkerStatus();
 
@@ -250,14 +438,22 @@
         renderOrb();
 
         try {
-          // Route the query to the orchestrator
-          const res = await fetch('http://127.0.0.1:5001/api/orchestrate', {
+          // Route the query to the orchestration pipeline
+          const res = await fetch('http://127.0.0.1:5001/orchestration/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query, source: 'orb' })
+            body: JSON.stringify({ message: query })
           });
 
           const data = await res.json();
+
+          // Check if this is a plan preview
+          if (data.type === 'plan_preview') {
+            orbState = 'idle';
+            renderOrb();
+            showPlanPreview(data.plan);
+            return;
+          }
 
           orbState = 'speaking';
           renderOrb();
@@ -265,14 +461,6 @@
           // Show response
           responseArea.textContent = data.response || 'Processing...';
           responseArea.classList.add('visible');
-
-          // Check if we need to open a worker window
-          if (data.worker_route) {
-            require('electron').ipcRenderer.send('route-to-worker', {
-              worker: data.worker_route,
-              context: data.context || {}
-            });
-          }
 
           setTimeout(() => {
             responseArea.classList.remove('visible');

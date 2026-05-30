@@ -2451,6 +2451,111 @@ def api_news_unread():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
+# ─── Orchestration Pipeline API ───────────────────────────────────────────────
+
+@app.route('/orchestration/chat', methods=['POST'])
+def api_orchestration_chat():
+    """Process user request through orchestration pipeline"""
+    try:
+        data = request.get_json()
+        user_request = data.get('message', '')
+
+        if not user_request:
+            return jsonify({"error": "No message provided"}), 400
+
+        from workers.orchestration.pipeline import get_pipeline
+        pipeline = get_pipeline()
+        result = pipeline.process(user_request)
+
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Orchestration chat failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/orchestration/plan/<plan_id>/approve', methods=['POST'])
+def api_orchestration_approve(plan_id):
+    """Approve and execute a pending plan"""
+    try:
+        from workers.orchestration.pipeline import get_pipeline
+        pipeline = get_pipeline()
+        result = pipeline.approve_plan(plan_id)
+
+        emit_event("plan_executed", {"plan_id": plan_id})
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/orchestration/plan/<plan_id>/deny', methods=['POST'])
+def api_orchestration_deny(plan_id):
+    """Deny and cancel a pending plan"""
+    try:
+        from workers.orchestration.pipeline import get_pipeline
+        pipeline = get_pipeline()
+        result = pipeline.deny_plan(plan_id)
+
+        emit_event("plan_cancelled", {"plan_id": plan_id})
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/orchestration/plan/<plan_id>', methods=['GET'])
+def api_orchestration_plan(plan_id):
+    """Get plan details"""
+    try:
+        from workers.orchestration.pipeline import get_pipeline
+        pipeline = get_pipeline()
+        plan = pipeline.get_plan(plan_id)
+
+        if not plan:
+            return jsonify({"error": "Plan not found"}), 404
+
+        return jsonify(plan)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/orchestration/plans/pending', methods=['GET'])
+def api_orchestration_pending():
+    """Get all pending plans"""
+    try:
+        from workers.orchestration.pipeline import get_pipeline
+        pipeline = get_pipeline()
+        plans = pipeline.get_pending_plans()
+
+        return jsonify({"plans": plans})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/orchestration/status', methods=['GET'])
+def api_orchestration_status():
+    """Get orchestration pipeline status"""
+    try:
+        from workers.orchestration.pipeline import get_pipeline
+        pipeline = get_pipeline()
+        status = pipeline.get_status()
+
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/orchestration/test', methods=['POST'])
+def api_orchestration_test():
+    """Test the orchestration pipeline"""
+    try:
+        from workers.orchestration.pipeline import get_pipeline
+        pipeline = get_pipeline()
+        result = pipeline.test()
+
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ─── Backend Launcher ─────────────────────────────────────────────────────────
 
 def run_flask_app():
@@ -2549,6 +2654,14 @@ def start_backend():
         logger.info(f"Health monitor started (interval={health_interval}s)")
     except Exception as e:
         logger.warning(f"Health monitor initialization failed: {e}")
+
+    # Initialize orchestration pipeline (Tracks 17-25)
+    try:
+        from workers.orchestration.pipeline import get_pipeline
+        pipeline = get_pipeline()
+        logger.info("Orchestration pipeline initialized (RAG indexing in background)")
+    except Exception as e:
+        logger.warning(f"Orchestration pipeline initialization failed: {e}")
 
     # ─── Start New Background Workers (Tracks 8-16) ─────────────────────────────
 
