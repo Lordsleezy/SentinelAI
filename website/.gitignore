@@ -1,0 +1,4 @@
+.env
+activation_codes.sqlite
+node_modules/
+npm-debug.log*
