@@ -2007,6 +2007,450 @@ def api_memory_session():
         return jsonify({"status": "error", "data": None, "error": str(e)}), 500
 
 
+# ─── Voice Endpoints (Track 8) ────────────────────────────────────────────────
+
+@app.route('/voice/wake', methods=['POST'])
+def api_voice_wake():
+    """Wake word detected"""
+    try:
+        data = request.get_json() or {}
+        logger.info(f"Wake word detected: {data}")
+
+        # Broadcast to orb window via IPC if socketio available
+        emit_event("wake_word_detected", data)
+
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/voice/mute', methods=['POST'])
+def api_voice_mute():
+    """Mute wake word detection"""
+    try:
+        from workers.voice.wake_word import mute_detector
+        mute_detector()
+        return jsonify({"status": "ok", "message": "Wake word muted"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/voice/unmute', methods=['POST'])
+def api_voice_unmute():
+    """Unmute wake word detection"""
+    try:
+        from workers.voice.wake_word import unmute_detector
+        unmute_detector()
+        return jsonify({"status": "ok", "message": "Wake word unmuted"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/voice/status')
+def api_voice_status():
+    """Get wake word detector status"""
+    try:
+        from workers.voice.wake_word import get_status
+        status = get_status()
+        return jsonify({"status": "ok", "data": status})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+# ─── OpenClaw Endpoints (Track 5) ─────────────────────────────────────────────
+
+@app.route('/openclaw/calendar/create', methods=['POST'])
+def api_openclaw_calendar_create():
+    """Create calendar event"""
+    try:
+        from workers.openclaw.openclaw_worker import handle_intent
+        data = request.get_json() or {}
+        result = handle_intent("calendar.create", data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/openclaw/calendar/upcoming')
+def api_openclaw_calendar_upcoming():
+    """Get upcoming calendar events"""
+    try:
+        from workers.openclaw.openclaw_worker import handle_intent
+        days = int(request.args.get('days', 7))
+        result = handle_intent("calendar.list", {"days": days})
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/openclaw/web/search', methods=['POST'])
+def api_openclaw_web_search():
+    """Web search via Brave"""
+    try:
+        from workers.openclaw.openclaw_worker import handle_intent
+        data = request.get_json() or {}
+        result = handle_intent("web.search", data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/openclaw/notes/create', methods=['POST'])
+def api_openclaw_notes_create():
+    """Create a note"""
+    try:
+        from workers.openclaw.openclaw_worker import handle_intent
+        data = request.get_json() or {}
+        result = handle_intent("notes.create", data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/openclaw/reminders/due')
+def api_openclaw_reminders_due():
+    """Get due reminders"""
+    try:
+        from workers.openclaw.openclaw_worker import handle_intent
+        result = handle_intent("reminders.due", {})
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/openclaw/health')
+def api_openclaw_health():
+    """OpenClaw health check"""
+    return jsonify({"status": "ok", "worker": "openclaw"})
+
+
+# ─── Messaging Endpoints (Track 9) ────────────────────────────────────────────
+
+@app.route('/messaging/send/telegram', methods=['POST'])
+def api_messaging_send_telegram():
+    """Send message via Telegram"""
+    # TODO: Implement direct send (currently handled by bridge)
+    return jsonify({"status": "error", "message": "Use Telegram bridge for bidirectional communication"})
+
+
+@app.route('/messaging/status')
+def api_messaging_status():
+    """Get messaging bridge status"""
+    return jsonify({
+        "status": "ok",
+        "telegram": bool(os.getenv('TELEGRAM_BOT_TOKEN')),
+        "whatsapp": False  # Experimental/disabled
+    })
+
+
+# ─── Home Assistant Endpoints (Track 10) ──────────────────────────────────────
+
+@app.route('/home/status')
+def api_home_status():
+    """Home Assistant status"""
+    try:
+        from workers.home.home_assistant import get_ha_bridge
+        ha = get_ha_bridge()
+        return jsonify({
+            "status": "ok",
+            "connected": ha.connected,
+            "url": ha.ha_url
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/home/cameras')
+def api_home_cameras():
+    """List cameras"""
+    try:
+        from workers.home.camera_worker import list_cameras
+        cameras = list_cameras()
+        return jsonify({"status": "ok", "data": cameras})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/home/camera/look', methods=['POST'])
+def api_home_camera_look():
+    """Look at specific camera"""
+    try:
+        from workers.home.camera_worker import look_at
+        data = request.get_json() or {}
+        camera_name = data.get('camera_name', '')
+        result = look_at(camera_name)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/home/camera/look_all', methods=['POST'])
+def api_home_camera_look_all():
+    """Look at all cameras"""
+    try:
+        from workers.home.camera_worker import look_at_all
+        result = look_at_all()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/home/lights')
+def api_home_lights():
+    """Get all lights"""
+    try:
+        from workers.home.home_assistant import get_ha_bridge
+        ha = get_ha_bridge()
+        lights = ha.get_lights()
+        return jsonify({"status": "ok", "data": lights})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/home/lights/on', methods=['POST'])
+def api_home_lights_on():
+    """Turn lights on"""
+    try:
+        from workers.home.home_assistant import get_ha_bridge
+        data = request.get_json() or {}
+        entity_id = data.get('entity_id')
+
+        ha = get_ha_bridge()
+        success = ha.turn_on(entity_id)
+
+        return jsonify({"status": "ok" if success else "error"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/home/lights/off', methods=['POST'])
+def api_home_lights_off():
+    """Turn lights off"""
+    try:
+        from workers.home.home_assistant import get_ha_bridge
+        data = request.get_json() or {}
+        entity_id = data.get('entity_id')
+
+        ha = get_ha_bridge()
+        success = ha.turn_off(entity_id)
+
+        return jsonify({"status": "ok" if success else "error"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/home/command', methods=['POST'])
+def api_home_command():
+    """Natural language home command"""
+    try:
+        from workers.home.home_assistant import get_ha_bridge
+        data = request.get_json() or {}
+        command = data.get('command', '')
+
+        ha = get_ha_bridge()
+        result = ha.natural_language_command(command)
+
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+# ─── Proactive Endpoints (Track 11) ───────────────────────────────────────────
+
+@app.route('/proactive/status')
+def api_proactive_status():
+    """Get scheduler status"""
+    try:
+        from workers.proactive.scheduler import get_scheduler
+        scheduler = get_scheduler()
+
+        if scheduler:
+            return jsonify({"status": "ok", "data": scheduler.get_status()})
+        else:
+            return jsonify({"status": "ok", "data": {"running": False}})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/proactive/trigger/morning', methods=['POST'])
+def api_proactive_trigger_morning():
+    """Manually trigger morning briefing"""
+    try:
+        from workers.proactive.scheduler import get_scheduler
+        scheduler = get_scheduler()
+
+        if scheduler:
+            scheduler._morning_briefing()
+            return jsonify({"status": "ok", "message": "Morning briefing triggered"})
+        else:
+            return jsonify({"status": "error", "message": "Scheduler not running"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+# ─── Health Endpoints (Track 12) ──────────────────────────────────────────────
+
+@app.route('/health/summary')
+def api_health_summary():
+    """Get health summary"""
+    try:
+        from workers.health.wearables import get_health_summary
+        result = get_health_summary()
+        return jsonify({"status": "ok" if not result.get('error') else "error", "data": result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/health/sleep')
+def api_health_sleep():
+    """Get sleep data"""
+    try:
+        from workers.health.wearables import get_sleep_data
+        days = int(request.args.get('days', 7))
+        result = get_sleep_data(days)
+        return jsonify({"status": "ok" if not result.get('error') else "error", "data": result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+# ─── Finance Endpoints (Track 13) ─────────────────────────────────────────────
+
+@app.route('/finance/summary')
+def api_finance_summary():
+    """Get finance summary"""
+    try:
+        from workers.finance.firefly import get_firefly
+        firefly = get_firefly()
+        summary = firefly.finance_summary()
+        return jsonify({"status": "ok", "data": {"summary": summary}})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/finance/accounts')
+def api_finance_accounts():
+    """Get all accounts"""
+    try:
+        from workers.finance.firefly import get_firefly
+        firefly = get_firefly()
+        result = firefly.get_account_summary()
+        return jsonify({"status": "ok" if not result.get('error') else "error", "data": result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+# ─── Entertainment Endpoints (Track 14) ───────────────────────────────────────
+
+@app.route('/entertainment/spotify/play', methods=['POST'])
+def api_spotify_play():
+    """Play track on Spotify"""
+    try:
+        from workers.entertainment.spotify import get_spotify
+        data = request.get_json() or {}
+        query = data.get('query', '')
+
+        spotify = get_spotify()
+        result = spotify.play(query)
+
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/entertainment/spotify/pause', methods=['POST'])
+def api_spotify_pause():
+    """Pause Spotify"""
+    try:
+        from workers.entertainment.spotify import get_spotify
+        spotify = get_spotify()
+        result = spotify.pause()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/entertainment/spotify/current')
+def api_spotify_current():
+    """Get current track"""
+    try:
+        from workers.entertainment.spotify import get_spotify
+        spotify = get_spotify()
+        result = spotify.current_track()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ─── Logistics Endpoints (Track 15) ───────────────────────────────────────────
+
+@app.route('/logistics/packages')
+def api_logistics_packages():
+    """Get all tracked packages"""
+    try:
+        from workers.logistics.package_tracker import get_all_packages
+        packages = get_all_packages()
+        return jsonify({"status": "ok", "data": packages})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/logistics/packages/add', methods=['POST'])
+def api_logistics_packages_add():
+    """Add a package to track"""
+    try:
+        from workers.logistics.package_tracker import add_package
+        data = request.get_json() or {}
+
+        result = add_package(
+            data.get('tracking_number', ''),
+            data.get('carrier', ''),
+            data.get('description', '')
+        )
+
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/logistics/packages/check')
+def api_logistics_packages_check():
+    """Check all packages for updates"""
+    try:
+        from workers.logistics.package_tracker import check_deliveries
+        result = check_deliveries()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+# ─── News Endpoints (Track 16) ────────────────────────────────────────────────
+
+@app.route('/news/headlines')
+def api_news_headlines():
+    """Get news headlines"""
+    try:
+        from workers.news.miniflux_reader import get_news_reader
+        reader = get_news_reader()
+        limit = int(request.args.get('limit', 5))
+        headlines = reader.get_headlines(limit)
+        return jsonify({"status": "ok", "data": headlines})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/news/unread')
+def api_news_unread():
+    """Get unread news articles"""
+    try:
+        from workers.news.miniflux_reader import get_news_reader
+        reader = get_news_reader()
+        limit = int(request.args.get('limit', 10))
+        result = reader.get_unread(limit)
+        return jsonify({"status": "ok" if not result.get('error') else "error", "data": result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
 # ─── Backend Launcher ─────────────────────────────────────────────────────────
 
 def run_flask_app():
@@ -2105,7 +2549,59 @@ def start_backend():
         logger.info(f"Health monitor started (interval={health_interval}s)")
     except Exception as e:
         logger.warning(f"Health monitor initialization failed: {e}")
-    
+
+    # ─── Start New Background Workers (Tracks 8-16) ─────────────────────────────
+
+    # Wake word detector (Track 8)
+    try:
+        from workers.voice.wake_word import start_detector
+
+        def wake_word_callback(data):
+            logger.info(f"Wake word detected: {data}")
+            emit_event("wake_word_detected", data)
+
+            # If transcription available, send to chat
+            if data.get('transcription'):
+                # TODO: Wire to chat endpoint
+                pass
+
+        if os.getenv('WAKE_WORD_ENABLED', 'false').lower() == 'true':
+            start_detector(callback=wake_word_callback)
+            logger.info("Wake word detector started")
+        else:
+            logger.info("Wake word detector disabled (set WAKE_WORD_ENABLED=true to enable)")
+    except Exception as e:
+        logger.warning(f"Wake word detector failed to start: {e}")
+
+    # OpenClaw reminders background checker (Track 5)
+    try:
+        from workers.openclaw.reminders import get_reminders_manager
+        get_reminders_manager()  # Auto-starts on first call
+        logger.info("OpenClaw reminders background checker started")
+    except Exception as e:
+        logger.warning(f"Reminders background checker failed to start: {e}")
+
+    # Telegram bridge (Track 9)
+    try:
+        from workers.messaging.telegram_bridge import start_bridge
+        if os.getenv('TELEGRAM_BOT_TOKEN'):
+            start_bridge()
+            logger.info("Telegram bridge started")
+        else:
+            logger.info("Telegram bridge disabled (TELEGRAM_BOT_TOKEN not set)")
+    except Exception as e:
+        logger.warning(f"Telegram bridge failed to start: {e}")
+
+    # Proactive scheduler (Track 11)
+    try:
+        from workers.proactive.scheduler import start_scheduler
+        start_scheduler()
+        logger.info("Proactive scheduler started")
+    except Exception as e:
+        logger.warning(f"Proactive scheduler failed to start: {e}")
+
+    # ─────────────────────────────────────────────────────────────────────────────
+
     # Start Flask in background thread
     flask_thread = threading.Thread(target=run_flask_app, daemon=True)
     flask_thread.start()
