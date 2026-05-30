@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sentinel Earn</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      height: 100vh;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 20px;
+      color: #00ff88;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: #111118;
+      border: 1px solid rgba(0,255,136,0.15);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: #00ff88;
+      margin-top: 6px;
+    }
+
+    .jobs-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .jobs-table th {
+      text-align: left;
+      padding: 8px 12px;
+      background: #111118;
+      border-bottom: 1px solid rgba(0,255,136,0.15);
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 1px;
+      color: #666;
+    }
+
+    .jobs-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .jobs-table tr:hover {
+      background: rgba(0,255,136,0.05);
+    }
+  </style>
+</head>
+<body>
+  <h1>💰 Sentinel Earn</h1>
+
+  <div class="stats" id="stats-container">
+    <div class="stat-card">
+      <div class="stat-label">Total Jobs</div>
+      <div class="stat-value">—</div>
+    </div>
+  </div>
+
+  <table class="jobs-table">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Source</th>
+        <th>Reward</th>
+        <th>Fetched</th>
+      </tr>
+    </thead>
+    <tbody id="jobs-body">
+      <tr><td colspan="4" style="text-align: center; color: #666;">Loading jobs...</td></tr>
+    </tbody>
+  </table>
+
+  <script>
+    async function loadJobs() {
+      try {
+        const res = await fetch('http://127.0.0.1:5001/earn/jobs');
+        const data = await res.json();
+
+        if (data && data.jobs) {
+          const tbody = document.getElementById('jobs-body');
+          tbody.innerHTML = data.jobs.map(job => `
+            <tr>
+              <td>${escapeHtml(job.title || 'Untitled')}</td>
+              <td>${escapeHtml(job.source || '—')}</td>
+              <td>${escapeHtml(job.reward_range || '—')}</td>
+              <td>${escapeHtml((job.fetched_at || '').slice(0, 16))}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (e) {
+        console.error('Failed to load jobs:', e);
+      }
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    loadJobs();
+    setInterval(loadJobs, 10000);
+  </script>
+</body>
+</html>

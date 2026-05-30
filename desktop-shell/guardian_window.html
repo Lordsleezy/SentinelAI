@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Guardian</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      height: 100vh;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 20px;
+      color: #00ccff;
+    }
+
+    .controls {
+      margin-bottom: 20px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      background: #00ccff;
+      color: #000;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .log-area {
+      background: #111118;
+      border: 1px solid rgba(0,204,255,0.15);
+      border-radius: 8px;
+      padding: 16px;
+      height: calc(100vh - 140px);
+      overflow-y: auto;
+      font-family: 'Consolas', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .log-line {
+      margin-bottom: 4px;
+    }
+
+    .log-line.info { color: #aaa; }
+    .log-line.warn { color: #ffa500; }
+    .log-line.error { color: #ff4444; }
+  </style>
+</head>
+<body>
+  <h1>🛡 Guardian</h1>
+
+  <div class="controls">
+    <button class="btn" id="scan-btn">Run Security Scan</button>
+    <button class="btn" id="check-vulns">Check Vulnerabilities</button>
+  </div>
+
+  <div class="log-area" id="log-area">
+    <div class="log-line info">Guardian ready. Click "Run Security Scan" to start.</div>
+  </div>
+
+  <script>
+    function log(message, type = 'info') {
+      const logArea = document.getElementById('log-area');
+      const line = document.createElement('div');
+      line.className = `log-line ${type}`;
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logArea.appendChild(line);
+      logArea.scrollTop = logArea.scrollHeight;
+    }
+
+    document.getElementById('scan-btn').addEventListener('click', async () => {
+      log('Starting security scan...', 'info');
+      try {
+        const res = await fetch('http://127.0.0.1:5001/guardian/scan', { method: 'POST' });
+        const data = await res.json();
+        log(`Scan complete: ${data.message || data.status}`, 'info');
+      } catch (e) {
+        log(`Scan failed: ${e.message}`, 'error');
+      }
+    });
+
+    document.getElementById('check-vulns').addEventListener('click', async () => {
+      log('Checking vulnerabilities...', 'info');
+      try {
+        const res = await fetch('http://127.0.0.1:5001/guardian/vulnerabilities');
+        const data = await res.json();
+        log(`Found ${data.count || 0} vulnerabilities`, data.count > 0 ? 'warn' : 'info');
+      } catch (e) {
+        log(`Check failed: ${e.message}`, 'error');
+      }
+    });
+  </script>
+</body>
+</html>

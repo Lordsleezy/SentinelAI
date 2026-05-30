@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SentinelAI</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #orb-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    #input-section {
+      padding: 24px;
+      background: rgba(10,10,15,0.95);
+      border-top: 1px solid rgba(0,255,136,0.15);
+    }
+
+    #chat-input {
+      width: 100%;
+      background: #18181f;
+      border: 1px solid rgba(0,255,136,0.15);
+      color: #e0e0e0;
+      padding: 14px 18px;
+      border-radius: 24px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    #chat-input:focus {
+      border-color: rgba(0,255,136,0.4);
+      box-shadow: 0 0 12px rgba(0,255,136,0.2);
+    }
+
+    #status-line {
+      margin-top: 12px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      padding: 0 8px;
+    }
+
+    .worker-badge {
+      font-size: 11px;
+      padding: 4px 10px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .worker-badge .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #666;
+    }
+
+    .worker-badge.running .dot {
+      background: #00ff88;
+      box-shadow: 0 0 4px #00ff88;
+      animation: pulse 2s infinite;
+    }
+
+    .worker-badge.waiting .dot {
+      background: #ffa500;
+      box-shadow: 0 0 4px #ffa500;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    #response-area {
+      position: absolute;
+      bottom: 180px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: 600px;
+      background: rgba(18,18,31,0.95);
+      border: 1px solid rgba(0,255,136,0.15);
+      border-radius: 12px;
+      padding: 16px;
+      display: none;
+      max-height: 200px;
+      overflow-y: auto;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    #response-area.visible {
+      display: block;
+    }
+
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0,255,136,0.3);
+      border-radius: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div id="orb-container">
+    <div id="orb-root" style="width: 400px; height: 400px;"></div>
+    <div id="response-area"></div>
+  </div>
+
+  <div id="input-section">
+    <input
+      id="chat-input"
+      type="text"
+      placeholder="Ask Sentinel anything..."
+      autocomplete="off"
+    />
+    <div id="status-line"></div>
+  </div>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/@react-three/fiber@8.15.12/dist/index.umd.js"></script>
+
+  <script>
+    const { useState, useEffect, useRef } = React;
+    const { Canvas } = window.ReactThreeFiber;
+
+    // Simple animated orb component
+    function Orb({ state }) {
+      const meshRef = useRef();
+
+      useEffect(() => {
+        if (!meshRef.current) return;
+
+        let frame;
+        const animate = () => {
+          if (meshRef.current) {
+            meshRef.current.rotation.x += 0.001;
+            meshRef.current.rotation.y += 0.002;
+
+            // Pulsing scale based on state
+            const baseScale = state === 'thinking' ? 1.1 : state === 'speaking' ? 1.05 : 1.0;
+            const pulse = Math.sin(Date.now() * 0.003) * 0.05;
+            meshRef.current.scale.setScalar(baseScale + pulse);
+          }
+          frame = requestAnimationFrame(animate);
+        };
+
+        animate();
+        return () => cancelAnimationFrame(frame);
+      }, [state]);
+
+      const getColor = () => {
+        switch(state) {
+          case 'speaking': return '#ffa500';
+          case 'thinking': return '#00ccff';
+          default: return '#8844ff';
+        }
+      };
+
+      return React.createElement('mesh', { ref: meshRef },
+        React.createElement('icosahedronGeometry', { args: [1, 1] }),
+        React.createElement('meshStandardMaterial', {
+          color: getColor(),
+          emissive: getColor(),
+          emissiveIntensity: state === 'thinking' ? 0.6 : state === 'speaking' ? 0.8 : 0.4,
+          wireframe: false,
+          metalness: 0.8,
+          roughness: 0.2
+        })
+      );
+    }
+
+    function OrbCanvas({ state }) {
+      return React.createElement(Canvas, {
+        camera: { position: [0, 0, 3], fov: 45 }
+      },
+        React.createElement('ambientLight', { intensity: 0.5 }),
+        React.createElement('pointLight', { position: [10, 10, 10], intensity: 1 }),
+        React.createElement(Orb, { state })
+      );
+    }
+
+    // Main app
+    const root = ReactDOM.createRoot(document.getElementById('orb-root'));
+    let orbState = 'idle';
+
+    function renderOrb() {
+      root.render(React.createElement(OrbCanvas, { state: orbState }));
+    }
+
+    renderOrb();
+
+    // Worker status polling
+    const statusLine = document.getElementById('status-line');
+    const responseArea = document.getElementById('response-area');
+    const chatInput = document.getElementById('chat-input');
+
+    async function updateWorkerStatus() {
+      try {
+        const res = await fetch('http://127.0.0.1:5001/api/workers/status');
+        const data = await res.json();
+
+        if (data && data.data) {
+          const workers = [...(data.data.logical_workers || []), ...(data.data.pool_workers || [])];
+
+          statusLine.innerHTML = workers.map(w => {
+            const state = (w.state || 'idle').toLowerCase();
+            const cls = state.includes('run') || state.includes('execut') ? 'running' :
+                       state.includes('wait') || state.includes('pend') ? 'waiting' : '';
+            return `<div class="worker-badge ${cls}"><span class="dot"></span>${escapeHtml(w.worker_id || w.intent || 'Unknown')}</div>`;
+          }).join('');
+        }
+      } catch (e) {
+        console.error('Status update failed:', e);
+      }
+    }
+
+    setInterval(updateWorkerStatus, 3000);
+    updateWorkerStatus();
+
+    // Input handling
+    chatInput.addEventListener('keydown', async (e) => {
+      if (e.key === 'Enter' && chatInput.value.trim()) {
+        const query = chatInput.value.trim();
+        chatInput.value = '';
+
+        orbState = 'thinking';
+        renderOrb();
+
+        try {
+          // Route the query to the orchestrator
+          const res = await fetch('http://127.0.0.1:5001/api/orchestrate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, source: 'orb' })
+          });
+
+          const data = await res.json();
+
+          orbState = 'speaking';
+          renderOrb();
+
+          // Show response
+          responseArea.textContent = data.response || 'Processing...';
+          responseArea.classList.add('visible');
+
+          // Check if we need to open a worker window
+          if (data.worker_route) {
+            require('electron').ipcRenderer.send('route-to-worker', {
+              worker: data.worker_route,
+              context: data.context || {}
+            });
+          }
+
+          setTimeout(() => {
+            responseArea.classList.remove('visible');
+            orbState = 'idle';
+            renderOrb();
+          }, 5000);
+
+        } catch (err) {
+          console.error('Query failed:', err);
+          orbState = 'idle';
+          renderOrb();
+        }
+      }
+    });
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

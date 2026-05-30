@@ -26,7 +26,8 @@ TARGET_LANGUAGES = {"javascript", "typescript", "python"}
 MAX_COMPLEXITY = 5
 SCAN_INTERVAL_HOURS = int(os.getenv("SCAN_INTERVAL_HOURS", "2"))
 MIN_REPO_STARS = 50
-MIN_GITHUB_REPO_STARS = 100
+MIN_GITHUB_REPO_STARS = 200
+GITHUB_SEARCH_REPO_STARS = 500
 MIN_GITCOIN_BOUNTY = 50
 
 REJECT_REPO_TERMS = {
@@ -38,6 +39,14 @@ REJECT_REPO_TERMS = {
     "demo",
     "template",
     "example",
+    "securebananalabs",
+    "bug-bounty",
+    "rustchain-bounties",
+    "marketplace-service-template",
+    "bounty",
+    "airdrop",
+    "socialfi",
+    "quest",
 }
 
 REJECT_TITLE_TERMS = {
@@ -50,6 +59,10 @@ REJECT_TITLE_TERMS = {
     "new issue for a bounty",
     "bounty alert",
     "hacktoberfest",
+    "low handing fruit",
+    "pixel art",
+    "technical poem",
+    "grandma",
 }
 
 logger = logging.getLogger(__name__)
@@ -166,8 +179,12 @@ def estimate_complexity(title: str, body: str, comment_count: int, labels: List[
 
 def _parse_amount(text: str) -> float:
     """Parse dollar amount from '$150', '150 USD', '$1.5k', etc."""
-    text = text.replace(",", "").upper().strip()
-    m = re.search(r'\$?\s*(\d+(?:\.\d+)?)\s*([KM]?)\s*(?:USD|USDC|ETH)?', text)
+    text = (text or "").replace(",", "").upper().strip()
+    m = re.search(r'(?:\$|USD|USDC)\s*(\d+(?:\.\d+)?)\s*([KM]?)', text)
+    if not m:
+        m = re.search(r'(\d+(?:\.\d+)?)\s*([KM]?)\s*(?:USD|USDC|DOLLARS?)', text)
+    if not m:
+        m = re.search(r'BOUNTY[^\d$]*(?:\$|USD|USDC)?\s*(\d+(?:\.\d+)?)\s*([KM]?)', text)
     if not m:
         return 0.0
     amount = float(m.group(1))
@@ -205,6 +222,49 @@ def _passes_quality_filter(
     return True
 
 
+def _has_error_signal(title: str, body: str) -> bool:
+    text = f"{title}\n{body}".lower()
+    signals = (
+        "traceback",
+        "stack trace",
+        "exception",
+        " error",
+        "error:",
+        "typeerror",
+        "valueerror",
+        "keyerror",
+        "attributeerror",
+        "importerror",
+        "modulenotfounderror",
+        "referenceerror",
+        "cannot read",
+        "undefined is not",
+        "line ",
+        ".py:",
+        ".js:",
+        ".ts:",
+    )
+    return any(signal in text for signal in signals)
+
+
+def _is_github_quality_issue(
+    title: str,
+    body: str,
+    repo_url: str,
+    repo_stars: int,
+) -> bool:
+    title_l = (title or "").lower()
+    repo_l = (repo_url or "").lower()
+    repo_name = _repo_name_from_url(repo_url)
+    if repo_stars < MIN_GITHUB_REPO_STARS:
+        return False
+    if any(term in repo_l or term in repo_name for term in REJECT_REPO_TERMS):
+        return False
+    if any(term in title_l for term in REJECT_TITLE_TERMS):
+        return False
+    return _has_error_signal(title, body)
+
+
 def _github_headers() -> Dict[str, str]:
     headers = {"Accept": "application/vnd.github.v3+json", "User-Agent": "SentinelEarn/1.0"}
     if GITHUB_TOKEN:
@@ -221,18 +281,29 @@ async def _fetch_github_repo(client: httpx.AsyncClient, repo_api_url: str, heade
     return resp.json()
 
 
+async def _issue_has_linked_pr(
+    client: httpx.AsyncClient,
+    timeline_url: str,
+    headers: Dict[str, str],
+) -> bool:
+    if not timeline_url:
+        return False
+    timeline_headers = dict(headers)
+    timeline_headers["Accept"] = "application/vnd.github.mockingbird-preview+json"
+    resp = await client.get(timeline_url, params={"per_page": 100}, headers=timeline_headers)
+    if resp.status_code != 200:
+        return False
+    for event in resp.json():
+        source = event.get("source") or {}
+        issue = source.get("issue") or {}
+        if issue.get("pull_request") or "/pull/" in str(issue.get("html_url", "")):
+            return True
+    return False
+
+
 def _extract_bounty_from_text(text: str) -> float:
     """Extract bounty amount mentioned anywhere in issue text."""
-    for pat in [
-        r'\$\s*(\d+(?:,\d{3})*(?:\.\d+)?)',
-        r'bounty[:\s]+\$?\s*(\d+)',
-        r'reward[:\s]+\$?\s*(\d+)',
-        r'(\d+)\s*(?:USD|USDC|dollars?)',
-    ]:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
-            return float(m.group(1).replace(",", ""))
-    return 0.0
+    return _parse_amount(text)
 
 
 def _detect_language_from_labels(labels: List[str]) -> str:
@@ -521,17 +592,17 @@ async def scan_gitcoin_bounties() -> List[Dict]:
 
 
 async def scan_github_issues() -> List[Dict]:
-    """Search GitHub Issues API for bounty-labeled good first issues on established repos."""
+    """Search GitHub Issues API for concrete good-first bug reports on established repos."""
     results = []
     headers = _github_headers()
 
     queries = [
-        'label:bounty label:"good first issue" is:open is:issue language:python',
-        'label:bounty label:"good first issue" is:open is:issue language:javascript',
-        'label:bounty label:"good first issue" is:open is:issue language:typescript',
-        '"$" "good first issue" "bounty" is:open is:issue language:python',
-        '"$" "good first issue" "bounty" is:open is:issue language:javascript',
-        '"$" "good first issue" "bounty" is:open is:issue language:typescript',
+        f'label:bug label:"good first issue" is:open is:issue language:python stars:>{GITHUB_SEARCH_REPO_STARS} traceback',
+        f'label:bug label:"good first issue" is:open is:issue language:python stars:>{GITHUB_SEARCH_REPO_STARS} exception',
+        f'label:bug label:"good first issue" is:open is:issue language:python stars:>{GITHUB_SEARCH_REPO_STARS} error',
+        f'label:bug label:"good first issue" is:open is:issue language:javascript stars:>{GITHUB_SEARCH_REPO_STARS} traceback',
+        f'label:bug label:"good first issue" is:open is:issue language:javascript stars:>{GITHUB_SEARCH_REPO_STARS} exception',
+        f'label:bug label:"good first issue" is:open is:issue language:javascript stars:>{GITHUB_SEARCH_REPO_STARS} error',
     ]
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -569,7 +640,9 @@ async def scan_github_issues() -> List[Dict]:
 
                             amount = _extract_bounty_from_text(title + " " + body)
                             age_days = _calc_age_days(item.get("created_at", ""))
-                            if not _passes_quality_filter(title, repo_url, amount, repo_stars, MIN_GITHUB_REPO_STARS):
+                            if not _is_github_quality_issue(title, body, repo_url, repo_stars):
+                                continue
+                            if await _issue_has_linked_pr(client, item.get("timeline_url", ""), headers):
                                 continue
 
                             s_score = score_opportunity(
@@ -621,12 +694,16 @@ async def run_scan(dry_run: bool = False) -> int:
 
     all_results = [
         opp for opp in algora + issuehunt + gitcoin + github
-        if _passes_quality_filter(
+        if (
+            True
+            if opp.get("source") == "github"
+            else _passes_quality_filter(
             opp.get("title", ""),
             opp.get("repo_url", "") or opp.get("issue_url", ""),
             float(opp.get("bounty_amount") or 0),
             MIN_GITHUB_REPO_STARS if opp.get("source") == "github" else MIN_REPO_STARS,
             MIN_GITHUB_REPO_STARS if opp.get("source") == "github" else MIN_REPO_STARS,
+        )
         )
     ]
     all_results.sort(key=lambda x: x.get("score", 0), reverse=True)

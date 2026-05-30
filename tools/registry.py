@@ -87,13 +87,25 @@ def register_builtin_tools():
     )
     register_tool(
         "repair",
-        "Autonomous GitHub issue repair. Clones repos, generates patches, runs tests.",
+        "Autonomous repair: fix bug in repository. Clones repos, generates patches, runs tests.",
         "executor.run_executor",
         "worker",
     )
     register_tool(
         "web_search",
-        "Search and scrape the web.",
-        "scanner.run_scan",
+        "Search and scrape the web. Fetch web pages and find GitHub issues.",
+        "workers.web_worker.run_web_task",
+        "worker",
+    )
+    register_tool(
+        "guardian",
+        "Security scanner. Scans files for threats and detects exposed API keys.",
+        "workers.guardian_worker.run_guardian_task",
+        "worker",
+    )
+    register_tool(
+        "bounty_pipeline",
+        "GitHub bounty revenue pipeline. Finds, scores, and queues repair opportunities.",
+        "revenue.bounty_pipeline.run_pipeline_cycle",
         "worker",
     )

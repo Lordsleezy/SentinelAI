@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SENTINEL PRIME</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+:root{
+  --hud-blue:#00d4ff; --hud-cyan:#00fff7; --hud-dim:#003a4a;
+  --hud-orange:#ff6b35; --hud-green:#00ff88; --hud-gold:#ffd700;
+  --hud-red:#ff3b54; --hud-purple:#a855f7;
+  --bg:#000408; --grid:rgba(0,212,255,0.05);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{
+  background:var(--bg); color:var(--hud-blue);
+  font-family:'Share Tech Mono',monospace;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:40px 40px;
+}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--hud-dim);border-radius:3px}
+
+#app{display:grid;height:100vh;
+  grid-template-rows:48px 1fr 78px;
+  grid-template-columns:300px 1fr 300px;
+  grid-template-areas:"top top top" "left center right" "bottom bottom bottom";
+  gap:8px;padding:8px;}
+.panel{border:1px solid var(--hud-dim);background:rgba(0,12,18,0.55);
+  position:relative;overflow:hidden;backdrop-filter:blur(2px)}
+.panel::before{content:"";position:absolute;top:0;left:0;width:14px;height:14px;
+  border-top:2px solid var(--hud-blue);border-left:2px solid var(--hud-blue)}
+.panel::after{content:"";position:absolute;bottom:0;right:0;width:14px;height:14px;
+  border-bottom:2px solid var(--hud-blue);border-right:2px solid var(--hud-blue)}
+.panel-title{font-family:'Orbitron';font-size:11px;letter-spacing:2px;color:var(--hud-cyan);
+  padding:6px 10px;border-bottom:1px solid var(--hud-dim);text-transform:uppercase;
+  display:flex;justify-content:space-between;align-items:center}
+
+#top{grid-area:top;display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;border:1px solid var(--hud-dim);background:rgba(0,12,18,0.65)}
+#brand{font-family:'Orbitron';font-weight:900;font-size:18px;letter-spacing:4px;color:#fff;
+  text-shadow:0 0 12px var(--hud-blue);display:flex;align-items:center;gap:10px}
+#brand .diamond{color:var(--hud-blue);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1;text-shadow:0 0 8px var(--hud-blue)}50%{opacity:.55;text-shadow:0 0 18px var(--hud-cyan)}}
+.badges{display:flex;gap:10px}
+.badge{font-family:'Orbitron';font-size:10px;letter-spacing:2px;padding:3px 10px;
+  border:1px solid var(--hud-blue);color:var(--hud-blue);border-radius:2px;
+  box-shadow:0 0 8px rgba(0,212,255,0.25);animation:badgeglow 3s infinite}
+.badge.secure{border-color:var(--hud-green);color:var(--hud-green);box-shadow:0 0 8px rgba(0,255,136,.25)}
+.badge.auto{border-color:var(--hud-gold);color:var(--hud-gold);box-shadow:0 0 8px rgba(255,215,0,.25)}
+.badge.off{border-color:var(--hud-red);color:var(--hud-red);box-shadow:0 0 8px rgba(255,59,84,.25)}
+@keyframes badgeglow{0%,100%{filter:brightness(1)}50%{filter:brightness(1.4)}}
+#clock{font-family:'Share Tech Mono';font-size:13px;color:var(--hud-cyan);text-align:right}
+#clock small{color:var(--hud-dim);font-size:10px;display:block}
+
+#left{grid-area:left;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+.dock-item{display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;
+  border-left:2px solid transparent;transition:.15s}
+.dock-item:hover{background:rgba(0,212,255,0.07);border-left-color:var(--hud-blue)}
+.dock-item.active{background:rgba(0,212,255,0.12);border-left-color:var(--hud-cyan)}
+.dock-icon{font-size:18px;width:24px;text-align:center}
+.dock-name{font-family:'Orbitron';font-size:12px;letter-spacing:1px;flex:1}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--hud-green);box-shadow:0 0 6px currentColor}
+.dot.running{background:var(--hud-blue)} .dot.error{background:var(--hud-red)} .dot.idle{background:var(--hud-green)}
+.dot.scanning{background:var(--hud-cyan)} .dot.threat{background:var(--hud-red)}
+.vital{padding:4px 10px}
+.vital-row{display:flex;justify-content:space-between;font-size:10px;color:var(--hud-blue);margin-bottom:2px}
+.vital-bar{height:6px;background:var(--hud-dim);border-radius:3px;overflow:hidden}
+.vital-fill{height:100%;background:linear-gradient(90deg,var(--hud-dim),var(--hud-cyan));
+  width:0;transition:width .6s;box-shadow:0 0 8px var(--hud-blue)}
+#telemetry{flex:1;overflow:auto;font-size:10.5px;line-height:1.5;padding:6px 10px;color:#3aa9c9}
+#telemetry .t-time{color:var(--hud-dim)}
+
+#center{grid-area:center;display:flex;flex-direction:column;gap:8px;overflow:hidden;position:relative}
+#orb-stage{flex:1;position:relative;display:flex;align-items:center;justify-content:center;min-height:0}
+#orb-root{width:min(100%,520px);aspect-ratio:1;position:relative;transition:all .5s ease}
+#orb-root.corner{position:absolute;top:8px;right:8px;width:130px;z-index:30;cursor:pointer}
+.sentinel-orb-canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
+.sentinel-orb-rings{position:absolute;inset:0;color:var(--hud-blue)}
+.orb-ring-svg{width:100%;height:100%}
+.orb-ring{transform-origin:200px 200px}
+.orb-ring-1{animation:spin 20s linear infinite}
+.orb-ring-2{animation:spin 12s linear infinite reverse}
+.orb-ring-3{animation:spin 35s linear infinite}
+.orb-ring-4{animation:spin 8s linear infinite reverse;opacity:0;transition:opacity .4s}
+.orb-listening .orb-ring-4,.orb-speaking .orb-ring-4,.orb-alert .orb-ring-4,.orb-earn .orb-ring-4{opacity:1}
+.orb-node{animation:nodepulse 1.6s infinite}
+@keyframes nodepulse{0%,100%{opacity:.3}50%{opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sentinel-orb-core{position:absolute;inset:30%;border-radius:50%;
+  background:radial-gradient(circle,var(--hud-blue),transparent 70%);
+  filter:blur(8px);pointer-events:none}
+.sentinel-orb-label{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;pointer-events:none;text-align:center}
+.orb-label-text{font-family:'Orbitron';font-size:13px;letter-spacing:3px;color:#fff;
+  text-shadow:0 0 10px var(--hud-blue)}
+.orb-label-sub{font-size:10px;color:var(--hud-orange);margin-top:4px;letter-spacing:1px}
+.sentinel-orb-wave{position:absolute;bottom:18%;left:50%;transform:translateX(-50%);
+  display:flex;gap:2px;height:24px;align-items:center;opacity:0;transition:opacity .3s}
+.sentinel-orb-wave i{display:block;width:2px;height:100%;background:var(--hud-cyan);
+  transform:scaleY(.1);transform-origin:center;box-shadow:0 0 4px var(--hud-cyan)}
+
+/* Chat quick-command buttons */
+#chat-cmds{display:flex;gap:6px;padding:6px 10px;border-bottom:1px solid var(--hud-dim);flex-wrap:wrap}
+.chat-cmd-btn{font-family:'Orbitron';font-size:9px;border:1px solid var(--hud-dim);color:var(--hud-blue);
+  background:transparent;padding:3px 8px;cursor:pointer;border-radius:2px;letter-spacing:1px}
+.chat-cmd-btn:hover{background:rgba(0,212,255,0.1);border-color:var(--hud-blue)}
+.chat-cmd-btn.clear{border-color:var(--hud-red);color:var(--hud-red)}
+.chat-cmd-btn.clear:hover{background:rgba(255,59,84,0.1)}
+
+#chat{height:30%;min-height:140px;display:flex;flex-direction:column;border:1px solid var(--hud-dim);
+  background:rgba(0,12,18,0.55)}
+#chat-log{flex:1;overflow:auto;padding:8px 12px;font-size:12px;display:flex;flex-direction:column;gap:6px}
+.msg{opacity:.5;transition:opacity .4s}.msg:last-child{opacity:1}
+.msg.user{color:var(--hud-cyan)} .msg.sentinel{color:#cfeffb}
+.msg b{font-family:'Orbitron';font-size:9px;letter-spacing:1px;opacity:.6;display:block}
+#chat-input-row{display:flex;border-top:1px solid var(--hud-dim)}
+#chat-input{flex:1;background:transparent;border:none;color:var(--hud-cyan);
+  font-family:'Share Tech Mono';font-size:13px;padding:10px 12px;outline:none}
+#chat-input::placeholder{color:var(--hud-dim)}
+#mic-btn,#send-btn{background:transparent;border:none;border-left:1px solid var(--hud-dim);
+  color:var(--hud-blue);padding:0 14px;cursor:pointer;font-size:14px}
+#mic-btn.rec{color:var(--hud-red);animation:pulse 1s infinite}
+
+#worker-panel{position:absolute;inset:0;background:rgba(0,8,12,.92);z-index:20;
+  display:none;flex-direction:column;overflow:auto;padding:14px}
+#worker-panel.show{display:flex}
+#worker-panel h2{font-family:'Orbitron';font-size:16px;letter-spacing:3px;color:var(--hud-cyan);margin-bottom:10px}
+.wp-close{position:absolute;top:10px;right:12px;cursor:pointer;color:var(--hud-blue);font-size:18px}
+.kv{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--hud-dim);font-size:12px}
+.kv span:last-child{color:#cfeffb}
+
+.earn-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.earn-box{border:1px solid var(--hud-dim);padding:8px;background:rgba(0,12,18,.5)}
+.earn-box h3{font-family:'Orbitron';font-size:10px;letter-spacing:2px;color:var(--hud-gold);margin-bottom:6px}
+.earn-row{font-size:11px;padding:4px 0;border-bottom:1px solid rgba(0,58,74,.5);display:flex;justify-content:space-between;gap:6px}
+.bigstat{text-align:center}.bigstat .n{font-family:'Orbitron';font-size:22px;color:var(--hud-gold)}
+.bigstat .l{font-size:9px;color:var(--hud-blue);letter-spacing:1px}
+.mini-btn{font-family:'Orbitron';font-size:9px;border:1px solid var(--hud-blue);color:var(--hud-blue);
+  background:transparent;padding:2px 8px;cursor:pointer;border-radius:2px}
+.mini-btn:hover{background:var(--hud-blue);color:#000}
+.mini-btn.danger{border-color:var(--hud-red);color:var(--hud-red)}
+.mini-btn.danger:hover{background:var(--hud-red);color:#fff}
+.score-bar-wrap{width:60px;height:6px;background:var(--hud-dim);border-radius:3px;display:inline-block;vertical-align:middle}
+.score-bar-fill{height:100%;background:var(--hud-gold);border-radius:3px}
+.status-submitted{color:var(--hud-blue)}
+.status-merged{color:var(--hud-green)}
+.status-rejected{color:var(--hud-red)}
+.goal-edit{cursor:pointer;color:var(--hud-gold);text-decoration:underline dotted}
+
+#right{grid-area:right;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+.sess{font-size:10px;padding:6px 10px;line-height:1.7;color:#3aa9c9}
+.sess b{color:var(--hud-cyan)}
+
+/* System Monitor (replaces Proximity Radar) */
+#sysmon{padding:6px 10px}
+.sysmon-row{margin-bottom:6px}
+.sysmon-label{font-size:9px;display:flex;justify-content:space-between;color:var(--hud-blue);margin-bottom:2px}
+.sysmon-bar{height:7px;background:var(--hud-dim);border-radius:3px;overflow:hidden}
+.sysmon-fill{height:100%;border-radius:3px;transition:width .6s}
+.sysmon-fill.cpu{background:linear-gradient(90deg,var(--hud-blue),var(--hud-cyan))}
+.sysmon-fill.ram{background:linear-gradient(90deg,var(--hud-green),var(--hud-cyan))}
+.sysmon-fill.disk{background:linear-gradient(90deg,var(--hud-gold),var(--hud-orange))}
+.sysmon-fill.gpu{background:linear-gradient(90deg,var(--hud-purple),var(--hud-blue))}
+
+#audio-bars{display:flex;gap:3px;height:46px;align-items:flex-end;justify-content:center;padding:8px}
+#audio-bars i{width:8px;background:linear-gradient(var(--hud-cyan),var(--hud-dim));height:20%;
+  transition:height .1s;box-shadow:0 0 6px var(--hud-cyan)}
+#scanmetrics{flex:1;overflow:auto;font-size:9.5px;line-height:1.5;padding:6px 10px;color:#2d7d96}
+
+#bottom{grid-area:bottom;border:1px solid var(--hud-dim);background:rgba(0,12,18,.65);
+  padding:8px 16px;display:flex;flex-direction:column;justify-content:center}
+#obj-title{font-family:'Orbitron';font-size:11px;letter-spacing:3px;color:var(--hud-gold)}
+#obj-stats{display:flex;gap:26px;font-size:12px;margin:4px 0;color:var(--hud-cyan)}
+#obj-stats b{color:#fff}
+#obj-bar{height:10px;background:var(--hud-dim);border-radius:5px;overflow:hidden}
+#obj-fill{height:100%;width:0;background:linear-gradient(90deg,var(--hud-gold),var(--hud-orange));
+  transition:width .8s;box-shadow:0 0 10px var(--hud-gold)}
+
+/* Approval banner */
+#appr-banner{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:50;
+  background:rgba(40,18,4,.95);border:1px solid var(--hud-orange);color:var(--hud-orange);
+  padding:8px 18px;font-family:'Orbitron';font-size:11px;letter-spacing:2px;display:none;
+  box-shadow:0 0 18px rgba(255,107,53,.4);cursor:pointer;animation:pulse 1.5s infinite}
+
+/* Approval center modal — ISSUE 6 */
+#appr-modal{position:fixed;inset:0;background:rgba(0,2,4,.85);z-index:80;display:none;
+  align-items:center;justify-content:center}
+#appr-modal.show{display:flex}
+#appr-modal .box{background:#050e14;border:2px solid var(--hud-gold);padding:28px;width:520px;max-width:92vw;
+  box-shadow:0 0 40px rgba(255,215,0,.25);position:relative}
+#appr-modal h3{font-family:'Orbitron';color:var(--hud-gold);letter-spacing:3px;font-size:16px;margin-bottom:12px}
+#appr-modal .appr-type{font-family:'Orbitron';font-size:10px;color:var(--hud-orange);letter-spacing:2px;margin-bottom:8px}
+#appr-modal .appr-desc{font-size:13px;color:#cfeffb;margin-bottom:20px;line-height:1.6;
+  border:1px solid var(--hud-dim);padding:12px;background:rgba(0,0,0,.3);border-radius:2px}
+#appr-modal .actions{display:flex;gap:14px}
+#appr-modal .btn-approve{flex:1;font-family:'Orbitron';font-size:13px;letter-spacing:2px;padding:12px;cursor:pointer;
+  border:none;background:var(--hud-green);color:#000;font-weight:700}
+#appr-modal .btn-deny{flex:1;font-family:'Orbitron';font-size:13px;letter-spacing:2px;padding:12px;cursor:pointer;
+  border:none;background:var(--hud-red);color:#fff;font-weight:700}
+#appr-modal .btn-approve:hover{filter:brightness(1.15)}
+#appr-modal .btn-deny:hover{filter:brightness(1.15)}
+
+/* Old task modal kept for backward compat */
+#modal{position:fixed;inset:0;background:rgba(0,2,4,.8);z-index:60;display:none;
+  align-items:center;justify-content:center}
+#modal .box{background:#03141c;border:1px solid var(--hud-orange);padding:22px;width:440px;max-width:90vw}
+#modal h3{font-family:'Orbitron';color:var(--hud-orange);letter-spacing:2px;margin-bottom:10px}
+#modal p{font-size:12px;color:#cfeffb;margin-bottom:14px;line-height:1.5}
+#modal .actions{display:flex;gap:10px}
+#modal button{flex:1;font-family:'Orbitron';font-size:11px;letter-spacing:1px;padding:9px;cursor:pointer;border:none}
+.btn-approve{background:var(--hud-green);color:#000}.btn-deny{background:var(--hud-red);color:#fff}
+
+/* Idle audio bar animation */
+@keyframes idleBar{0%,100%{height:15%}50%{height:30%}}
+.idle-anim i:nth-child(1){animation:idleBar 2.1s ease-in-out infinite}
+.idle-anim i:nth-child(2){animation:idleBar 2.4s ease-in-out infinite .3s}
+.idle-anim i:nth-child(3){animation:idleBar 1.9s ease-in-out infinite .6s}
+.idle-anim i:nth-child(4){animation:idleBar 2.6s ease-in-out infinite .1s}
+.idle-anim i:nth-child(5){animation:idleBar 2.2s ease-in-out infinite .5s}
+
+/* Thinking dots animation */
+@keyframes dotBlink{0%,80%,100%{opacity:0}40%{opacity:1}}
+.thinking-dots span{animation:dotBlink 1.4s infinite both}
+.thinking-dots span:nth-child(2){animation-delay:.2s}
+.thinking-dots span:nth-child(3){animation-delay:.4s}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <div id="brand"><span class="diamond">◈</span> SENTINEL PRIME</div>
+    <div class="badges">
+      <span class="badge" id="b-online">ONLINE</span>
+      <span class="badge secure" id="b-secure">SECURE</span>
+      <span class="badge auto" id="b-auto">AUTO-LVL</span>
+    </div>
+    <div id="clock"><span id="time">--:--:--</span><small id="sid">SID ----</small></div>
+  </div>
+
+  <div id="left">
+    <div class="panel" style="flex:0 0 auto">
+      <div class="panel-title">Worker Dock</div>
+      <div id="dock"></div>
+    </div>
+    <div class="panel" style="flex:0 0 auto">
+      <div class="panel-title">System Vitals</div>
+      <div id="vitals"></div>
+    </div>
+    <div class="panel" style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <div class="panel-title">Telemetry Log</div>
+      <div id="telemetry"></div>
+    </div>
+  </div>
+
+  <div id="center">
+    <div class="panel" id="orb-stage">
+      <div id="orb-root"></div>
+      <div id="worker-panel">
+        <span class="wp-close" onclick="HUD.closeWorker()">&#x2715;</span>
+        <div id="worker-panel-body"></div>
+      </div>
+    </div>
+    <div id="chat">
+      <div id="chat-cmds">
+        <button class="chat-cmd-btn" id="cmd-scan-bounties">SCAN BOUNTIES</button>
+        <button class="chat-cmd-btn" id="cmd-build">BUILD SOMETHING</button>
+        <button class="chat-cmd-btn" id="cmd-repair">RUN REPAIR</button>
+        <button class="chat-cmd-btn" id="cmd-scan-files">SCAN FILES</button>
+        <button class="chat-cmd-btn clear" id="cmd-clear">CLEAR</button>
+      </div>
+      <div id="chat-log"></div>
+      <div id="chat-input-row">
+        <input id="chat-input" placeholder="SPEAK OR TYPE COMMAND...  (hold SPACE to talk)" autocomplete="off">
+        <button id="mic-btn" title="Hold space / click to talk">&#x1F3A4;</button>
+        <button id="send-btn">&#x25B6;</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="right">
+    <div class="panel" style="flex:0 0 auto">
+      <div class="panel-title">Session</div>
+      <div class="sess" id="session"></div>
+    </div>
+    <div class="panel" style="flex:0 0 auto">
+      <div class="panel-title">System Monitor</div>
+      <div id="sysmon">
+        <div class="sysmon-row" id="sysmon-cpu">
+          <div class="sysmon-label"><span>CPU</span><span id="sysmon-cpu-pct">—</span></div>
+          <div class="sysmon-bar"><div class="sysmon-fill cpu" id="sysmon-cpu-fill" style="width:0%"></div></div>
+        </div>
+        <div class="sysmon-row" id="sysmon-gpu-row" style="display:none">
+          <div class="sysmon-label"><span id="sysmon-gpu-name">GPU</span><span id="sysmon-gpu-pct">—</span></div>
+          <div class="sysmon-bar"><div class="sysmon-fill gpu" id="sysmon-gpu-fill" style="width:0%"></div></div>
+        </div>
+        <div class="sysmon-row" id="sysmon-ram">
+          <div class="sysmon-label"><span>RAM</span><span id="sysmon-ram-pct">—</span></div>
+          <div class="sysmon-bar"><div class="sysmon-fill ram" id="sysmon-ram-fill" style="width:0%"></div></div>
+        </div>
+        <div class="sysmon-row" id="sysmon-disk">
+          <div class="sysmon-label"><span>DISK</span><span id="sysmon-disk-pct">—</span></div>
+          <div class="sysmon-bar"><div class="sysmon-fill disk" id="sysmon-disk-fill" style="width:0%"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="flex:0 0 auto">
+      <div class="panel-title">Audio I/O</div>
+      <div id="audio-bars" class="idle-anim"><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+    <div class="panel" style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <div class="panel-title">Scanmetrics</div>
+      <div id="scanmetrics"></div>
+    </div>
+  </div>
+
+  <div id="bottom">
+    <div id="obj-title">&#x25C8; PRIMARY OBJECTIVE</div>
+    <div id="obj-stats">
+      <span>TARGET: <b id="o-target">$10,000/mo</b></span>
+      <span>EARNED: <b id="o-earned">$0.00</b></span>
+      <span>TASKS: <b id="o-tasks">0</b></span>
+      <span>QUEUE: <b id="o-queue">0</b></span>
+      <span>STATUS: <b id="o-status">INITIALIZING</b></span>
+    </div>
+    <div id="obj-bar"><div id="obj-fill"></div></div>
+  </div>
+</div>
+
+<div id="appr-banner" onclick="HUD.showModal()">&#x26A0; APPROVAL REQUIRED &#x2014; CLICK TO REVIEW</div>
+
+<!-- Approval center modal (ISSUE 6) -->
+<div id="appr-modal">
+  <div class="box">
+    <h3>&#x26A0; APPROVAL REQUIRED</h3>
+    <div class="appr-type" id="appr-modal-type"></div>
+    <div class="appr-desc" id="appr-modal-desc">Awaiting description…</div>
+    <div class="actions">
+      <button class="btn-approve" onclick="HUD.resolve(true)">&#x2713; APPROVE</button>
+      <button class="btn-deny" onclick="HUD.resolve(false)">&#x2717; DENY</button>
+    </div>
+  </div>
+</div>
+
+<!-- Legacy modal kept -->
+<div id="modal"><div class="box">
+  <h3 id="m-title">APPROVAL REQUIRED</h3>
+  <p id="m-desc"></p>
+  <div class="actions">
+    <button class="btn-approve" onclick="HUD.resolve(true)">APPROVE</button>
+    <button class="btn-deny" onclick="HUD.resolve(false)">DENY</button>
+  </div>
+</div></div>
+
+<script src="/static/orb.js"></script>
+<script>
+const HUD = (function(){
+  const API = '';
+  const WORKERS = [
+    {id:'forge',    name:'FORGE',    icon:'&#x1F525;'},
+    {id:'guardian', name:'GUARDIAN', icon:'&#x1F6E1;'},
+    {id:'web',      name:'WEB',      icon:'&#x1F310;'},
+    {id:'repair',   name:'REPAIR',   icon:'&#x1F527;'},
+    {id:'earn',     name:'EARN',     icon:'&#x1F4B0;'}
+  ];
+  let socket=null, wsConnected=false, activeApproval=null, currentWorker=null;
+  // Panel auto-refresh interval handle
+  let panelRefreshInterval=null;
+  // Earn auto-refresh handle
+  let earnRefreshInterval=null;
+  // Session start time
+  const sessionStart=new Date();
+  // Monthly goal (persisted in localStorage)
+  let monthlyGoal=parseInt(localStorage.getItem('sentinel_monthly_goal')||'10000',10)||10000;
+  // Ollama warning shown flag
+  let ollamaWarnShown=false;
+
+  function $(s){return document.querySelector(s)}
+  function el(t,c,h){const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e}
+  function now(){return new Date().toLocaleTimeString('en-GB')}
+  async function getJSON(p){try{const r=await fetch(API+p);return await r.json()}catch(e){return null}}
+  async function postJSON(p,b){try{const r=await fetch(API+p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});return await r.json()}catch(e){return null}}
+
+  // ── ISSUE 5: Telemetry parser ─────────────────────────────────────────────
+  function parseTelemetryEntry(raw){
+    let obj=null;
+    if(typeof raw==='string'){
+      const trimmed=raw.trim();
+      if(trimmed.startsWith('{')||trimmed.startsWith('[')){
+        try{obj=JSON.parse(trimmed);}catch(e){return {text:raw,eventType:'LOG',color:null};}
+      } else {
+        return {text:raw,eventType:'LOG',color:null};
+      }
+    } else if(raw&&typeof raw==='object'){
+      obj=raw;
+    } else {
+      return {text:String(raw||''),eventType:'LOG',color:null};
+    }
+    const text=(obj.detail||obj.message||obj.event||obj.status||obj.error||JSON.stringify(obj));
+    const rawEvent=(obj.event||obj.event_type||'log');
+    const eventType=rawEvent.toUpperCase().replace(/_/g,' ');
+    let color=null;
+    const ev=rawEvent.toLowerCase();
+    if(ev.startsWith('scan'))color='var(--hud-cyan)';
+    else if(ev.startsWith('approval'))color='var(--hud-gold)';
+    else if(ev.startsWith('forge'))color='var(--hud-orange)';
+    else if(ev.startsWith('error'))color='var(--hud-red)';
+    else if(ev.startsWith('memory'))color='var(--hud-purple)';
+    else color='var(--hud-blue)';
+    const ts=obj.timestamp?String(obj.timestamp).slice(11,19):now();
+    return {text,eventType,color,ts};
+  }
+  // Worker-relevant event prefixes for scanmetrics
+  function isWorkerEvent(raw){
+    const ev=typeof raw==='object'?(raw.event||raw.event_type||'').toLowerCase()
+              :(raw||'').toLowerCase();
+    return /^(forge|repair|guardian|scan|bounty)/.test(ev);
+  }
+
+  const SID = 'SID-'+Math.random().toString(36).slice(2,8).toUpperCase();
+  function tick(){ $('#time').textContent=now(); }
+
+  // ── ISSUE 7: Session panel (no fake coords) ───────────────────────────────
+  async function initSession(){
+    $('#session').innerHTML=
+      'START: <b>'+sessionStart.toLocaleString()+'</b><br>'+
+      'SESSION: <b>'+SID+'</b><br>'+
+      'OLLAMA: <b id="sess-ollama">checking…</b><br>'+
+      'MODEL: <b id="sess-model">—</b><br>'+
+      'MODELS DL: <b id="sess-models-dl">—</b>';
+    $('#sid').textContent=SID;
+  }
+  async function refreshSession(){
+    const [statusR,modelsR,setupR]=await Promise.all([
+      getJSON('/api/status'),getJSON('/api/models/status'),getJSON('/api/setup/status')]);
+    const ollamaStatus=(statusR&&(statusR.data||statusR).ollama_status)||'offline';
+    const ollamaEl=$('#sess-ollama');
+    if(ollamaEl){
+      ollamaEl.textContent=ollamaStatus;
+      ollamaEl.style.color=ollamaStatus==='running'?'var(--hud-green)':'var(--hud-red)';
+    }
+    const loaded=(modelsR&&modelsR.data&&modelsR.data.loaded)||[];
+    const modelEl=$('#sess-model');
+    if(modelEl) modelEl.textContent=loaded.length?loaded[0]:'—';
+    const allModels=(setupR&&setupR.data&&setupR.data.models)||[];
+    const dlCount=allModels.filter(function(m){return m.downloaded;}).length;
+    const dlEl=$('#sess-models-dl');
+    if(dlEl) dlEl.textContent=dlCount+'/'+allModels.length;
+    // Ollama offline warning in chat
+    if(ollamaStatus!=='running'&&!ollamaWarnShown){
+      ollamaWarnShown=true;
+      addMsg('sentinel','&#x26A0; Ollama offline — using basic routing');
+    }
+  }
+
+  // ── ISSUE 7: System Monitor bars ─────────────────────────────────────────
+  async function refreshSysmon(){
+    const r=await getJSON('/api/system/stats');
+    if(!r)return;
+    const d=r.data||r;
+    if(d.cpu){
+      const pct=d.cpu.percent||0;
+      const el1=$('#sysmon-cpu-pct');const el2=$('#sysmon-cpu-fill');
+      if(el1)el1.textContent=Math.round(pct)+'%';
+      if(el2)el2.style.width=Math.min(100,pct)+'%';
+    }
+    if(d.ram){
+      const pct=d.ram.percent||0;
+      const el1=$('#sysmon-ram-pct');const el2=$('#sysmon-ram-fill');
+      if(el1)el1.textContent=Math.round(pct)+'% ('+((d.ram.used_gb||0).toFixed(1))+'GB)';
+      if(el2)el2.style.width=Math.min(100,pct)+'%';
+    }
+    if(d.disk){
+      const pct=d.disk.percent||0;
+      const el1=$('#sysmon-disk-pct');const el2=$('#sysmon-disk-fill');
+      if(el1)el1.textContent=Math.round(pct)+'% ('+((d.disk.used_gb||0).toFixed(1))+'GB)';
+      if(el2)el2.style.width=Math.min(100,pct)+'%';
+    }
+    const gpuRow=$('#sysmon-gpu-row');
+    if(d.gpu&&d.gpu.percent!=null){
+      if(gpuRow)gpuRow.style.display='';
+      const pct=d.gpu.percent||0;
+      const el1=$('#sysmon-gpu-pct');const el2=$('#sysmon-gpu-fill');const el3=$('#sysmon-gpu-name');
+      if(el3)el3.textContent=(d.gpu.name||'GPU');
+      if(el1)el1.textContent=Math.round(pct)+'%'+(d.gpu.vram_gb?' ('+d.gpu.vram_gb.toFixed(1)+'GB VRAM)':'');
+      if(el2)el2.style.width=Math.min(100,pct)+'%';
+    } else {
+      if(gpuRow)gpuRow.style.display='none';
+    }
+  }
+
+  function renderDock(statuses){
+    const dock=$('#dock');dock.innerHTML='';
+    WORKERS.forEach(function(w){
+      const st=(statuses&&statuses[w.id])||{};
+      const state=st.status||'idle';
+      const item=el('div','dock-item'+(currentWorker===w.id?' active':''));
+      item.innerHTML='<span class="dock-icon">'+w.icon+'</span>'+
+        '<span class="dock-name">'+w.name+'</span>'+
+        '<span class="dot '+state+'"></span>';
+      item.onclick=function(){openWorker(w.id);};
+      dock.appendChild(item);
+    });
+  }
+
+  function vital(label,pct){
+    return '<div class="vital"><div class="vital-row"><span>'+label+'</span><span>'+Math.round(pct)+'%</span></div>'+
+           '<div class="vital-bar"><div class="vital-fill" style="width:'+Math.min(100,pct)+'%"></div></div></div>';
+  }
+  function renderVitals(d){
+    d=d||{};
+    $('#vitals').innerHTML =
+      vital('NEURAL CORE', d.neural!=null?d.neural:(d.ollama_status==='running'?92:8))+
+      vital('MEMORY', d.memory!=null?d.memory:42)+
+      vital('WORKERS', d.workers!=null?d.workers:60)+
+      vital('QUEUE', d.queue!=null?d.queue:0)+
+      vital('UPTIME', d.uptime!=null?d.uptime:100);
+  }
+
+  // ── ISSUE 5: pushTelemetry with parsing ────────────────────────────────────
+  function pushTelemetry(line,target){
+    target=target||'#telemetry';
+    const box=$(target);if(!box)return;
+    var parsed=parseTelemetryEntry(line);
+    var ts=parsed.ts||now();
+    var colorStyle=parsed.color?'color:'+parsed.color+';':'';
+    var html='<span class="t-time">['+ts+']</span> '+
+             '<span style="'+colorStyle+'">'+parsed.eventType+' &#x2014; '+escHtml(parsed.text)+'</span>';
+    const row=el('div',null,html);
+    box.insertBefore(row,box.firstChild);
+    while(box.children.length>40) box.removeChild(box.lastChild);
+  }
+  function escHtml(s){
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  // ── ISSUE 5: renderLogs with same parser ──────────────────────────────────
+  function renderLogs(logs){
+    if(!logs)return;
+    const box=$('#telemetry');box.innerHTML='';
+    logs.slice(0,20).forEach(function(l){
+      var parsed=parseTelemetryEntry(l);
+      var ts=parsed.ts||now();
+      var colorStyle=parsed.color?'color:'+parsed.color+';':'';
+      var html='<span class="t-time">['+ts+']</span> '+
+               '<span style="'+colorStyle+'">'+parsed.eventType+' &#x2014; '+escHtml(parsed.text)+'</span>';
+      box.appendChild(el('div',null,html));
+    });
+  }
+  // ── ISSUE 5: pushScanmetrics — worker events only ─────────────────────────
+  function pushScanmetrics(line){
+    if(!isWorkerEvent(line))return;
+    pushTelemetry(line,'#scanmetrics');
+  }
+
+  // ── ISSUE 8: addMsg and chat helpers ──────────────────────────────────────
+  function addMsg(who,text){
+    const log=$('#chat-log');
+    const m=el('div','msg '+who,'<b>'+(who==='user'?'YOU':'SENTINEL')+'</b>'+text);
+    log.appendChild(m);log.scrollTop=log.scrollHeight;
+    while(log.children.length>40)log.removeChild(log.firstChild);
+    return m;
+  }
+  function addThinkingMsg(){
+    var m=addMsg('sentinel','<span class="thinking-dots">thinking<span>.</span><span>.</span><span>.</span></span>');
+    return m;
+  }
+  function updateMsg(node,text){
+    // Replace content of the msg node (preserves the <b> tag)
+    const b=node.querySelector('b');
+    if(b){b.nextSibling?node.removeChild(b.nextSibling):null;
+      node.appendChild(document.createTextNode(text));
+    } else {
+      node.textContent=text;
+    }
+  }
+  function typewriter(node,text){
+    // Clear thinking dots / existing text after the <b> element
+    const b=node.querySelector('b');
+    // Remove all text nodes after b
+    while(b&&b.nextSibling) node.removeChild(b.nextSibling);
+    let i=0;const span=document.createElement('span');if(b)node.insertBefore(span,b.nextSibling||null);else node.appendChild(span);
+    (function step(){if(i<=text.length){span.textContent=text.slice(0,i++);
+      $('#chat-log').scrollTop=1e9;setTimeout(step,12);}})();
+  }
+  async function sendCommand(text){
+    if(!text.trim())return;
+    addMsg('user',text);setOrb('thinking');
+    var thinkingNode=addThinkingMsg();
+    const resp=await postJSON('/api/tasks/submit',{description:text,source:'desktop'});
+    setOrb('speaking');
+    const data=resp&&resp.data?resp.data:resp;
+    let reply='Acknowledged.';
+    if(data){
+      if(data.status==='awaiting_approval'){
+        reply='That action needs your approval. Please review the approval prompt.';
+      } else if(data.response){
+        reply=data.response;
+      } else if(data.message){
+        reply=data.message;
+      } else if(data.intent&&data.worker){
+        reply='Routing to '+data.worker+' as ['+(data.intent.type||data.intent)+']…';
+      } else if(data.intent){
+        reply='Routing as ['+(data.intent.type||data.intent)+']…';
+      } else {
+        reply='Task '+(data.status||'received')+'.';
+      }
+    }
+    // Replace thinking node with real response
+    typewriter(thinkingNode,reply);
+    speak(reply);
+    setTimeout(function(){setOrb('idle');},Math.min(6000,1500+reply.length*40));
+  }
+
+  function setOrb(state){ if(window.SentinelOrb) window.SentinelOrb.setState(state); }
+
+  let mediaRec=null, chunks=[], recording=false, audioCtx=null, analyser=null, micStream=null;
+  async function startVoice(){
+    if(recording)return;recording=true;
+    $('#mic-btn').classList.add('rec');
+    // Remove idle animation
+    $('#audio-bars').classList.remove('idle-anim');
+    setOrb('listening');
+    if(socket&&wsConnected)socket.emit('voice_start',{});
+    try{
+      micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+      audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
+      const src=audioCtx.createMediaStreamSource(micStream);
+      analyser=audioCtx.createAnalyser();analyser.fftSize=64;src.connect(analyser);
+      driveAudioBars();
+      mediaRec=new MediaRecorder(micStream);chunks=[];
+      mediaRec.ondataavailable=function(e){chunks.push(e.data);};
+      mediaRec.onstop=onVoiceStop;
+      mediaRec.start();
+    }catch(e){
+      pushTelemetry('MIC unavailable — text only. '+e.message);
+      recording=false;$('#mic-btn').classList.remove('rec');
+      $('#audio-bars').classList.add('idle-anim');
+      setOrb('idle');
+    }
+  }
+  async function stopVoice(){
+    if(!recording)return;recording=false;
+    $('#mic-btn').classList.remove('rec');setOrb('thinking');
+    if(socket&&wsConnected)socket.emit('voice_stop',{});
+    if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop();
+    if(micStream)micStream.getTracks().forEach(function(t){t.stop();});
+  }
+  async function onVoiceStop(){
+    const blob=new Blob(chunks,{type:'audio/webm'});
+    const fd=new FormData();fd.append('audio',blob,'voice.webm');
+    try{
+      const r=await fetch(API+'/api/voice/input',{method:'POST',body:fd});
+      const j=await r.json();
+      const d=j&&j.data?j.data:j;
+      if(d&&d.transcribed){addMsg('user',d.transcribed);
+        const node=addMsg('sentinel','');typewriter(node,d.response||'Acknowledged.');
+        speak(d.response||'');setOrb(d.orb_state||'idle');}
+      else{pushTelemetry('Voice transcription unavailable — type instead.');setOrb('idle');}
+    }catch(e){pushTelemetry('Voice endpoint error: '+e.message);setOrb('idle');}
+    // Restore idle anim
+    $('#audio-bars').classList.add('idle-anim');
+  }
+  function driveAudioBars(){
+    if(!analyser)return;
+    const data=new Uint8Array(analyser.frequencyBinCount);
+    function frame(){
+      const bars=$('#audio-bars').querySelectorAll('i');
+      if(!recording){
+        bars.forEach(function(b){b.style.height='';});
+        $('#audio-bars').classList.add('idle-anim');
+        if(window.SentinelOrb)window.SentinelOrb.setVolume(0);return;
+      }
+      $('#audio-bars').classList.remove('idle-anim');
+      analyser.getByteFrequencyData(data);
+      let sum=0;
+      bars.forEach(function(b,i){const v=data[i*2]||0;sum+=v;b.style.height=(15+v/255*85)+'%';});
+      if(window.SentinelOrb)window.SentinelOrb.setVolume((sum/bars.length)/255);
+      requestAnimationFrame(frame);
+    }
+    frame();
+  }
+  async function speak(text){
+    if(!text)return;
+    // Animate bars during speech
+    if(!recording){
+      const bars=$('#audio-bars').querySelectorAll('i');
+      $('#audio-bars').classList.remove('idle-anim');
+      var i=0;
+      var speakAnim=setInterval(function(){
+        bars.forEach(function(b){b.style.height=(15+Math.random()*55)+'%';});
+        i++;
+      },100);
+      setTimeout(function(){
+        clearInterval(speakAnim);
+        bars.forEach(function(b){b.style.height='';});
+        $('#audio-bars').classList.add('idle-anim');
+      },Math.min(8000,1500+text.length*60));
+    }
+    try{ postJSON('/api/voice/speak',{text:text}); }catch(e){}
+    if(window.speechSynthesis){
+      const u=new SpeechSynthesisUtterance(text);u.rate=1.05;
+      window.speechSynthesis.speak(u);
+    }
+  }
+
+  // ── ISSUE 4: openWorker / closeWorker with interval management ────────────
+  function openWorker(id){
+    currentWorker=id;
+    $('#orb-root').classList.add('corner');
+    $('#worker-panel').classList.add('show');
+    renderDock(HUD._lastWorkers);
+    if(id==='earn'){
+      setOrb('earn');
+      renderEarn();
+      // Start earn auto-refresh every 10s
+      if(earnRefreshInterval)clearInterval(earnRefreshInterval);
+      earnRefreshInterval=setInterval(function(){if(currentWorker==='earn')loadEarnData();},10000);
+    } else {
+      setOrb('idle');
+      renderWorkerDetail(id);
+      // Start panel auto-refresh every 5s
+      if(panelRefreshInterval)clearInterval(panelRefreshInterval);
+      panelRefreshInterval=setInterval(function(){if(currentWorker&&currentWorker!=='earn')refreshWorkerPanel();},5000);
+    }
+  }
+
+  // ── ISSUE 4: closeWorker with full cleanup ────────────────────────────────
+  function closeWorker(){
+    currentWorker=null;
+    $('#worker-panel').classList.remove('show');
+    $('#orb-root').classList.remove('corner');
+    // Clear all active panel intervals
+    if(panelRefreshInterval){clearInterval(panelRefreshInterval);panelRefreshInterval=null;}
+    if(earnRefreshInterval){clearInterval(earnRefreshInterval);earnRefreshInterval=null;}
+    setOrb('idle');
+    renderDock(HUD._lastWorkers);
+  }
+
+  // ── ISSUE 2: renderWorkerDetail with real data ────────────────────────────
+  function renderWorkerDetail(id){
+    const meta={forge:'Build Engine',guardian:'Security Scanner',web:'Web Research',repair:'Auto Repair'};
+    const body=$('#worker-panel-body');
+    const icon=(WORKERS.find(function(w){return w.id===id;})||{}).icon||'';
+    const live=(HUD._lastLive&&HUD._lastLive[id])||{};
+
+    if(id==='forge'){
+      body.innerHTML=
+        '<h2>'+icon+' FORGE &#x2014; Build Engine</h2>'+
+        '<div class="kv"><span>STATUS</span><span id="wd-status">'+escHtml(live.status||'idle')+'</span></div>'+
+        '<div class="kv"><span>CURRENT TASK</span><span id="wd-task">'+escHtml(live.current_task||'none')+'</span></div>'+
+        '<div class="kv"><span>LAST ACTIVITY</span><span id="wd-last">'+escHtml(live.last_activity||'—')+'</span></div>'+
+        '<div class="panel-title" style="margin-top:14px">Recent Tasks</div>'+
+        '<div id="wd-log" style="font-size:11px;line-height:1.6;color:#3aa9c9">loading…</div>';
+      loadForgeActivity();
+    } else if(id==='guardian'){
+      body.innerHTML=
+        '<h2>'+icon+' GUARDIAN &#x2014; Security Scanner</h2>'+
+        '<div class="kv"><span>STATUS</span><span id="wd-status">'+escHtml(live.status||'idle')+'</span></div>'+
+        '<div class="kv"><span>LAST SCAN</span><span id="wd-last-scan">'+escHtml(live.last_scan||'—')+'</span></div>'+
+        '<div style="display:flex;gap:8px;margin:8px 0">'+
+          '<button class="mini-btn" id="guardian-scan-btn" onclick="HUD.guardianScan()">SCAN NOW</button>'+
+          '<button class="mini-btn" id="guardian-keys-btn" onclick="HUD.guardianCheckKeys()">CHECK KEYS</button>'+
+        '</div>'+
+        '<div class="panel-title">Findings</div>'+
+        '<div id="wd-findings" style="font-size:11px;line-height:1.6;color:#3aa9c9">'+
+          renderGuardianFindings(live.findings||[])+'</div>'+
+        '<div class="panel-title" style="margin-top:8px">Recent Activity</div>'+
+        '<div id="wd-log" style="font-size:11px;line-height:1.6;color:#3aa9c9">'+
+          renderActivityLog(live.activity||[])+'</div>';
+    } else if(id==='repair'){
+      body.innerHTML=
+        '<h2>'+icon+' REPAIR &#x2014; Auto Repair</h2>'+
+        '<div class="kv"><span>STATUS</span><span id="wd-status">'+escHtml(live.status||'idle')+'</span></div>'+
+        '<div class="kv"><span>CURRENT TASK</span><span id="wd-task">'+escHtml(live.current_task||'none')+'</span></div>'+
+        '<div style="margin:8px 0">'+
+          '<button class="mini-btn" onclick="HUD.repairFindIssues()">FIND ISSUES</button>'+
+        '</div>'+
+        '<div class="panel-title">Pipeline Queue</div>'+
+        '<div id="wd-pipeline" style="font-size:11px;line-height:1.6;color:#3aa9c9">loading…</div>'+
+        '<div class="panel-title" style="margin-top:8px">Recent History</div>'+
+        '<div id="wd-history" style="font-size:11px;line-height:1.6;color:#3aa9c9">loading…</div>';
+      loadRepairData();
+    } else {
+      // web or other
+      body.innerHTML=
+        '<h2>'+icon+' '+id.toUpperCase()+' &#x2014; '+(meta[id]||'')+'</h2>'+
+        '<div class="kv"><span>STATUS</span><span id="wd-status">'+escHtml(live.status||'idle')+'</span></div>'+
+        '<div class="kv"><span>CURRENT TASK</span><span id="wd-task">'+escHtml(live.current_task||'none')+'</span></div>'+
+        '<div class="kv"><span>LAST ACTIVITY</span><span id="wd-last">'+escHtml(live.last_activity||'—')+'</span></div>'+
+        '<div class="panel-title" style="margin-top:14px">Activity</div>'+
+        '<div id="wd-log" style="font-size:11px;line-height:1.6;color:#3aa9c9">'+
+          renderActivityLog(live.activity||[])+'</div>';
+    }
+  }
+
+  function renderActivityLog(arr){
+    if(!arr||!arr.length)return '<div style="color:var(--hud-dim)">No recent activity.</div>';
+    return arr.slice(0,10).map(function(a){
+      var status=a.status||'';
+      var color=status==='error'?'var(--hud-red)':status==='running'?'var(--hud-blue)':'var(--hud-cyan)';
+      return '<div class="earn-row"><span style="color:'+color+'">'+escHtml(a.text||a.message||a.event||'')+'</span>'+
+             '<span style="color:var(--hud-dim)">'+escHtml(a.ts||a.timestamp||'')+'</span></div>';
+    }).join('');
+  }
+
+  function renderGuardianFindings(findings){
+    if(!findings||!findings.length)return '<div style="color:var(--hud-green)">&#x2713; No threats detected.</div>';
+    return findings.map(function(f){
+      var sev=f.severity||'';
+      var col=sev==='high'?'var(--hud-red)':sev==='medium'?'var(--hud-orange)':'var(--hud-gold)';
+      return '<div class="earn-row">'+
+        '<span style="color:var(--hud-cyan)">'+escHtml(f.file||'')+'</span>'+
+        '<span style="flex:1;padding:0 6px">'+escHtml(f.threat||'')+'</span>'+
+        '<span style="color:'+col+'">'+escHtml(sev)+'</span></div>';
+    }).join('');
+  }
+
+  async function loadForgeActivity(){
+    const r=await getJSON('/api/forge/tasks');
+    // NOTE: /api/forge/tasks is NOT enveloped — read .tasks directly
+    const tasks=(r&&r.tasks)||[];
+    const el1=$('#wd-log');if(!el1)return;
+    if(!tasks.length){
+      el1.innerHTML='<div style="color:var(--hud-dim)">No forge tasks yet. Ask Sentinel to build something.</div>';
+      return;
+    }
+    el1.innerHTML=tasks.slice(0,10).map(function(t){
+      var sc=t.status==='completed'?'var(--hud-green)':t.status==='error'?'var(--hud-red)':'var(--hud-blue)';
+      return '<div class="earn-row">'+
+        '<span style="flex:1">'+escHtml((t.prompt||'').slice(0,50))+'</span>'+
+        '<span style="color:'+sc+'">'+escHtml(t.status||'')+'</span>'+
+        '<span style="color:var(--hud-dim);font-size:9px">'+escHtml((t.created_at||'').slice(0,16))+'</span></div>';
+    }).join('');
+  }
+
+  async function loadRepairData(){
+    const [pipeR,histR]=await Promise.all([
+      getJSON('/api/revenue/pipeline'),getJSON('/api/revenue/history')]);
+    const pipe=(pipeR&&pipeR.data&&pipeR.data.pipeline)||[];
+    const hist=(histR&&histR.data&&histR.data.history)||[];
+    const pipeEl=$('#wd-pipeline');
+    if(pipeEl){
+      if(!pipe.length){
+        pipeEl.innerHTML='<div style="color:var(--hud-dim)">Queue is empty. Scan for bounties above.</div>';
+      } else {
+        pipeEl.innerHTML=pipe.map(function(p){
+          return '<div class="earn-row">'+
+            '<span style="color:var(--hud-cyan)">'+escHtml(p.repo||'')+'</span>'+
+            '<span style="flex:1;padding:0 4px">'+escHtml(String(p.issue||''))+'</span>'+
+            '<span style="color:var(--hud-gold)">'+escHtml(String(p.score||''))+'</span>'+
+            '<button class="mini-btn" style="margin-left:4px" onclick="HUD.startRepairTask(\''+escAttr(p.task_id)+'\',\''+escAttr(p.repo||'')+' '+escAttr(String(p.issue||''))+'\')">START</button>'+
+            '<button class="mini-btn danger" style="margin-left:2px" onclick="HUD.removePipeline(\''+escAttr(p.task_id||'')+'\')">&#x2715;</button>'+
+            '</div>';
+        }).join('');
+      }
+    }
+    const histEl=$('#wd-history');
+    if(histEl){
+      if(!hist.length){
+        histEl.innerHTML='<div style="color:var(--hud-dim)">No completed repairs yet.</div>';
+      } else {
+        histEl.innerHTML=hist.slice(0,5).map(function(h){
+          var sc=h.status==='merged'?'var(--hud-green)':h.status==='submitted'?'var(--hud-blue)':'var(--hud-red)';
+          return '<div class="earn-row">'+
+            '<span>'+escHtml(h.repo||'')+'</span>'+
+            '<span style="flex:1;padding:0 4px">'+escHtml(String(h.issue||''))+'</span>'+
+            '<span style="color:'+sc+'">'+escHtml(h.status||'')+'</span>'+
+            '<span style="color:var(--hud-gold)">'+escHtml(h.amount?'$'+h.amount:'')+'</span></div>';
+        }).join('');
+      }
+    }
+  }
+
+  // Refresh currently open worker panel content
+  async function refreshWorkerPanel(){
+    if(!currentWorker||currentWorker==='earn')return;
+    // Pull live data
+    const workersR=await getJSON('/api/workers/status');
+    if(workersR){HUD._lastWorkers=normalizeWorkers(workersR.data||workersR);
+      if(workersR.data&&workersR.data.live)HUD._lastLive=workersR.data.live;
+      renderDock(HUD._lastWorkers);}
+    // Update in-panel status fields
+    const live=(HUD._lastLive&&HUD._lastLive[currentWorker])||{};
+    const statusEl=$('#wd-status');
+    if(statusEl)statusEl.textContent=live.status||'idle';
+    const taskEl=$('#wd-task');
+    if(taskEl)taskEl.textContent=live.current_task||'none';
+    const lastEl=$('#wd-last');
+    if(lastEl)lastEl.textContent=live.last_activity||'—';
+    if(currentWorker==='forge')loadForgeActivity();
+    if(currentWorker==='repair')loadRepairData();
+    if(currentWorker==='guardian'){
+      const lastScan=$('#wd-last-scan');
+      if(lastScan)lastScan.textContent=live.last_scan||'—';
+      const findings=$('#wd-findings');
+      if(findings)findings.innerHTML=renderGuardianFindings(live.findings||[]);
+      const wdlog=$('#wd-log');
+      if(wdlog)wdlog.innerHTML=renderActivityLog(live.activity||[]);
+    }
+  }
+
+  // Guardian actions
+  async function guardianScan(){
+    var btn=$('#guardian-scan-btn');if(btn)btn.textContent='scanning…';
+    const r=await postJSON('/api/guardian/scan',{});
+    const d=r&&r.data?r.data:r;
+    var findings=$('#wd-findings');
+    if(findings){
+      if(d&&d.clean){findings.innerHTML='<div style="color:var(--hud-green)">&#x2713; No threats detected. ('+((d.scanned||0))+' files scanned)</div>';}
+      else if(d&&d.findings){findings.innerHTML=renderGuardianFindings(d.findings);}
+    }
+    var lastScan=$('#wd-last-scan');if(lastScan&&d&&d.last_scan)lastScan.textContent=d.last_scan;
+    if(btn)btn.textContent='SCAN NOW';
+    pushTelemetry({event:'scan_complete',detail:'Guardian scan complete. '+(d&&d.scanned||0)+' files.'});
+  }
+  async function guardianCheckKeys(){
+    var btn=$('#guardian-keys-btn');if(btn)btn.textContent='checking…';
+    const r=await postJSON('/api/guardian/check-keys',{});
+    const d=r&&r.data?r.data:r;
+    var findings=$('#wd-findings');
+    if(findings){
+      var exposures=(d&&d.exposures)||[];
+      if(!exposures.length){findings.innerHTML='<div style="color:var(--hud-green)">&#x2713; No key exposures found. ('+((d&&d.scanned)||0)+' files)</div>';}
+      else{findings.innerHTML=exposures.map(function(ex){
+        var sc=ex.severity==='high'?'var(--hud-red)':ex.severity==='medium'?'var(--hud-orange)':'var(--hud-gold)';
+        return '<div class="earn-row">'+
+          '<span style="color:var(--hud-cyan)">'+escHtml(ex.file||'')+'</span>'+
+          '<span>'+escHtml(ex.type||'')+'</span>'+
+          '<span style="color:'+sc+'">'+escHtml(ex.severity||'')+'</span>'+
+          '<span style="color:var(--hud-dim);font-size:9px">'+escHtml(ex.match_preview||'')+'</span></div>';
+      }).join('');}
+    }
+    if(btn)btn.textContent='CHECK KEYS';
+  }
+  async function repairFindIssues(){
+    addMsg('sentinel','Scanning for repair opportunities…');
+    await postJSON('/api/tasks/submit',{description:'scan for bounties',source:'desktop'});
+    pushTelemetry({event:'repair_find',detail:'Scan for bounties submitted.'});
+  }
+  async function removePipeline(taskId){
+    await postJSON('/api/revenue/pipeline/remove',{task_id:taskId});
+    loadRepairData();
+  }
+  async function startRepairTask(taskId,desc){
+    await postJSON('/api/tasks/submit',{description:'repair issue '+desc,source:'desktop'});
+    pushTelemetry({event:'repair_start',detail:'Repair started: '+desc});
+    loadRepairData();
+  }
+  function escAttr(s){return String(s||'').replace(/'/g,'&#39;').replace(/"/g,'&quot;');}
+
+  // ── ISSUE 3: renderEarn ───────────────────────────────────────────────────
+  async function renderEarn(){
+    const body=$('#worker-panel-body');
+    body.innerHTML=
+      '<h2>&#x1F4B0; EARN MODE</h2>'+
+      '<div class="earn-grid">'+
+        '<div class="earn-box" style="grid-column:1/3">'+
+          '<h3>SCANNER &#x2014; LIVE BOUNTIES '+
+            '<button class="mini-btn" style="margin-left:8px" onclick="HUD.scanBounties()">&#x21BB; SCAN NOW</button>'+
+          '</h3>'+
+          '<div id="bounties">scanning…</div>'+
+        '</div>'+
+        '<div class="earn-box">'+
+          '<h3>STATS</h3>'+
+          '<div id="earn-stats" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>'+
+        '</div>'+
+        '<div class="earn-box">'+
+          '<h3>TARGETS</h3>'+
+          '<div class="earn-row">'+
+            '<span>Monthly Goal</span>'+
+            '<span id="goal-display" class="goal-edit" onclick="HUD.editGoal()" title="Click to edit">$'+monthlyGoal.toLocaleString()+'</span>'+
+            '<input id="goal-input" value="'+monthlyGoal+'" style="display:none;width:80px;background:#021018;border:1px solid var(--hud-dim);color:var(--hud-gold)">'+
+          '</div>'+
+          '<div class="earn-row"><span>Daily Target</span><span id="daily">$'+Math.round(monthlyGoal/30)+'</span></div>'+
+          '<div class="earn-row"><span>Status</span><span id="ontrack" style="color:var(--hud-orange)">CHECKING…</span></div>'+
+          '<div style="margin-top:6px"><div class="vital-bar"><div class="vital-fill" id="goal-fill" style="width:0%;background:linear-gradient(90deg,var(--hud-gold),var(--hud-orange))"></div></div></div>'+
+        '</div>'+
+        '<div class="earn-box">'+
+          '<h3>ACTIVE REPAIRS</h3>'+
+          '<div id="active">loading…</div>'+
+        '</div>'+
+        '<div class="earn-box">'+
+          '<h3>PIPELINE <button class="mini-btn danger" style="margin-left:8px;font-size:8px" onclick="HUD.clearPipeline()">CLEAR ALL</button></h3>'+
+          '<div id="pipeline">loading…</div>'+
+        '</div>'+
+        '<div class="earn-box" style="grid-column:1/3">'+
+          '<h3>HISTORY</h3>'+
+          '<table id="history" style="width:100%;font-size:10px;border-collapse:collapse">'+
+            '<thead><tr style="color:var(--hud-blue)"><th style="text-align:left;padding:2px 4px">Date</th><th style="text-align:left">Repo</th><th style="text-align:left">Issue</th><th style="text-align:left">PR</th><th style="text-align:left">Status</th><th style="text-align:left">Amount</th></tr></thead>'+
+            '<tbody id="history-body"><tr><td colspan="6" style="color:var(--hud-dim)">loading…</td></tr></tbody>'+
+          '</table>'+
+        '</div>'+
+      '</div>';
+    loadEarnData();
+  }
+
+  function editGoal(){
+    var disp=$('#goal-display');var inp=$('#goal-input');
+    if(!disp||!inp)return;
+    disp.style.display='none';inp.style.display='inline-block';inp.focus();inp.select();
+    inp.onblur=saveGoal;inp.onkeydown=function(e){if(e.key==='Enter')saveGoal();};
+  }
+  function saveGoal(){
+    var inp=$('#goal-input');var disp=$('#goal-display');
+    if(!inp||!disp)return;
+    var val=parseInt(inp.value||'10000',10)||10000;
+    monthlyGoal=val;
+    localStorage.setItem('sentinel_monthly_goal',String(val));
+    disp.textContent='$'+val.toLocaleString();
+    disp.style.display='';inp.style.display='none';
+    var daily=$('#daily');if(daily)daily.textContent='$'+Math.round(val/30);
+  }
+
+  async function loadEarnData(){
+    // STATS
+    const revR=await getJSON('/api/revenue/status');
+    const e=(revR&&revR.data&&revR.data.earnings)||{};
+    const statsEl=$('#earn-stats');
+    if(statsEl){statsEl.innerHTML=
+      bigstat('$'+(parseFloat(e.confirmed_earnings||0)).toFixed(2),'EARNED')+
+      bigstat(e.submitted||0,'SUBMITTED')+
+      bigstat(e.merged||0,'MERGED')+
+      bigstat(((e.merge_rate!=null?e.merge_rate:0))+'%','SUCCESS');}
+    // TARGET status
+    const earned=parseFloat(e.confirmed_earnings||0);
+    const goalFill=$('#goal-fill');if(goalFill)goalFill.style.width=Math.min(100,(earned/monthlyGoal)*100)+'%';
+    const ontrack=$('#ontrack');
+    if(ontrack){
+      const dayOfMonth=new Date().getDate();const daysInMonth=30;
+      const expected=(monthlyGoal/daysInMonth)*dayOfMonth;
+      if(earned>=expected*1.05)ontrack.textContent='AHEAD';
+      else if(earned>=expected*0.9){ontrack.textContent='ON TRACK';ontrack.style.color='var(--hud-green)';}
+      else{ontrack.textContent='BEHIND';ontrack.style.color='var(--hud-orange)';}
+    }
+    // BOUNTIES scanner
+    await scanBounties();
+    // ACTIVE
+    const actR=await getJSON('/api/revenue/active');
+    const acts=(actR&&actR.data&&actR.data.active)||[];
+    const actEl=$('#active');
+    if(actEl){actEl.innerHTML=acts.length?acts.map(function(a){
+      return '<div class="earn-row"><span style="color:var(--hud-cyan)">'+escHtml(a.repo||'')+'</span>'+
+             '<span>'+escHtml(String(a.issue||''))+'</span>'+
+             '<span>'+escHtml(a.step||a.status||'')+'</span>'+
+             '<span style="color:var(--hud-dim)">'+escHtml(a.elapsed||'')+'</span></div>';
+    }).join(''):'<div style="color:var(--hud-dim)">No active repairs.</div>';}
+    // PIPELINE
+    const pipeR=await getJSON('/api/revenue/pipeline');
+    const pipe=(pipeR&&pipeR.data&&pipeR.data.pipeline)||[];
+    const pipeEl=$('#pipeline');
+    if(pipeEl){pipeEl.innerHTML=pipe.length?pipe.map(function(p){
+      return '<div class="earn-row">'+
+        '<span style="color:var(--hud-cyan)">'+escHtml(p.repo||'')+'</span>'+
+        '<span style="flex:1;padding:0 4px">'+escHtml(String(p.issue||''))+'</span>'+
+        '<span style="color:var(--hud-gold)">'+escHtml(String(p.score||''))+'</span>'+
+        '<button class="mini-btn danger" style="margin-left:4px" onclick="HUD.removePipeline(\''+escAttr(p.task_id||'')+'\')">&#x2715;</button>'+
+        '</div>';
+    }).join(''):'<div style="color:var(--hud-dim)">Queue is empty. Scan for bounties above.</div>';}
+    // HISTORY
+    const histR=await getJSON('/api/revenue/history');
+    const hist=(histR&&histR.data&&histR.data.history)||[];
+    const histBody=$('#history-body');
+    if(histBody){histBody.innerHTML=hist.length?hist.map(function(h){
+      var sc=h.status==='merged'?'status-merged':h.status==='submitted'?'status-submitted':'status-rejected';
+      return '<tr>'+
+        '<td style="padding:2px 4px;color:var(--hud-dim)">'+escHtml(h.date||'')+'</td>'+
+        '<td style="padding:2px 4px">'+escHtml(h.repo||'')+'</td>'+
+        '<td style="padding:2px 4px">'+escHtml(String(h.issue||''))+'</td>'+
+        '<td style="padding:2px 4px">'+(h.pr_url?'<a href="'+escAttr(h.pr_url)+'" target="_blank" style="color:var(--hud-cyan)">PR</a>':'—')+'</td>'+
+        '<td class="'+sc+'" style="padding:2px 4px">'+escHtml(h.status||'')+'</td>'+
+        '<td style="padding:2px 4px;color:var(--hud-gold)">'+escHtml(h.amount?'$'+h.amount:'')+'</td>'+
+        '</tr>';
+    }).join(''):'<tr><td colspan="6" style="color:var(--hud-dim)">No completed repairs yet.</td></tr>';}
+  }
+
+  async function scanBounties(){
+    const bl=$('#bounties');if(!bl)return;
+    bl.innerHTML='<span style="color:var(--hud-dim)">scanning…</span>';
+    var controller=new AbortController();
+    var timeout=setTimeout(function(){controller.abort();},10000);
+    var live=null;
+    try{
+      var r=await fetch(API+'/api/revenue/bounties/live',{signal:controller.signal});
+      clearTimeout(timeout);
+      live=await r.json();
+    }catch(e){
+      clearTimeout(timeout);
+      bl.innerHTML='<div style="color:var(--hud-red)">Bounty scanner timed out or offline.</div>';
+      return;
+    }
+    var d=live&&live.data?live.data:live;
+    var bounties=(d&&d.bounties)||[];
+    var note=d&&d.note?'<div style="color:var(--hud-dim);font-size:9px;margin-bottom:4px">'+escHtml(d.note)+'</div>':'';
+    var isSample=d&&d.source==='sample';
+    var sampleNote=isSample?'<div style="color:var(--hud-gold);font-size:9px;margin-bottom:4px">Set GITHUB_TOKEN for live results.</div>':'';
+    if(!bounties.length){
+      bl.innerHTML=note+sampleNote+'<div style="color:var(--hud-dim)">No bounties found.</div>';
+      return;
+    }
+    bl.innerHTML=note+sampleNote+bounties.map(function(b){
+      var score=b.score||0;
+      return '<div class="earn-row">'+
+        '<span style="color:var(--hud-cyan);flex:1">'+escHtml(b.repo||'')+'</span>'+
+        '<span style="flex:2">'+escHtml(b.title||b.issue||'')+'</span>'+
+        '<span style="width:60px;padding:0 6px"><div class="score-bar-wrap"><div class="score-bar-fill" style="width:'+Math.min(100,score*100)+'%"></div></div></span>'+
+        '<span style="color:var(--hud-gold);width:50px">'+escHtml(b.estimate||'$?')+'</span>'+
+        '<button class="mini-btn" onclick="HUD.queueBounty(\''+escAttr(b.url||b.title||'')+'\')">QUEUE</button>'+
+        '</div>';
+    }).join('');
+  }
+
+  async function clearPipeline(){
+    await postJSON('/api/revenue/pipeline/clear',{});
+    loadEarnData();
+  }
+
+  function bigstat(n,l){return '<div class="bigstat"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>';}
+  async function queueBounty(url){
+    if(!url)return;
+    await postJSON('/api/tasks/submit',{description:'repair issue '+url,source:'desktop'});
+    pushScanmetrics({event:'bounty_queue',detail:'Queued: '+url});
+    if(currentWorker==='earn')loadEarnData();
+  }
+
+  async function renderObjective(){
+    const rev=await getJSON('/api/revenue/status');
+    const q=await getJSON('/api/tasks/queue');
+    const e=(rev&&rev.data&&rev.data.earnings)||{};
+    const earned=parseFloat(e.confirmed_earnings||0);
+    const qd=(q&&q.data)||{};
+    $('#o-earned').textContent='$'+earned.toFixed(2);
+    $('#o-tasks').textContent=qd.completed||qd.total||0;
+    $('#o-queue').textContent=qd.pending||qd.queued||0;
+    $('#o-status').textContent= earned>0?'EARNING':'INITIALIZING';
+    $('#o-target').textContent='$'+monthlyGoal.toLocaleString()+'/mo';
+    $('#obj-fill').style.width=Math.min(100,(earned/monthlyGoal)*100)+'%';
+  }
+
+  // ── ISSUE 6: Approval with center modal ───────────────────────────────────
+  async function pollApprovals(){
+    const r=await getJSON('/api/approvals/pending');
+    const list=(r&&r.data)||[];
+    if(list.length){showApproval(list[0]);}else{
+      $('#appr-banner').style.display='none';
+    }
+  }
+  function showApproval(a){
+    activeApproval=a;
+    $('#appr-banner').style.display='block';
+    // Show center modal immediately
+    $('#appr-modal-type').textContent=(a.action_type||'').toUpperCase();
+    $('#appr-modal-desc').textContent=a.description||'No description provided.';
+    $('#appr-modal').classList.add('show');
+    if(window.SentinelOrb)window.SentinelOrb.alert('APPROVAL NEEDED');
+  }
+  function showModal(){
+    if(!activeApproval)return;
+    $('#appr-modal-type').textContent=(activeApproval.action_type||'').toUpperCase();
+    $('#appr-modal-desc').textContent=activeApproval.description||'';
+    $('#appr-modal').classList.add('show');
+  }
+  async function resolve(ok){
+    $('#appr-modal').classList.remove('show');
+    $('#modal').style.display='none';
+    if(!activeApproval)return;
+    await postJSON('/api/approvals/resolve',{approval_id:activeApproval.id,approved:ok,reason:ok?'approved via HUD':'denied via HUD'});
+    pushTelemetry({event:(ok?'approval_approved':'approval_denied'),detail:(ok?'APPROVED':'DENIED')+': '+(activeApproval.description||'')});
+    if(ok){
+      // ISSUE 6: post-approve UX
+      addMsg('sentinel','SENTINEL: Forge is building your request…');
+      setOrb('thinking');
+      // Flip forge dock dot to running
+      if(HUD._lastWorkers&&HUD._lastWorkers.forge)HUD._lastWorkers.forge.status='running';
+      renderDock(HUD._lastWorkers);
+      // Auto-open forge panel
+      openWorker('forge');
+    }
+    activeApproval=null;$('#appr-banner').style.display='none';
+    if(!ok)setOrb('idle');
+    pollApprovals();
+  }
+
+  function initSocket(){
+    if(typeof io==='undefined'){pushTelemetry('Socket.IO unavailable — using polling.');return;}
+    try{
+      socket=io(location.origin,{transports:['websocket','polling'],reconnection:true});
+      socket.on('connect',function(){wsConnected=true;pushTelemetry('WebSocket connected.');$('#b-online').textContent='ONLINE';});
+      socket.on('disconnect',function(){wsConnected=false;pushTelemetry('WebSocket disconnected — polling fallback.');});
+      socket.on('orb_state',function(d){setOrb((d&&d.state)||'idle');});
+      // ISSUE 5: log_line with parser + scanmetrics
+      socket.on('log_line',function(d){
+        var raw=d&&d.message?d:d;
+        pushTelemetry(raw);
+        pushScanmetrics(raw);
+      });
+      socket.on('worker_status',function(d){
+        if(d&&d.worker&&HUD._lastWorkers){
+          HUD._lastWorkers[d.worker]={status:d.status,current_task:d.current_task};
+          renderDock(HUD._lastWorkers);
+        }
+        // If forge panel is open, update in real time
+        if(currentWorker==='forge'&&d&&d.worker==='forge'){
+          var statusEl=$('#wd-status');if(statusEl)statusEl.textContent=d.status||'idle';
+          var taskEl=$('#wd-task');if(taskEl)taskEl.textContent=d.current_task||'none';
+        }
+      });
+      socket.on('task_update',function(d){
+        pushTelemetry({event:'task_update',detail:'TASK '+(d.task_id||'')+': '+(d.status||'')+' ('+(d.worker||'')+')'});
+        pushScanmetrics({event:(d.worker||'task')+'_update',detail:'TASK '+(d.task_id||'')+': '+(d.status||'')});
+        // ISSUE 6: forge completion
+        if(d&&d.worker==='forge'){
+          if(d.status==='completed'){
+            addMsg('sentinel','Done. Forge completed the task'+(d.task_id?' ['+d.task_id+']':'')+'.');
+            setOrb('idle');
+            if(currentWorker==='forge')loadForgeActivity();
+          } else if(d.status==='failed'||d.status==='error'){
+            addMsg('sentinel','Forge encountered an error'+(d.message?' — '+d.message:'')+'.');
+            setOrb('idle');
+          } else if(d.status==='running'&&currentWorker==='forge'){
+            loadForgeActivity();
+          }
+        }
+      });
+      socket.on('approval_needed',function(d){
+        showApproval({id:d.approval_id,description:d.description,action_type:d.action_type});
+      });
+      socket.on('earn_update',function(d){
+        if(currentWorker==='earn')loadEarnData();
+        renderObjective();
+      });
+    }catch(e){pushTelemetry('Socket init failed: '+e.message);}
+  }
+
+  async function pollAll(){
+    const [status,logs,workers]=await Promise.all([
+      getJSON('/api/status'),getJSON('/api/logs'),getJSON('/api/workers/status')]);
+    if(status){const d=status.data||status;
+      renderVitals(d);
+      $('#b-online').textContent=d.running?'ONLINE':'STANDBY';
+      $('#b-online').className='badge'+(d.running?'':' off');}
+    if(logs)renderLogs(logs.logs||logs.data||[]);
+    if(workers){
+      const wd=workers.data||workers;
+      HUD._lastWorkers=normalizeWorkers(wd);
+      if(wd&&wd.live)HUD._lastLive=wd.live;
+      renderDock(HUD._lastWorkers);
+    }
+    renderObjective();pollApprovals();
+  }
+  function normalizeWorkers(data){
+    const out={};
+    WORKERS.forEach(function(w){out[w.id]={status:'idle'};});
+    if(!data)return out;
+    // Prefer data.live for status when available
+    if(data.live){
+      Object.keys(data.live).forEach(function(k){
+        var v=data.live[k];if(out[k])out[k]={status:v.status||'idle',current_task:v.current_task||''};
+      });
+      return out;
+    }
+    const logical=data.logical_workers||data.logical||data.workers||data;
+    try{
+      if(Array.isArray(logical)){logical.forEach(function(w){const k=(w.name||w.id||'').toLowerCase();
+        WORKERS.forEach(function(x){if(k.includes(x.id))out[x.id]={status:w.status||'idle',current_task:w.current_task};});});}
+      else if(typeof logical==='object'){Object.keys(logical).forEach(function(k){const lk=k.toLowerCase();
+        WORKERS.forEach(function(x){if(lk.includes(x.id)){const v=logical[k];out[x.id]={status:(v&&v.status)||v||'idle',current_task:v&&v.current_task};}});});}
+    }catch(e){}
+    return out;
+  }
+
+  // ── ISSUE 8: Quick command buttons + ESC + chat clear ─────────────────────
+  function wire(){
+    $('#send-btn').onclick=function(){var v=$('#chat-input').value;$('#chat-input').value='';sendCommand(v);};
+    $('#chat-input').addEventListener('keydown',function(e){if(e.key==='Enter'){var v=e.target.value;e.target.value='';sendCommand(v);}});
+    const mic=$('#mic-btn');
+    mic.addEventListener('mousedown',startVoice);
+    mic.addEventListener('mouseup',stopVoice);
+    mic.addEventListener('mouseleave',function(){if(recording)stopVoice();});
+    document.addEventListener('keydown',function(e){
+      if(e.code==='Space'&&document.activeElement!==$('#chat-input')&&!recording){e.preventDefault();startVoice();}
+      // ISSUE 4: ESC closes panel
+      if(e.key==='Escape'&&currentWorker){closeWorker();}
+    });
+    document.addEventListener('keyup',function(e){
+      if(e.code==='Space'&&recording){e.preventDefault();stopVoice();}
+    });
+    // ISSUE 4: clicking orb while in corner returns to main
+    $('#orb-root').addEventListener('click',function(){if(currentWorker)closeWorker();});
+    // ISSUE 8: quick command buttons
+    $('#cmd-scan-bounties').onclick=function(){sendCommand('scan for bounties');};
+    $('#cmd-build').onclick=function(){var inp=$('#chat-input');inp.value='build ';inp.focus();};
+    $('#cmd-repair').onclick=function(){sendCommand('find repair issues');};
+    $('#cmd-scan-files').onclick=function(){HUD.guardianScan();};
+    $('#cmd-clear').onclick=function(){$('#chat-log').innerHTML='';};
+  }
+
+  function start(){
+    HUD._lastWorkers=normalizeWorkers(null);
+    HUD._lastLive={};
+    initSession();renderDock(HUD._lastWorkers);renderVitals({});
+    wire();initSocket();
+    tick();setInterval(tick,1000);
+    pollAll();setInterval(pollAll,2000);
+    // System monitor every 5s
+    refreshSysmon();setInterval(refreshSysmon,5000);
+    // Session refresh every 30s
+    refreshSession();setInterval(refreshSession,30000);
+    pushTelemetry('SENTINEL PRIME HUD initialized.');
+    addMsg('sentinel','Systems online. Hold SPACE or type to issue a command.');
+  }
+
+  return {
+    start,openWorker,closeWorker,showModal,resolve,queueBounty,
+    guardianScan,guardianCheckKeys,repairFindIssues,removePipeline,
+    startRepairTask,clearPipeline,scanBounties,editGoal,saveGoal,
+    _lastWorkers:{},_lastLive:{},setOrb
+  };
+})();
+window.addEventListener('DOMContentLoaded',HUD.start);
+</script>
+</body>
+</html>

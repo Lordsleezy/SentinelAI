@@ -37,6 +37,9 @@ from tools.registry import find_tool_for_task, list_tools, register_builtin_tool
 from executor import run_executor, execute_submit
 from scanner import run_scan
 from openclaw_integration import OpenClawCommandRouter
+from workers.forge_worker import run_approved_forge_task
+from notifications import send_notification
+from memory_manager import get_memory_manager
 
 # Configure logging
 logging.basicConfig(
@@ -48,6 +51,75 @@ logger = logging.getLogger(__name__)
 # Flask app
 app = Flask(__name__)
 CORS(app)
+
+# ─── Real-time events (Task 4) — graceful fallback to polling ──────────────────
+# When flask-socketio is installed we push events to the HUD instantly; if not,
+# the HUD keeps working via its 2-second polling loop.
+try:
+    from flask_socketio import SocketIO
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading",
+                        logger=False, engineio_logger=False)
+    SOCKETIO_AVAILABLE = True
+    logger.info("Socket.IO enabled (real-time HUD events)")
+except Exception as _sio_exc:  # pragma: no cover
+    socketio = None
+    SOCKETIO_AVAILABLE = False
+    logging.getLogger(__name__).warning("flask-socketio unavailable (%s) — polling fallback", _sio_exc)
+
+
+def emit_event(event: str, payload: dict) -> None:
+    """Emit a HUD event over Socket.IO. No-op when Socket.IO is unavailable.
+
+    Events: orb_state, task_update, approval_needed, worker_status,
+            log_line, earn_update.
+    """
+    if not SOCKETIO_AVAILABLE or socketio is None:
+        return
+    try:
+        socketio.emit(event, payload)
+    except Exception:
+        pass
+
+
+# ─── Live worker state (Issue 2/6) ────────────────────────────────────────────
+# In-memory per-worker runtime state surfaced at /api/workers/status under `live`
+# so the HUD dock + worker panels show real status/activity. Updated by the forge
+# resume flow, guardian scans, and task routing; mirrored to the HUD over WS.
+_live_lock = threading.Lock()
+live_workers = {
+    name: {"status": "idle", "current_task": None, "last_activity": None, "activity": []}
+    for name in ("forge", "guardian", "web", "repair", "earn")
+}
+
+
+def set_worker(worker, status=None, current_task="__keep__", activity=None,
+               extra=None, emit=True):
+    """Update a worker's live state and (optionally) mirror it to the HUD."""
+    with _live_lock:
+        w = live_workers.setdefault(
+            worker, {"status": "idle", "current_task": None, "last_activity": None, "activity": []})
+        if status is not None:
+            w["status"] = status
+        if current_task != "__keep__":
+            w["current_task"] = current_task
+        if activity:
+            entry = {"text": str(activity), "status": status or w["status"],
+                     "ts": datetime.now().isoformat()}
+            w["activity"].insert(0, entry)
+            del w["activity"][10:]
+            w["last_activity"] = entry["ts"]
+        if extra:
+            w.update(extra)
+        snapshot = dict(w)
+    if emit:
+        emit_event("worker_status", {"worker": worker, "status": snapshot["status"],
+                                     "current_task": snapshot["current_task"]})
+        if activity:
+            emit_event("task_update", {"worker": worker, "status": snapshot["status"],
+                                       "message": str(activity)})
+            emit_event("log_line", {"event": f"{worker}_activity", "detail": str(activity),
+                                    "level": "error" if status == "error" else "info"})
+    return snapshot
 
 # Global state
 backend_state = {
@@ -65,7 +137,7 @@ SCAN_INTERVAL_SECONDS = 30 * 60
 
 def enqueue_new_repair_opportunities() -> int:
     enqueued = 0
-    opportunities = db.list_opportunities(status="new", limit=100)
+    opportunities = db.list_opportunities(status="approved", limit=100)
     tasks = qm.list_tasks(limit=500)
     queued_ids = {
         task.get("opportunity_id")
@@ -95,6 +167,65 @@ def handle_repair_execute(task):
     if backend_state.get("paused"):
         raise RuntimeError("Backend is paused")
     return run_executor(dry_run=False)
+
+
+def handle_forge_build(task):
+    if backend_state.get("paused"):
+        raise RuntimeError("Backend is paused")
+    forge_task_id = int((task.get("task_data") or {}).get("forge_task_id"))
+    db.update_forge_task(forge_task_id, "running")
+    try:
+        result = run_approved_forge_task(task)
+        db.update_forge_task(
+            forge_task_id,
+            "completed",
+            output_path=str(result.get("output_path", "")),
+            result_json=str(result)[:5000],
+        )
+        db.log_event("forge_completed", f"Forge task #{forge_task_id} completed")
+
+        # Write to memory vault
+        mm = get_memory_manager()
+        mm.write_forge_log(
+            task_id=str(forge_task_id),
+            result_dict={
+                "status": "completed",
+                "description": task.get("description", ""),
+                "prompt": (task.get("task_data") or {}).get("prompt", ""),
+                "result": str(result)[:2000],
+                "files_modified": result.get("files_modified", []),
+                "execution_time": result.get("execution_time", "N/A"),
+                "errors": None
+            }
+        )
+
+        return result
+    except Exception as exc:
+        db.update_forge_task(forge_task_id, "failed", error=str(exc)[:2000])
+        db.log_event("forge_failed", f"Forge task #{forge_task_id}: {exc}")
+        send_notification(
+            "SentinelAI Forge error",
+            f"Forge task #{forge_task_id} failed: {exc}",
+            priority="high",
+            tags="rotating_light",
+        )
+
+        # Write failure to memory vault
+        mm = get_memory_manager()
+        mm.write_forge_log(
+            task_id=str(forge_task_id),
+            result_dict={
+                "status": "failed",
+                "description": task.get("description", ""),
+                "prompt": (task.get("task_data") or {}).get("prompt", ""),
+                "result": "Task failed",
+                "files_modified": [],
+                "execution_time": "N/A",
+                "errors": str(exc)[:2000]
+            }
+        )
+
+        raise
 
 
 def background_scan_loop():
@@ -180,8 +311,8 @@ def create_system_tray():
 
 @app.route('/')
 def index():
-    """Main dashboard."""
-    return render_template('desktop_dashboard.html')
+    """Main dashboard — the SENTINEL PRIME HUD (Task 3)."""
+    return render_template('desktop_dashboard_v2.html')
 
 
 @app.route('/mobile')
@@ -208,14 +339,15 @@ def api_status():
     except Exception:
         pass
     
-    return jsonify({
+    data = {
         "running": backend_state["running"],
         "paused": backend_state["paused"],
         "ollama_status": backend_state["ollama_status"],
         "active_tasks": len(backend_state["active_tasks"]),
         "total_earnings": backend_state["total_earnings"],
         "last_scan": backend_state["last_scan"]
-    })
+    }
+    return jsonify({**data, "status": "ok", "data": data, "error": None})
 
 
 @app.route('/api/health/live')
@@ -319,12 +451,122 @@ def api_tasks():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/opportunities')
+def api_opportunities():
+    try:
+        return jsonify({"opportunities": db.list_opportunities(limit=100)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/submissions')
+def api_submissions():
+    try:
+        return jsonify({"submissions": db.list_submissions()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/run-scan', methods=['POST'])
+def api_run_scan():
+    def _scan():
+        try:
+            inserted = asyncio.run(run_scan(dry_run=False))
+            backend_state["last_scan"] = datetime.now().isoformat()
+            db.log_event("manual_scan_complete", f"Inserted {inserted} opportunities")
+            enqueue_new_repair_opportunities()
+        except Exception as exc:
+            logger.exception("Manual scan failed")
+            db.log_event("manual_scan_failed", str(exc))
+
+    threading.Thread(target=_scan, daemon=True).start()
+    return jsonify({"status": "started", "message": "Scan running"})
+
+
+@app.route('/api/run-executor', methods=['POST'])
+def api_run_executor():
+    def _execute():
+        try:
+            result = run_executor(dry_run=False)
+            db.log_event("manual_executor_complete", str(result)[:1000])
+        except Exception as exc:
+            logger.exception("Manual executor failed")
+            db.log_event("manual_executor_failed", str(exc))
+
+    threading.Thread(target=_execute, daemon=True).start()
+    return jsonify({"status": "started", "message": "Executor running"})
+
+
 @app.route('/api/pending-approvals')
 def api_pending_approvals():
     """Get tasks pending approval."""
     try:
-        opportunities = db.list_opportunities(status="ready", limit=10)
+        opportunities = db.list_opportunities(status="ready_to_submit", limit=25)
         return jsonify({"pending": opportunities})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/forge/tasks')
+def api_forge_tasks():
+    try:
+        return jsonify({"tasks": db.list_forge_tasks(limit=100)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/forge/request', methods=['POST'])
+def api_forge_request():
+    try:
+        data = request.get_json() or {}
+        prompt = (data.get("prompt") or "").strip()
+        if not prompt:
+            return jsonify({"error": "prompt required"}), 400
+        task_id = db.create_forge_task(prompt)
+        db.log_event("forge_approval_required", f"Forge task #{task_id} requires approval")
+        send_notification(
+            "SentinelAI Forge approval needed",
+            f"Forge task #{task_id} needs approval: {prompt[:160]}",
+            priority="high",
+            tags="warning",
+        )
+        return jsonify({"status": "pending_approval", "forge_task_id": task_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/forge/approve/<int:forge_task_id>', methods=['POST'])
+def api_forge_approve(forge_task_id):
+    try:
+        auth_token = request.headers.get('Authorization')
+        if not verify_auth_token(auth_token):
+            return jsonify({"error": "Unauthorized"}), 401
+        forge_task = db.get_forge_task(forge_task_id)
+        if not forge_task:
+            return jsonify({"error": "Forge task not found"}), 404
+        if forge_task.get("status") != "pending_approval":
+            return jsonify({"error": f"Forge task status is {forge_task.get('status')}"}), 400
+        db.update_forge_task(forge_task_id, "approved")
+        qm.enqueue_task(
+            "forge_build",
+            priority=2,
+            task_data={"forge_task_id": forge_task_id, "prompt": forge_task["prompt"]},
+        )
+        db.log_event("forge_approved", f"Forge task #{forge_task_id} approved")
+        return jsonify({"status": "approved", "forge_task_id": forge_task_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/forge/reject/<int:forge_task_id>', methods=['POST'])
+def api_forge_reject(forge_task_id):
+    try:
+        auth_token = request.headers.get('Authorization')
+        if not verify_auth_token(auth_token):
+            return jsonify({"error": "Unauthorized"}), 401
+        db.update_forge_task(forge_task_id, "rejected")
+        db.log_event("forge_rejected", f"Forge task #{forge_task_id} rejected")
+        return jsonify({"status": "rejected", "forge_task_id": forge_task_id})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -376,6 +618,7 @@ def api_approve(opp_id):
 
         db.update_opportunity_status(opp_id, "approved")
         db.log_event("task_approved", f"Task #{opp_id} approved via API", opp_id)
+        enqueue_new_repair_opportunities()
         logger.info(f"Task #{opp_id} approved")
         return jsonify({"status": "approved", "opportunity_id": opp_id})
     except Exception as e:
@@ -979,9 +1222,10 @@ def api_tool_run():
 @app.route('/api/tools/registry')
 def api_tools_registry():
     try:
-        return jsonify({"tools": list_tools()})
+        tools = list_tools()
+        return jsonify({"tools": tools, "status": "ok", "data": tools, "error": None})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"tools": [], "status": "error", "data": None, "error": str(e)}), 500
 
 
 @app.route('/api/tools/find', methods=['POST'])
@@ -994,6 +1238,276 @@ def api_tools_find():
         return jsonify({"tool": find_tool_for_task(task)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/workers/status')
+def api_workers_status():
+    """GET /api/workers/status — worker_manager pool + orchestrator logical workers."""
+    try:
+        import orchestrator as _orch_brain
+        data = _orch_brain.get_orchestrator().worker_manager.get_worker_status()
+        if not isinstance(data, dict):
+            data = {"workers": data}
+        with _live_lock:
+            data["live"] = {k: dict(v) for k, v in live_workers.items()}
+        return jsonify({"status": "ok", "data": data, "error": None})
+    except Exception as e:
+        logger.exception("api_workers_status failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/approvals/pending')
+def api_approvals_pending():
+    """GET /api/approvals/pending — pending OpenClaw approval gates."""
+    try:
+        from openclaw.openclaw import get_openclaw
+        data = get_openclaw().get_pending_approvals()
+        return jsonify({"status": "ok", "data": data, "error": None})
+    except Exception as e:
+        logger.exception("api_approvals_pending failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/approvals/resolve', methods=['POST'])
+def api_approvals_resolve():
+    """POST /api/approvals/resolve — resolve a pending approval gate.
+
+    Body: { "approval_id": "...", "approved": true/false, "reason": "..." }
+    """
+    try:
+        data = request.get_json() or {}
+        approval_id = data.get("approval_id")
+        if not approval_id:
+            return jsonify({"status": "error", "data": None, "error": "approval_id required"}), 400
+
+        approved = bool(data.get("approved", False))
+        reason = str(data.get("reason", ""))
+
+        from openclaw.openclaw import get_openclaw, ApprovalNotFoundError
+        try:
+            ok = get_openclaw().resolve_approval(
+                approval_id=approval_id,
+                approved=approved,
+                reason=reason,
+                resolved_by=data.get("resolved_by", "user"),
+            )
+        except ApprovalNotFoundError as anf:
+            return jsonify({"status": "error", "data": None, "error": str(anf)}), 404
+
+        resume_result = None
+        if ok and approved:
+            try:
+                approval = get_openclaw().get_approval(approval_id)
+                payload = (approval or {}).get("payload") or {}
+                task_id = payload.get("task_id")
+                desc = payload.get("task_description") or (approval or {}).get("description") or "your request"
+                if task_id:
+                    import orchestrator as _orch_brain
+                    def _resume():
+                        # Forge RUNNING — make the HUD show it, not idle (Issue 1/6).
+                        set_worker("forge", "running", current_task=desc,
+                                   activity=f"Forge started: {desc}")
+                        emit_event("orb_state", {"state": "thinking"})
+                        db.log_event("forge_started", f"Forge building: {desc[:160]}")
+                        try:
+                            res = _orch_brain.get_orchestrator().resume_approved_task(task_id)
+                        except Exception as exc:
+                            logger.exception("approved task resume failed: %s", exc)
+                            res = {"status": "failed", "error": str(exc)}
+                        status = (res or {}).get("status")
+                        if status == "completed":
+                            summary = _forge_summary(res)
+                            set_worker("forge", "idle", current_task=None,
+                                       activity=f"Forge completed: {summary}")
+                            emit_event("task_update", {"task_id": task_id, "worker": "forge",
+                                                       "status": "completed", "message": summary})
+                            db.log_event("forge_completed", f"Forge done: {summary[:160]}")
+                        else:
+                            err = (res or {}).get("error") or "unknown error"
+                            set_worker("forge", "error", current_task=None,
+                                       activity=f"Forge failed: {err}")
+                            emit_event("task_update", {"task_id": task_id, "worker": "forge",
+                                                       "status": "failed", "message": err})
+                            db.log_event("forge_failed", f"Forge failed: {str(err)[:160]}")
+                        emit_event("orb_state", {"state": "idle"})
+                    threading.Thread(target=_resume, daemon=True).start()
+                    resume_result = {"status": "started", "task_id": task_id}
+            except Exception as resume_exc:
+                resume_result = {"status": "error", "error": str(resume_exc)}
+
+        return jsonify({
+            "status": "ok",
+            "data": {"resolved": ok, "approval_id": approval_id, "resume_result": resume_result},
+            "error": None,
+        })
+    except Exception as e:
+        logger.exception("api_approvals_resolve failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/revenue/status')
+def api_revenue_status():
+    """GET /api/revenue/status — pipeline summary from DB."""
+    try:
+        earnings = db.get_earnings_summary()
+        counts = db.count_opportunities_by_status()
+        recent = db.list_opportunities(limit=10)
+        data = {
+            "earnings": earnings,
+            "opportunity_counts": counts,
+            "recent_opportunities": recent,
+        }
+        return jsonify({"status": "ok", "data": data, "error": None})
+    except Exception as e:
+        logger.exception("api_revenue_status failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/tasks/submit', methods=['POST'])
+def api_tasks_submit():
+    """POST /api/tasks/submit — submit a task to the orchestrator.
+
+    Body: { "description": "...", "source": "desktop"|"phone"|"api" }
+    """
+    try:
+        data = request.get_json() or {}
+        description = (data.get("description") or "").strip()
+        if not description:
+            return jsonify({"status": "error", "data": None, "error": "description required"}), 400
+
+        source = data.get("source", "desktop")
+        context = dict(data.get("context") or {})
+        # Default: don't block the HTTP request while waiting for Forge approval.
+        context.setdefault("wait_for_approval", False)
+
+        task_id = data.get("task_id") or f"task-{__import__('uuid').uuid4().hex[:12]}"
+
+        import orchestrator as _orch_brain
+        result = _orch_brain.process_task(
+            task_id=task_id,
+            task_description=description,
+            source=source,
+            context=context,
+        )
+
+        # Reflect routing in the live worker state so the dock/panels react (Issue 2/6).
+        try:
+            status = (result or {}).get("status")
+            worker = (result or {}).get("worker")
+            intent = (result or {}).get("intent") or {}
+            itype = intent.get("intent") if isinstance(intent, dict) else None
+            if status == "awaiting_approval" or (result or {}).get("needs_forge"):
+                set_worker("forge", "running", current_task=description,
+                           activity=f"Awaiting approval: {description}")
+            else:
+                wmap = {"repair": "repair", "search": "web", "monitor": "earn"}
+                wkey = wmap.get(itype, worker if worker in live_workers else None)
+                if wkey:
+                    set_worker(wkey, "idle", current_task=None,
+                               activity=f"Handled: {description[:80]}")
+        except Exception:
+            pass
+
+        return jsonify({"status": "ok", "data": result, "error": None}), 201
+    except Exception as e:
+        logger.exception("api_tasks_submit failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/tasks/queue')
+def api_tasks_queue():
+    """GET /api/tasks/queue — orchestrator task queue status."""
+    try:
+        import orchestrator as _orch_brain
+        data = _orch_brain.get_orchestrator().get_queue_status()
+        return jsonify({"status": "ok", "data": data, "error": None})
+    except Exception as e:
+        logger.exception("api_tasks_queue failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+# ─── Wrap existing /api/tools/registry & /api/tools/find in the new envelope ──
+# (the old routes already exist above and return {tools:…} / {tool:…} —
+#  we keep them as-is for backwards compat and add envelope wrappers at the new paths)
+
+@app.route('/api/tools/list')
+def api_tools_list():
+    """GET /api/tools/list — capability registry (new {status,data,error} envelope)."""
+    try:
+        return jsonify({"status": "ok", "data": list_tools(), "error": None})
+    except Exception as e:
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/models/status')
+def api_models_status():
+    try:
+        from models import model_manager, model_registry
+        model_registry.init_registry()
+        data = {
+            "loaded": model_manager.get_loaded_models(),
+            "models": model_registry.get_all_models(),
+        }
+        return jsonify({"status": "ok", "data": data, "error": None})
+    except Exception as e:
+        logger.exception("api_models_status failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/models/hardware')
+def api_models_hardware():
+    try:
+        from models import hardware_detector
+        return jsonify({"status": "ok", "data": hardware_detector.detect_hardware(), "error": None})
+    except Exception as e:
+        logger.exception("api_models_hardware failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/models/load', methods=['POST'])
+def api_models_load():
+    try:
+        from models import model_manager
+        data = request.get_json() or {}
+        tag = data.get("tag") or data.get("ollama_tag")
+        if not tag:
+            return jsonify({"status": "error", "data": None, "error": "tag required"}), 400
+        ok = model_manager.ensure_model_loaded(tag)
+        return jsonify({"status": "ok" if ok else "error", "data": {"loaded": ok, "tag": tag}, "error": None if ok else "model unavailable"})
+    except Exception as e:
+        logger.exception("api_models_load failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/models/unload', methods=['POST'])
+def api_models_unload():
+    try:
+        from models import model_manager
+        data = request.get_json() or {}
+        tag = data.get("tag") or data.get("ollama_tag")
+        if not tag:
+            return jsonify({"status": "error", "data": None, "error": "tag required"}), 400
+        ok = model_manager.unload_model(tag)
+        return jsonify({"status": "ok" if ok else "error", "data": {"unloaded": ok, "tag": tag}, "error": None if ok else "model unavailable"})
+    except Exception as e:
+        logger.exception("api_models_unload failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/setup/status')
+def api_setup_status():
+    try:
+        from models import hardware_detector, model_registry, setup_wizard
+        model_registry.init_registry()
+        data = {
+            "complete": not setup_wizard.is_first_run(),
+            "hardware": hardware_detector.detect_hardware(),
+            "models": model_registry.get_all_models(),
+        }
+        return jsonify({"status": "ok", "data": data, "error": None})
+    except Exception as e:
+        logger.exception("api_setup_status failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
 
 
 @app.route('/api/reflection/workflows/<int:workflow_id>', methods=['POST'])
@@ -1012,6 +1526,487 @@ def api_reflect_workflow(workflow_id):
         return jsonify({"error": str(e)}), 500
 
 
+# ─── Voice (Task 5) ───────────────────────────────────────────────────────────
+
+@app.route('/api/voice/capabilities')
+def api_voice_caps():
+    try:
+        import voice_io
+        return jsonify({"status": "ok", "data": voice_io.capabilities(), "error": None})
+    except Exception as e:
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/voice/input', methods=['POST'])
+def api_voice_input():
+    """Receive an audio blob, transcribe it, route the text to OpenClaw.
+
+    Returns {transcribed, response, orb_state}. Falls back gracefully to a
+    text-only message if no STT backend is available.
+    """
+    import tempfile
+    import voice_io
+    try:
+        emit_event("orb_state", {"state": "thinking"})
+        audio = request.files.get("audio")
+        if not audio:
+            return jsonify({"status": "error", "data": None, "error": "no audio file"}), 400
+
+        suffix = os.path.splitext(audio.filename or "voice.webm")[1] or ".webm"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            audio.save(tmp.name)
+            tmp_path = tmp.name
+
+        stt = voice_io.transcribe(tmp_path)
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+        if not stt.get("ok") or not stt.get("text"):
+            emit_event("orb_state", {"state": "idle"})
+            return jsonify({"status": "ok", "data": {
+                "transcribed": "", "response": None, "orb_state": "idle",
+                "note": "STT unavailable — type your command instead",
+                "stt_backend": stt.get("backend"), "stt_error": stt.get("error"),
+            }, "error": None})
+
+        text = stt["text"]
+        from openclaw.openclaw import get_openclaw
+        oc_result = get_openclaw().receive_message("desktop", text, {"wait_for_approval": False})
+        data = oc_result.get("data") if isinstance(oc_result, dict) else {}
+        response_text = (data or {}).get("response") or _summarize_task_result(data)
+        emit_event("orb_state", {"state": "speaking"})
+        return jsonify({"status": "ok", "data": {
+            "transcribed": text, "response": response_text, "orb_state": "speaking",
+            "stt_backend": stt.get("backend"),
+        }, "error": None})
+    except Exception as e:
+        logger.exception("api_voice_input failed")
+        emit_event("orb_state", {"state": "idle"})
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+def _summarize_task_result(data) -> str:
+    if not isinstance(data, dict):
+        return "Acknowledged."
+    if data.get("status") == "awaiting_approval":
+        return "That action needs your approval."
+    if data.get("response"):
+        return data["response"]
+    intent = data.get("intent")
+    if intent:
+        itype = intent.get("type") if isinstance(intent, dict) else intent
+        return f"Routed as {itype} to {data.get('worker', 'orchestrator')}."
+    return f"Task {data.get('status', 'received')}."
+
+
+@app.route('/api/voice/speak', methods=['POST'])
+def api_voice_speak():
+    """Generate TTS for text. Plays on the host if possible; the HUD also has a
+    browser SpeechSynthesis fallback so the user always hears a response."""
+    import voice_io
+    try:
+        data = request.get_json() or {}
+        text = (data.get("text") or "").strip()
+        if not text:
+            return jsonify({"status": "error", "data": None, "error": "text required"}), 400
+
+        emit_event("orb_state", {"state": "speaking"})
+        result = voice_io.synthesize(text)
+        # Best-effort local playback (non-blocking) when a wav was produced.
+        if result.get("ok") and result.get("path"):
+            def _play(path):
+                try:
+                    if sys.platform.startswith("win"):
+                        import winsound
+                        winsound.PlaySound(path, winsound.SND_FILENAME)
+                    elif sys.platform == "darwin":
+                        subprocess.run(["afplay", path], check=False)
+                    else:
+                        subprocess.run(["aplay", path], check=False)
+                except Exception:
+                    pass
+                finally:
+                    emit_event("orb_state", {"state": "idle"})
+            threading.Thread(target=_play, args=(result["path"],), daemon=True).start()
+        else:
+            emit_event("orb_state", {"state": "idle"})
+        return jsonify({"status": "ok", "data": {
+            "backend": result.get("backend"), "spoken": result.get("ok"),
+            "error": result.get("error"),
+        }, "error": None})
+    except Exception as e:
+        logger.exception("api_voice_speak failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+# ─── EARN dashboard endpoints (Task 6) ─────────────────────────────────────────
+
+@app.route('/api/revenue/bounties/live')
+def api_revenue_bounties_live():
+    """Live bounty feed for the EARN scanner. Returns fresh GitHub results.
+
+    Network-dependent — returns an empty list with a note when offline or
+    rate-limited rather than failing.
+    """
+    from revenue import bounty_pipeline
+
+    # find_bounty_issues makes many blocking GitHub calls; cap it at ~10s and
+    # fall back to sample data so the EARN scanner never spins forever (Issue 3).
+    box = {"issues": None, "error": None}
+
+    def _scan():
+        try:
+            box["issues"] = bounty_pipeline.find_bounty_issues(max=8)
+        except Exception as exc:
+            box["error"] = str(exc)
+
+    worker = threading.Thread(target=_scan, daemon=True)
+    worker.start()
+    worker.join(timeout=10)
+
+    def _fmt(issues):
+        return [{
+            "repo": i.get("repo"),
+            "title": i.get("title"),
+            "labels": i.get("labels", []),
+            "score": i.get("score"),
+            "estimate": "$" + str(int((i.get("score") or 0) * 500)),
+            "url": i.get("url"),
+        } for i in issues]
+
+    if box["issues"]:
+        return jsonify({"status": "ok", "data": {
+            "bounties": _fmt(box["issues"]), "source": "live"}, "error": None})
+
+    # Timed out, errored (rate limit), or empty → sample feed + helpful note.
+    has_token = bool(os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN"))
+    note = ("Scanner timed out — showing sample bounties."
+            if box["error"] is None and not has_token
+            else "GitHub rate-limited (set GITHUB_TOKEN for live results) — showing sample bounties.")
+    sample = [
+        {"repo": "octocat/Hello-World", "title": "Fix typo in README", "labels": ["good-first-issue", "docs"], "score": 0.75, "estimate": "$375", "url": "https://github.com/octocat/Hello-World/issues/1"},
+        {"repo": "psf/requests", "title": "Improve error message on timeout", "labels": ["bounty", "good-first-issue"], "score": 0.62, "estimate": "$310", "url": "https://github.com/psf/requests/issues/2"},
+        {"repo": "pallets/flask", "title": "Add example for blueprints", "labels": ["docs", "help-wanted"], "score": 0.5, "estimate": "$250", "url": "https://github.com/pallets/flask/issues/3"},
+        {"repo": "expressjs/express", "title": "Handle edge case in router", "labels": ["bug", "bounty"], "score": 0.45, "estimate": "$225", "url": "https://github.com/expressjs/express/issues/4"},
+    ]
+    return jsonify({"status": "ok", "data": {
+        "bounties": sample, "source": "sample", "note": note}, "error": None})
+
+
+@app.route('/api/revenue/active')
+def api_revenue_active():
+    """Currently-active repairs from the task queue."""
+    try:
+        tasks = qm.list_tasks(limit=200)
+        active = []
+        for t in tasks:
+            if t.get("task_type") == "repair_execute" and t.get("status") in ("pending", "running"):
+                td = t.get("task_data") or {}
+                issue = td.get("issue") or {}
+                active.append({
+                    "repo": issue.get("repo") or f"opp-{t.get('opportunity_id')}",
+                    "issue": issue.get("title") or t.get("opportunity_id"),
+                    "step": t.get("status"),
+                    "status": t.get("status"),
+                })
+        return jsonify({"status": "ok", "data": {"active": active}, "error": None})
+    except Exception as e:
+        logger.exception("api_revenue_active failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/revenue/history')
+def api_revenue_history():
+    """Completed repairs / submissions for the EARN history table."""
+    try:
+        subs = db.list_submissions()
+        history = [{
+            "repo": s.get("repo_url") or s.get("repo") or "",
+            "issue": s.get("issue_url") or s.get("title") or "",
+            "pr_url": s.get("pr_url"),
+            "status": s.get("status"),
+            "amount": s.get("amount") or s.get("bounty_amount") or 0,
+        } for s in subs]
+        return jsonify({"status": "ok", "data": {"history": history}, "error": None})
+    except Exception as e:
+        logger.exception("api_revenue_history failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/personality', methods=['GET', 'POST'])
+def api_personality():
+    """GET active voice personality; POST to set it (Task 5)."""
+    try:
+        from models import setup_wizard
+        if request.method == 'POST':
+            data = request.get_json() or {}
+            result = setup_wizard.personality_setup(
+                data.get("choice", "sentinel"), data.get("custom_prompt", ""))
+            return jsonify({"status": "ok", "data": result, "error": None})
+        return jsonify({"status": "ok", "data": setup_wizard.get_personality(), "error": None})
+    except Exception as e:
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+def _forge_summary(res) -> str:
+    """Human summary of a forge result dict."""
+    try:
+        r = (res or {}).get("result") or {}
+        fr = r.get("forge_result") or {}
+        files = fr.get("files_changed") or fr.get("files")
+        if files:
+            shown = ", ".join(str(f) for f in files[:4])
+            via = f" (via {fr.get('fallback')} fallback)" if fr.get("fallback") else ""
+            return f"built {shown}{via}"
+        summary = fr.get("summary") or fr.get("output_path") or r.get("output_path")
+        if summary:
+            return str(summary)[:200]
+        return "tool built and registered"
+    except Exception:
+        return "tool built"
+
+
+# ─── Guardian (Issue 2) ────────────────────────────────────────────────────────
+
+# Skip heavy / non-source dirs when sweeping the project tree.
+_GUARDIAN_SKIP = {".git", "node_modules", "__pycache__", ".pytest_cache", "jarvis-orb",
+                  "venv", ".venv", "built", "data", "launch_logs", "electron_logs"}
+
+
+def _iter_project_files(root, exts, limit=4000):
+    count = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _GUARDIAN_SKIP]
+        for fn in filenames:
+            if os.path.splitext(fn)[1].lower() in exts:
+                yield os.path.join(dirpath, fn)
+                count += 1
+                if count >= limit:
+                    return
+
+
+@app.route('/api/guardian/scan', methods=['POST'])
+def api_guardian_scan():
+    """Scan the SentinelAI directory for threat signatures."""
+    from workers import guardian_worker
+    try:
+        set_worker("guardian", "scanning", current_task="scanning project tree")
+        root = str(Path(__file__).parent)
+        findings = []
+        scanned = 0
+        for fp in _iter_project_files(root, {".py", ".js", ".cjs", ".sh", ".ps1", ".bat", ".txt", ".md"}):
+            scanned += 1
+            try:
+                res = guardian_worker.scan_file(fp)
+            except Exception:
+                continue
+            if not res.get("clean"):
+                for threat, detail in zip(res.get("threats", []), res.get("details", []) + [""] * len(res.get("threats", []))):
+                    findings.append({"file": os.path.relpath(fp, root), "threat": threat,
+                                     "severity": "high" if "Executable" in threat or "Script" in threat else "medium",
+                                     "detail": detail})
+        last_scan = datetime.now().isoformat()
+        status = "threat" if findings else "idle"
+        set_worker("guardian", status, current_task=None,
+                   activity=(f"Scan complete — {len(findings)} finding(s) in {scanned} files"),
+                   extra={"last_scan": last_scan, "findings": findings})
+        db.log_event("guardian_scan_complete", f"scanned={scanned} findings={len(findings)}")
+        return jsonify({"status": "ok", "data": {
+            "clean": not findings, "findings": findings, "scanned": scanned, "last_scan": last_scan,
+        }, "error": None})
+    except Exception as e:
+        logger.exception("api_guardian_scan failed")
+        set_worker("guardian", "error", current_task=None, activity=f"scan error: {e}")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/guardian/check-keys', methods=['POST'])
+def api_guardian_check_keys():
+    """Scan .py/.js/.env files for exposed API keys."""
+    from workers import guardian_worker
+    try:
+        set_worker("guardian", "scanning", current_task="checking for exposed keys")
+        root = str(Path(__file__).parent)
+        exposures = []
+        scanned = 0
+        for fp in _iter_project_files(root, {".py", ".js", ".cjs", ".env", ".json", ".yaml", ".yml"}):
+            scanned += 1
+            try:
+                text = Path(fp).read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+            for det in guardian_worker.check_api_key_exposure(text):
+                m = det.get("match", "")
+                exposures.append({
+                    "file": os.path.relpath(fp, root),
+                    "type": det.get("type"),
+                    "severity": "critical",
+                    "match_preview": (m[:6] + "…" + m[-4:]) if len(m) > 12 else "***",
+                })
+        status = "threat" if exposures else "idle"
+        set_worker("guardian", status, current_task=None,
+                   activity=f"Key check — {len(exposures)} exposure(s) in {scanned} files")
+        db.log_event("guardian_keycheck_complete", f"scanned={scanned} exposures={len(exposures)}")
+        return jsonify({"status": "ok", "data": {"exposures": exposures, "scanned": scanned}, "error": None})
+    except Exception as e:
+        logger.exception("api_guardian_check_keys failed")
+        set_worker("guardian", "error", current_task=None)
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+# ─── System Monitor (Issue 7) ──────────────────────────────────────────────────
+
+@app.route('/api/system/stats')
+def api_system_stats():
+    """CPU / RAM / DISK (+ GPU when nvidia-smi is present) for the HUD monitor."""
+    data = {"cpu": {"percent": 0}, "ram": {"percent": 0}, "disk": {"percent": 0}, "gpu": None}
+    try:
+        import psutil
+        data["cpu"] = {"percent": round(psutil.cpu_percent(interval=0.0), 1)}
+        vm = psutil.virtual_memory()
+        data["ram"] = {"percent": round(vm.percent, 1),
+                       "used_gb": round(vm.used / 1e9, 1), "total_gb": round(vm.total / 1e9, 1)}
+        du = psutil.disk_usage(os.path.expanduser("~"))
+        data["disk"] = {"percent": round(du.percent, 1),
+                        "used_gb": round(du.used / 1e9, 1), "total_gb": round(du.total / 1e9, 1)}
+    except Exception as e:
+        logger.debug("psutil stats failed: %s", e)
+    # GPU via nvidia-smi (optional).
+    try:
+        from shutil import which
+        if which("nvidia-smi"):
+            out = subprocess.run(
+                ["nvidia-smi", "--query-gpu=utilization.gpu,memory.total,memory.used,name",
+                 "--format=csv,noheader,nounits"],
+                text=True, capture_output=True, timeout=4, check=False)
+            line = (out.stdout or "").strip().splitlines()[0] if out.stdout.strip() else ""
+            if line:
+                parts = [p.strip() for p in line.split(",")]
+                util, mtot, mused = float(parts[0]), float(parts[1]), float(parts[2])
+                data["gpu"] = {"percent": round(util, 1), "name": parts[3] if len(parts) > 3 else "GPU",
+                               "vram_gb": round(mtot / 1024, 1),
+                               "vram_used_gb": round(mused / 1024, 1)}
+    except Exception as e:
+        logger.debug("nvidia-smi failed: %s", e)
+    return jsonify({"status": "ok", "data": data, "error": None})
+
+
+# ─── Pipeline management (Issue 3) ──────────────────────────────────────────────
+
+@app.route('/api/revenue/pipeline')
+def api_revenue_pipeline():
+    """Queued repair tasks, in priority order."""
+    try:
+        tasks = qm.list_tasks(limit=200)
+        pipeline = []
+        for t in tasks:
+            if t.get("task_type") == "repair_execute" and t.get("status") == "pending":
+                td = t.get("task_data") or {}
+                issue = td.get("issue") or {}
+                opp = None
+                try:
+                    opp = db.get_opportunity(t.get("opportunity_id")) if t.get("opportunity_id") else None
+                except Exception:
+                    opp = None
+                pipeline.append({
+                    "task_id": t.get("id"),
+                    "opportunity_id": t.get("opportunity_id"),
+                    "repo": issue.get("repo") or (opp or {}).get("repo_url") or "",
+                    "issue": issue.get("title") or (opp or {}).get("title") or f"opp-{t.get('opportunity_id')}",
+                    "score": issue.get("score"),
+                })
+        return jsonify({"status": "ok", "data": {"pipeline": pipeline}, "error": None})
+    except Exception as e:
+        logger.exception("api_revenue_pipeline failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/revenue/pipeline/remove', methods=['POST'])
+def api_revenue_pipeline_remove():
+    try:
+        data = request.get_json() or {}
+        task_id = data.get("task_id")
+        if task_id is None:
+            return jsonify({"status": "error", "data": None, "error": "task_id required"}), 400
+        qm.cancel_task(int(task_id))
+        return jsonify({"status": "ok", "data": {"removed": task_id}, "error": None})
+    except Exception as e:
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/revenue/pipeline/clear', methods=['POST'])
+def api_revenue_pipeline_clear():
+    try:
+        tasks = qm.list_tasks(limit=500)
+        cleared = 0
+        for t in tasks:
+            if t.get("task_type") == "repair_execute" and t.get("status") == "pending":
+                try:
+                    qm.cancel_task(int(t.get("id")))
+                    cleared += 1
+                except Exception:
+                    pass
+        return jsonify({"status": "ok", "data": {"cleared": cleared}, "error": None})
+    except Exception as e:
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+# ─── Memory Endpoints ──────────────────────────────────────────────────────────
+
+@app.route('/api/memory/recent')
+def api_memory_recent():
+    """Get recent memory entries from a subdirectory"""
+    try:
+        subdir = request.args.get('subdir', 'sessions')
+        n = int(request.args.get('n', 10))
+
+        mm = get_memory_manager()
+        entries = mm.read_recent(subdir, n)
+
+        return jsonify({"status": "ok", "data": entries, "error": None})
+    except Exception as e:
+        logger.exception("Memory recent fetch failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/memory/search')
+def api_memory_search():
+    """Search the memory vault"""
+    try:
+        query = request.args.get('q', '')
+        if not query:
+            return jsonify({"status": "error", "data": None, "error": "Query parameter 'q' required"}), 400
+
+        max_results = int(request.args.get('max_results', 20))
+
+        mm = get_memory_manager()
+        results = mm.search_vault(query, max_results)
+
+        return jsonify({"status": "ok", "data": results, "error": None})
+    except Exception as e:
+        logger.exception("Memory search failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
+@app.route('/api/memory/session', methods=['POST'])
+def api_memory_session():
+    """Write a session summary to memory"""
+    try:
+        data = request.get_json() or {}
+        session_id = data.get('session_id', datetime.now().strftime("%Y%m%d_%H%M%S"))
+        summary_dict = data.get('summary', {})
+
+        mm = get_memory_manager()
+        filepath = mm.write_session(session_id, summary_dict)
+
+        return jsonify({"status": "ok", "data": {"filepath": str(filepath)}, "error": None})
+    except Exception as e:
+        logger.exception("Memory session write failed")
+        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+
+
 # ─── Backend Launcher ─────────────────────────────────────────────────────────
 
 def run_flask_app():
@@ -1020,6 +2015,18 @@ def run_flask_app():
     port = int(os.getenv("FLASK_PORT", "5001"))
     if host not in ("127.0.0.1", "localhost"):
         logger.warning(f"Flask binding to {host} — ensure firewall is configured!")
+    if SOCKETIO_AVAILABLE and socketio is not None:
+        # allow_unsafe_werkzeug: we run the dev server in a daemon thread on localhost.
+        try:
+            socketio.run(app, host=host, port=port, debug=False,
+                         use_reloader=False, allow_unsafe_werkzeug=True)
+            return
+        except TypeError:
+            # older flask-socketio without allow_unsafe_werkzeug kwarg
+            socketio.run(app, host=host, port=port, debug=False, use_reloader=False)
+            return
+        except Exception as exc:
+            logger.warning("socketio.run failed (%s) — falling back to app.run", exc)
     app.run(host=host, port=port, debug=False, use_reloader=False)
 
 
@@ -1072,8 +2079,10 @@ def start_backend():
         manager = wm.initialize_workers(max_workers)
         manager.register_handler("orchestration_workflow", orch.get_orchestrator().handle_queue_task)
         manager.register_handler("repair_execute", handle_repair_execute)
+        manager.register_handler("forge_build", handle_forge_build)
         manager.create_worker("repair_worker_1", ["repair_execute"])
         manager.create_worker("repair_worker_2", ["repair_execute"])
+        manager.create_worker("forge_worker_1", ["forge_build"])
         manager.start_all()
         logger.info(f"Worker manager initialized (max_workers={max_workers})")
     except Exception as e:
@@ -1116,6 +2125,37 @@ def start_backend():
         logger.info("Background scan loop started")
     except Exception as e:
         logger.warning(f"Background scan loop failed to start: {e}")
+
+    # Real-time approval watcher — emits approval_needed + orb alert when a new
+    # pending approval appears (Task 4). Cheap diff loop; no-op without Socket.IO.
+    try:
+        approval_thread = threading.Thread(target=approval_watch_loop, daemon=True)
+        approval_thread.start()
+        logger.info("Approval watcher started")
+    except Exception as e:
+        logger.warning(f"Approval watcher failed to start: {e}")
+
+
+def approval_watch_loop():
+    import time
+    seen = set()
+    while backend_state.get("running"):
+        try:
+            from openclaw.openclaw import get_openclaw
+            pending = get_openclaw().get_pending_approvals()
+            ids = {a.get("id") for a in pending}
+            for a in pending:
+                if a.get("id") not in seen:
+                    emit_event("approval_needed", {
+                        "approval_id": a.get("id"),
+                        "description": a.get("description"),
+                        "action_type": a.get("action_type"),
+                    })
+                    emit_event("orb_state", {"state": "alert"})
+            seen = ids
+        except Exception:
+            pass
+        time.sleep(2)
 
 
 # ─── Main Entry Point ─────────────────────────────────────────────────────────

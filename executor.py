@@ -24,6 +24,7 @@ import git
 from dotenv import load_dotenv
 
 import db
+from notifications import send_notification
 from prompt_engine import run_fix_pipeline, _extract_keywords
 from context_builder import build_context, format_context_for_prompt
 from patch_engine import apply_patches_atomic, validate_patch_json, preview_patches
@@ -333,6 +334,7 @@ def execute_submit(opp_id: int) -> Dict:
         return {"success": False, "error": "PR creation failed", "opp_id": opp_id}
 
     exec_log.log("pr_created", pr_url, current_state)
+    send_notification("SentinelAI PR created", pr_url, priority="default", tags="white_check_mark")
 
     post_issue_comment(
         issue["owner"], issue["repo"], issue["issue_num"],
@@ -611,6 +613,12 @@ def run_executor(dry_run: bool = False) -> Optional[Dict]:
             f"Prepared branch {branch_name}; awaiting approval before push/PR",
             current_state
         )
+        send_notification(
+            "SentinelAI approval needed",
+            f"Repair #{opp_id} is READY_TO_SUBMIT: {opp['title'][:120]}",
+            priority="high",
+            tags="warning",
+        )
         preserve_workspace = True
         logger.info(f"✓ Opportunity #{opp_id} ready to submit — awaiting approval")
         logger.info(exec_log.get_summary())
@@ -638,6 +646,12 @@ def run_executor(dry_run: bool = False) -> Optional[Dict]:
     except Exception as exc:
         logger.exception(f"Executor uncaught exception for #{opp_id}: {exc}")
         exec_log.log("executor_exception", str(exc)[:500], ExecutionState.FAILED)
+        send_notification(
+            "SentinelAI repair error",
+            f"Repair #{opp_id} failed: {exc}",
+            priority="high",
+            tags="rotating_light",
+        )
         
         # Attempt rollback if we have a repo object
         if repo_obj:

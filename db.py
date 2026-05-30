@@ -90,6 +90,17 @@ def init_db():
                 last_used   TEXT,
                 use_count   INTEGER DEFAULT 0
             );
+
+            CREATE TABLE IF NOT EXISTS forge_tasks (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                prompt      TEXT NOT NULL,
+                status      TEXT DEFAULT 'pending_approval',
+                output_path TEXT DEFAULT '',
+                result_json TEXT DEFAULT '',
+                error       TEXT DEFAULT '',
+                created_at  TEXT DEFAULT (datetime('now')),
+                updated_at  TEXT DEFAULT (datetime('now'))
+            );
         """)
 
 
@@ -119,16 +130,32 @@ def cleanup_garbage_opportunities() -> int:
             """
             DELETE FROM opportunities
              WHERE bounty_amount <= 0
-                OR lower(repo_url) LIKE '%bountyscout%'
-                OR lower(repo_url) LIKE '%bounty-board%'
-                OR lower(repo_url) LIKE '%bounties%'
-                OR lower(repo_url) LIKE '%nips%'
-                OR lower(repo_url) LIKE '%rustchain-bounties%'
-                OR lower(repo_url) LIKE '%/x/y%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%bountyscout%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%bounty-board%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%bounties%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%securebananalabs%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%bug-bounty%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%marketplace-service-template%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%socialfi%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%airdrop%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%quest%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%nips%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%rustchain-bounties%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%rustchain%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%cognitive-os%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%bignuten%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%moorcheh-ai/memanto%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%conversejs/converse.js/issues/2481%'
+                OR lower(repo_url || ' ' || issue_url) LIKE '%/x/y%'
                 OR lower(title) LIKE '%bounty alert%'
                 OR lower(title) LIKE '%artifact%'
                 OR lower(title) LIKE '%test bounty%'
                 OR lower(title) LIKE '%new issue for a bounty%'
+                OR lower(title) LIKE '%low handing fruit%'
+                OR lower(title) LIKE '%pixel art%'
+                OR lower(title) LIKE '%technical poem%'
+                OR lower(title) LIKE '%grandma%'
+                OR lower(title) LIKE '%good first issues, bounties%'
             """
         )
         return cur.rowcount
@@ -145,7 +172,7 @@ def get_top_opportunity() -> Optional[Dict]:
     with get_conn() as conn:
         row = conn.execute(
             """SELECT * FROM opportunities
-               WHERE status = 'new' AND complexity_score <= 5
+               WHERE status IN ('new', 'approved') AND complexity_score <= 5
                ORDER BY bounty_amount DESC, complexity_score ASC
                LIMIT 1"""
         ).fetchone()
@@ -322,3 +349,44 @@ def get_logs_for_opportunity(opp_id: int) -> List[Dict]:
 def get_recent_events(limit: int = 50) -> List[Dict]:
     """Get recent events from agent_log (alias for get_recent_logs)."""
     return get_recent_logs(limit)
+
+
+def create_forge_task(prompt: str) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO forge_tasks (prompt) VALUES (?)",
+            (prompt,),
+        )
+        return cur.lastrowid
+
+
+def update_forge_task(task_id: int, status: str, output_path: str = "",
+                      result_json: str = "", error: str = ""):
+    with get_conn() as conn:
+        conn.execute(
+            """UPDATE forge_tasks
+               SET status=?, output_path=?, result_json=?, error=?, updated_at=datetime('now')
+               WHERE id=?""",
+            (status, output_path, result_json, error, task_id),
+        )
+
+
+def get_forge_task(task_id: int) -> Optional[Dict]:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM forge_tasks WHERE id = ?", (task_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def list_forge_tasks(status: Optional[str] = None, limit: int = 100) -> List[Dict]:
+    with get_conn() as conn:
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM forge_tasks WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                (status, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM forge_tasks ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]

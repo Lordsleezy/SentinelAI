@@ -3,143 +3,584 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SentinelAI</title>
+  <title>SentinelAI — Orchestration OS</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
-      color: #00ff88;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-      user-select: none;
-      -webkit-app-region: drag;
+    :root {
+      --bg: #0a0a0f;
+      --surface: #111118;
+      --surface2: #18181f;
+      --border: rgba(0,255,136,.15);
+      --accent: #00ff88;
+      --accent2: #00ccff;
+      --warn: #ffa500;
+      --err: #ff4444;
+      --text: #e0e0e0;
+      --muted: #666;
+      --card-h: 140px;
     }
 
-    .container {
-      text-align: center;
-      padding: 40px 50px;
-      background: rgba(10, 10, 10, 0.85);
-      border: 1px solid rgba(0, 255, 136, 0.4);
-      border-radius: 16px;
-      box-shadow: 0 0 40px rgba(0, 255, 136, 0.15), 0 0 80px rgba(0, 0, 0, 0.6);
-      min-width: 360px;
-    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; overflow: hidden; }
 
-    h1 {
-      font-size: 2.6em;
-      font-weight: 700;
-      letter-spacing: 2px;
-      margin-bottom: 8px;
-      animation: glow 2s ease-in-out infinite alternate;
-    }
+    /* ── layout ── */
+    #app { display: flex; flex-direction: column; height: 100vh; }
 
-    .tagline {
-      font-size: 0.75em;
-      color: #00ccff;
-      letter-spacing: 4px;
-      text-transform: uppercase;
-      margin-bottom: 32px;
-      opacity: 0.8;
-    }
+    /* top bar */
+    #topbar { display: flex; align-items: center; gap: 12px; padding: 0 16px; height: 42px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    #topbar h1 { font-size: 14px; font-weight: 700; letter-spacing: 1px; color: var(--accent); }
+    #topbar .spacer { flex: 1; }
+    #topbar .tag { font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; }
+    #topbar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
 
-    @keyframes glow {
-      from { text-shadow: 0 0 8px rgba(0, 255, 136, 0.5); }
-      to   { text-shadow: 0 0 24px rgba(0, 255, 136, 1), 0 0 48px rgba(0, 255, 136, 0.3); }
-    }
+    /* nav tabs */
+    #nav { display: flex; gap: 2px; padding: 6px 12px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .tab { padding: 5px 14px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 4px; font-size: 12px; transition: background .15s, color .15s; }
+    .tab:hover { background: rgba(0,255,136,.08); color: var(--text); }
+    .tab.active { background: rgba(0,255,136,.12); color: var(--accent); font-weight: 600; }
+    .tab .badge { display: inline-block; background: var(--warn); color: #000; border-radius: 8px; padding: 1px 6px; font-size: 10px; margin-left: 4px; }
 
-    .spinner {
-      width: 44px;
-      height: 44px;
-      border: 3px solid rgba(0, 255, 136, 0.2);
-      border-top: 3px solid #00ff88;
-      border-radius: 50%;
-      animation: spin 0.9s linear infinite;
-      margin: 0 auto 24px;
-    }
+    /* panels */
+    #panels { flex: 1; overflow: hidden; }
+    .panel { display: none; height: 100%; overflow-y: auto; padding: 14px; }
+    .panel.active { display: flex; flex-direction: column; gap: 12px; }
 
-    @keyframes spin {
-      0%   { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
+    /* approval banner */
+    #approval-banner { display: none; background: rgba(255,165,0,.12); border: 1px solid var(--warn); border-radius: 6px; padding: 8px 14px; font-size: 12px; color: var(--warn); cursor: pointer; flex-shrink: 0; }
+    #approval-banner.visible { display: flex; align-items: center; gap: 10px; }
+    #approval-banner .ab-icon { font-size: 16px; }
+    #approval-banner .ab-text { flex: 1; }
+    #approval-banner .ab-btn { padding: 3px 10px; background: var(--warn); color: #000; border: none; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: 600; }
 
-    .status {
-      font-size: 0.9em;
-      color: #aaa;
-      min-height: 1.4em;
-      margin-bottom: 18px;
-      transition: opacity 0.2s ease;
-    }
+    /* section title */
+    .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 4px; }
 
-    .progress-track {
-      width: 100%;
-      height: 3px;
-      background: rgba(0, 255, 136, 0.12);
-      border-radius: 2px;
-      overflow: hidden;
-      margin-bottom: 20px;
-    }
+    /* status cards */
+    .cards-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-height: var(--card-h); display: flex; flex-direction: column; gap: 6px; transition: border-color .2s; }
+    .card:hover { border-color: rgba(0,255,136,.3); }
+    .card .card-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+    .card .card-status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+    .card .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .status-dot.idle { background: var(--muted); }
+    .status-dot.running { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+    .status-dot.error, .status-dot.failed { background: var(--err); }
+    .status-dot.pending, .status-dot.awaiting_approval { background: var(--warn); }
+    .card .card-meta { font-size: 10px; color: var(--muted); margin-top: auto; }
 
-    .progress-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #00ff88, #00ccff);
-      border-radius: 2px;
-      width: 0%;
-      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    }
+    /* task input */
+    #task-bar { display: flex; gap: 8px; padding: 10px 14px; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; }
+    #task-input { flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 7px 12px; border-radius: 5px; font-size: 13px; outline: none; transition: border-color .15s; }
+    #task-input:focus { border-color: var(--accent); }
+    #task-submit { padding: 7px 18px; background: var(--accent); color: #000; border: none; border-radius: 5px; font-weight: 700; cursor: pointer; font-size: 12px; transition: opacity .15s; }
+    #task-submit:hover { opacity: .85; }
+    #task-submit:disabled { opacity: .4; cursor: not-allowed; }
 
-    .info {
-      font-size: 0.78em;
-      color: #555;
-      line-height: 1.7;
-    }
+    /* log panel */
+    #log-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; flex: 1; min-height: 140px; overflow-y: auto; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 11px; color: #aaa; }
+    .log-line { line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
+    .log-line.info { color: #aaa; }
+    .log-line.event { color: var(--accent2); }
+    .log-line.error { color: var(--err); }
 
-    .version {
-      margin-top: 12px;
-      font-size: 0.72em;
-      color: #444;
-    }
+    /* approvals panel */
+    .appr-list { display: flex; flex-direction: column; gap: 8px; }
+    .appr-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+    .appr-card.warn { border-color: rgba(255,165,0,.4); }
+    .appr-header { display: flex; align-items: flex-start; gap: 8px; }
+    .appr-type { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--warn); font-weight: 700; }
+    .appr-desc { font-size: 13px; margin: 4px 0; }
+    .appr-meta { font-size: 10px; color: var(--muted); }
+    .appr-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .btn-approve { padding: 5px 16px; background: var(--accent); color: #000; border: none; border-radius: 4px; font-weight: 700; cursor: pointer; font-size: 12px; }
+    .btn-deny { padding: 5px 16px; background: rgba(255,68,68,.15); color: var(--err); border: 1px solid var(--err); border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 12px; }
+    .appr-reason { margin-top: 8px; display: none; flex-direction: column; gap: 6px; }
+    .appr-reason input { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 12px; width: 100%; }
+    .appr-reason .btn-deny-confirm { padding: 5px 14px; background: var(--err); color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    .history-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; }
+    .history-card.approved { border-color: rgba(0,255,136,.25); }
+    .history-card.denied { border-color: rgba(255,68,68,.25); }
+    .hist-status { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+    .hist-status.approved { color: var(--accent); }
+    .hist-status.denied { color: var(--err); }
+    .empty-state { color: var(--muted); padding: 24px; text-align: center; font-size: 12px; }
+
+    /* revenue panel */
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+    .stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+    .stat-box .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+    .stat-box .stat-value { font-size: 22px; font-weight: 700; color: var(--accent); margin-top: 4px; }
+    .stat-box .stat-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+    /* table */
+    .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .data-table th { text-align: left; padding: 6px 10px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); border-bottom: 1px solid var(--border); }
+    .data-table td { padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,.04); vertical-align: middle; }
+    .data-table tr:hover td { background: rgba(255,255,255,.02); }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+    .pill.idle { background: rgba(102,102,102,.2); color: var(--muted); }
+    .pill.running { background: rgba(0,255,136,.15); color: var(--accent); }
+    .pill.error,.pill.failed { background: rgba(255,68,68,.15); color: var(--err); }
+    .pill.pending,.pill.awaiting_approval { background: rgba(255,165,0,.15); color: var(--warn); }
+    .pill.completed { background: rgba(0,204,255,.15); color: var(--accent2); }
+
+    /* scroll */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>⚡ SentinelAI</h1>
-    <div class="tagline">Orchestration OS</div>
-    <div class="spinner"></div>
-    <div class="status" id="status">Initializing...</div>
-    <div class="progress-track">
-      <div class="progress-fill" id="progress"></div>
-    </div>
-    <div class="info">
-      <div>Runtime Intelligence · Autonomous Workflows</div>
-      <div>Multi-Agent Coordination · Persistent Memory</div>
-    </div>
-    <div class="version">v1.0.0</div>
+<div id="app">
+
+  <!-- top bar -->
+  <div id="topbar">
+    <div class="dot"></div>
+    <h1>⚡ SENTINELAI</h1>
+    <span class="tag">Orchestration OS</span>
+    <div class="spacer"></div>
+    <span id="system-time" class="tag"></span>
   </div>
 
-  <script>
-    // nodeIntegration is enabled for this splash window so we can use IPC
-    try {
-      const { ipcRenderer } = require('electron');
+  <!-- nav -->
+  <div id="nav">
+    <button class="tab active" data-panel="dashboard">Dashboard</button>
+    <button class="tab" data-panel="approvals" id="tab-approvals">Approvals</button>
+    <button class="tab" data-panel="revenue">Revenue</button>
+    <button class="tab" data-panel="workers">Workers</button>
+  </div>
 
-      ipcRenderer.on('splash-message', (_event, msg) => {
-        const el = document.getElementById('status');
-        if (el) el.textContent = msg;
-      });
+  <!-- approval banner (shown when pending > 0) -->
+  <div id="approval-banner">
+    <span class="ab-icon">⚠</span>
+    <span class="ab-text" id="approval-banner-text">Pending approvals need your attention</span>
+    <button class="ab-btn" onclick="showPanel('approvals')">Review</button>
+  </div>
 
-      ipcRenderer.on('splash-progress', (_event, pct) => {
-        const el = document.getElementById('progress');
-        if (el) el.style.width = pct + '%';
-      });
-    } catch (e) {
-      // Fallback if running outside Electron (browser preview)
-      console.log('IPC not available:', e.message);
-    }
-  </script>
+  <!-- panels container -->
+  <div id="panels">
+
+    <!-- ── DASHBOARD ── -->
+    <div class="panel active" id="panel-dashboard">
+      <div class="section-title">Worker Status</div>
+      <div class="cards-row" id="worker-cards">
+        <div class="card"><div class="card-name">Loading...</div></div>
+      </div>
+
+      <div class="section-title">Recent Tasks</div>
+      <div id="recent-tasks-wrap">
+        <table class="data-table" id="tasks-table">
+          <thead><tr><th>ID</th><th>Description</th><th>Status</th><th>Worker</th><th>Created</th></tr></thead>
+          <tbody id="tasks-body"><tr><td colspan="5" class="empty-state">—</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">Log Stream</div>
+      <div id="log-box"><div class="log-line info">Connecting to SentinelAI...</div></div>
+    </div>
+
+    <!-- ── APPROVALS ── -->
+    <div class="panel" id="panel-approvals">
+      <div class="section-title">Pending Approvals</div>
+      <div class="appr-list" id="pending-approvals-list">
+        <div class="empty-state">No pending approvals</div>
+      </div>
+      <div class="section-title" style="margin-top:8px">History</div>
+      <div class="appr-list" id="approval-history-list">
+        <div class="empty-state">No history yet</div>
+      </div>
+    </div>
+
+    <!-- ── REVENUE ── -->
+    <div class="panel" id="panel-revenue">
+      <div class="section-title">Pipeline Summary</div>
+      <div class="stat-grid" id="revenue-stats"></div>
+      <div class="section-title" style="margin-top:8px">Recent Opportunities</div>
+      <table class="data-table">
+        <thead><tr><th>Title</th><th>Bounty</th><th>Status</th><th>Source</th></tr></thead>
+        <tbody id="opp-body"><tr><td colspan="4" class="empty-state">—</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- ── WORKERS ── -->
+    <div class="panel" id="panel-workers">
+      <div class="section-title">Capability Registry</div>
+      <table class="data-table">
+        <thead><tr><th>Tool</th><th>Type</th><th>Description</th><th>Uses</th></tr></thead>
+        <tbody id="registry-body"><tr><td colspan="4" class="empty-state">—</td></tr></tbody>
+      </table>
+      <div class="section-title" style="margin-top:8px">Worker Pool</div>
+      <div class="cards-row" id="pool-cards">
+        <div class="card"><div class="card-name">Loading...</div></div>
+      </div>
+    </div>
+
+  </div><!-- /panels -->
+
+  <!-- task input bar -->
+  <div id="task-bar">
+    <input id="task-input" type="text" placeholder="Type a task and hit Enter — e.g. 'search github for Python bounties'" />
+    <button id="task-submit">Submit</button>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+const API = 'http://127.0.0.1:5001';
+let _pendingCount = 0;
+
+// ── navigation ───────────────────────────────────────────────────────────────
+
+function showPanel(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.panel === name));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+}
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => showPanel(tab.dataset.panel));
+});
+
+// ── clock ────────────────────────────────────────────────────────────────────
+
+function tickClock() {
+  const el = document.getElementById('system-time');
+  if (el) el.textContent = new Date().toLocaleTimeString();
+}
+setInterval(tickClock, 1000);
+tickClock();
+
+// ── fetch helpers ─────────────────────────────────────────────────────────────
+
+async function apiFetch(path, opts = {}) {
+  try {
+    const r = await fetch(API + path, { timeout: 5000, ...opts });
+    return await r.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+// ── log stream ───────────────────────────────────────────────────────────────
+
+let _lastLogId = 0;
+function appendLog(text, cls = 'info') {
+  const box = document.getElementById('log-box');
+  const line = document.createElement('div');
+  line.className = 'log-line ' + cls;
+  line.textContent = text;
+  box.appendChild(line);
+  if (box.children.length > 200) box.removeChild(box.firstChild);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function refreshLogs() {
+  const data = await apiFetch('/api/logs');
+  if (!data || !data.logs) return;
+  const logs = data.logs.slice().reverse();
+  logs.forEach(log => {
+    const id = log.id || 0;
+    if (id <= _lastLogId) return;
+    _lastLogId = Math.max(_lastLogId, id);
+    const cls = (log.event || '').includes('error') || (log.event || '').includes('failed') ? 'error'
+               : (log.event || '').includes('start') || (log.event || '').includes('complete') ? 'event'
+               : 'info';
+    appendLog(`[${(log.timestamp || '').slice(11, 19)}] ${log.event}: ${log.detail}`, cls);
+  });
+}
+
+// ── worker cards ─────────────────────────────────────────────────────────────
+
+function statusDotClass(state) {
+  if (!state) return 'idle';
+  const s = state.toLowerCase();
+  if (s.includes('run') || s.includes('execut') || s.includes('scan')) return 'running';
+  if (s.includes('error') || s.includes('fail')) return 'error';
+  if (s.includes('pend') || s.includes('approval') || s.includes('forg')) return 'pending';
+  return 'idle';
+}
+
+function makeWorkerCard(w) {
+  const state = w.state || 'idle';
+  const name = w.worker_id || w.intent || '—';
+  const runs = w.tasks_completed != null ? w.tasks_completed : '—';
+  const last = w.last_heartbeat ? w.last_heartbeat.slice(11, 19) : '—';
+  const cls = statusDotClass(state);
+  return `<div class="card">
+    <div class="card-name">${escHtml(name)}</div>
+    <div class="card-status"><span class="status-dot ${cls}"></span>${escHtml(state)}</div>
+    <div class="card-meta">Runs: ${runs}<br>Last: ${last}</div>
+  </div>`;
+}
+
+async function refreshWorkerCards() {
+  const data = await apiFetch('/api/workers/status');
+  if (!data || !data.data) return;
+  const { logical_workers = [], pool_workers = [] } = data.data;
+  const all = [...logical_workers, ...pool_workers];
+  if (!all.length) return;
+  document.getElementById('worker-cards').innerHTML = all.map(makeWorkerCard).join('');
+  document.getElementById('pool-cards').innerHTML =
+    all.length ? all.map(makeWorkerCard).join('') : '<div class="empty-state">No workers registered</div>';
+}
+
+// ── recent tasks table ────────────────────────────────────────────────────────
+
+async function refreshTasksTable() {
+  const data = await apiFetch('/api/tasks/queue');
+  if (!data || !data.data) return;
+  const { recent = [] } = data.data;
+  const tbody = document.getElementById('tasks-body');
+  if (!recent.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No tasks yet</td></tr>'; return; }
+  tbody.innerHTML = recent.map(t => `<tr>
+    <td><code>${escHtml((t.task_id || '').slice(0, 14))}</code></td>
+    <td>${escHtml((t.description || '').slice(0, 60))}</td>
+    <td><span class="pill ${escHtml(t.status || 'unknown')}">${escHtml(t.status || '—')}</span></td>
+    <td>${escHtml(t.worker || '—')}</td>
+    <td>${escHtml((t.created_at || '').slice(0, 16))}</td>
+  </tr>`).join('');
+}
+
+// ── approvals ────────────────────────────────────────────────────────────────
+
+let _resolvedApprovals = [];
+
+async function refreshApprovals() {
+  const data = await apiFetch('/api/approvals/pending');
+  if (!data || !data.data) return;
+  const pending = data.data;
+
+  _pendingCount = pending.length;
+  const badge = document.getElementById('tab-approvals');
+  badge.innerHTML = 'Approvals' + (pending.length ? ` <span class="badge">${pending.length}</span>` : '');
+
+  const banner = document.getElementById('approval-banner');
+  const bannerText = document.getElementById('approval-banner-text');
+  if (pending.length) {
+    banner.classList.add('visible');
+    bannerText.textContent = `${pending.length} approval${pending.length > 1 ? 's' : ''} waiting for your decision`;
+  } else {
+    banner.classList.remove('visible');
+  }
+
+  const list = document.getElementById('pending-approvals-list');
+  if (!pending.length) {
+    list.innerHTML = '<div class="empty-state">No pending approvals — all clear ✓</div>';
+  } else {
+    list.innerHTML = pending.map(appr => buildApprovalCard(appr)).join('');
+  }
+
+  // History
+  const hist = document.getElementById('approval-history-list');
+  const resolved = _resolvedApprovals.slice(-20).reverse();
+  if (!resolved.length) {
+    hist.innerHTML = '<div class="empty-state">No history yet</div>';
+  } else {
+    hist.innerHTML = resolved.map(a => `<div class="history-card ${a.status}">
+      <span class="hist-status ${a.status}">${a.status === 'approved' ? '✓ Approved' : '✗ Denied'}</span>
+      <span style="flex:1;font-size:11px;color:var(--muted)">${escHtml((a.description || '').slice(0, 80))}</span>
+      <span style="font-size:10px;color:var(--muted)">${a.reason ? escHtml(a.reason) : ''}</span>
+    </div>`).join('');
+  }
+}
+
+function buildApprovalCard(appr) {
+  const id = appr.id;
+  const payload = appr.payload || {};
+  const prompt = payload.forge_prompt || payload.prompt || '';
+  return `<div class="appr-card warn" id="appr-${escHtml(id)}">
+    <div class="appr-type">${escHtml(appr.action_type || '')}</div>
+    <div class="appr-desc">${escHtml(appr.description || '')}</div>
+    ${prompt ? `<div style="font-size:11px;color:var(--muted);margin-top:4px">Forge prompt: ${escHtml(prompt.slice(0, 120))}</div>` : ''}
+    <div class="appr-meta">Created: ${escHtml((appr.created_at || '').slice(0, 16))} · ID: ${escHtml(id)}</div>
+    <div class="appr-actions">
+      <button class="btn-approve" onclick="approveApproval('${id}')">APPROVE</button>
+      <button class="btn-deny" onclick="showDenyInput('${id}')">DENY</button>
+    </div>
+    <div class="appr-reason" id="deny-form-${escHtml(id)}">
+      <input type="text" id="deny-reason-${escHtml(id)}" placeholder="Reason for denial (optional)" />
+      <button class="btn-deny-confirm" onclick="denyApproval('${id}')">Confirm Denial</button>
+    </div>
+  </div>`;
+}
+
+async function approveApproval(id) {
+  const card = document.getElementById('appr-' + id);
+  if (card) card.style.opacity = '0.5';
+  const r = await apiFetch('/api/approvals/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approval_id: id, approved: true, reason: 'Approved via dashboard' }),
+  });
+  if (r && r.status === 'ok') {
+    _resolvedApprovals.push({ id, status: 'approved', description: '', reason: 'Approved via dashboard' });
+    appendLog(`[Approval] Approved ${id}`, 'event');
+    await refreshApprovals();
+  } else {
+    appendLog(`[Approval] Error approving ${id}: ${(r || {}).error}`, 'error');
+    if (card) card.style.opacity = '1';
+  }
+}
+
+function showDenyInput(id) {
+  const form = document.getElementById('deny-form-' + id);
+  if (form) form.style.display = 'flex';
+}
+
+async function denyApproval(id) {
+  const reason = (document.getElementById('deny-reason-' + id) || {}).value || '';
+  const card = document.getElementById('appr-' + id);
+  if (card) card.style.opacity = '0.5';
+  const r = await apiFetch('/api/approvals/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approval_id: id, approved: false, reason }),
+  });
+  if (r && r.status === 'ok') {
+    _resolvedApprovals.push({ id, status: 'denied', description: '', reason });
+    appendLog(`[Approval] Denied ${id}${reason ? ': ' + reason : ''}`, 'error');
+    await refreshApprovals();
+  } else {
+    appendLog(`[Approval] Error denying ${id}: ${(r || {}).error}`, 'error');
+    if (card) card.style.opacity = '1';
+  }
+}
+
+// ── revenue panel ─────────────────────────────────────────────────────────────
+
+async function refreshRevenue() {
+  const data = await apiFetch('/api/revenue/status');
+  if (!data || !data.data) return;
+  const { earnings = {}, opportunity_counts = {}, recent_opportunities = [] } = data.data;
+
+  const statsEl = document.getElementById('revenue-stats');
+  const confirmed = (earnings.confirmed_earnings || 0).toFixed(2);
+  const pending = earnings.pending_count || 0;
+  const merged = earnings.merged_count || 0;
+  const total = earnings.total_submissions || 0;
+  const rate = earnings.merge_rate || 0;
+
+  statsEl.innerHTML = `
+    <div class="stat-box"><div class="stat-label">Confirmed Earnings</div><div class="stat-value">$${confirmed}</div></div>
+    <div class="stat-box"><div class="stat-label">Pending PRs</div><div class="stat-value">${pending}</div></div>
+    <div class="stat-box"><div class="stat-label">Merged PRs</div><div class="stat-value">${merged}</div></div>
+    <div class="stat-box"><div class="stat-label">Total Submissions</div><div class="stat-value">${total}</div></div>
+    <div class="stat-box"><div class="stat-label">Merge Rate</div><div class="stat-value">${rate}%</div></div>
+    <div class="stat-box"><div class="stat-label">New Opportunities</div><div class="stat-value">${opportunity_counts.new || 0}</div></div>
+  `;
+
+  const tbody = document.getElementById('opp-body');
+  if (!recent_opportunities.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No opportunities yet</td></tr>';
+  } else {
+    tbody.innerHTML = recent_opportunities.map(o => `<tr>
+      <td>${escHtml((o.title || '').slice(0, 60))}</td>
+      <td>$${(o.bounty_amount || 0).toFixed(0)}</td>
+      <td><span class="pill ${escHtml(o.status || 'unknown')}">${escHtml(o.status || '—')}</span></td>
+      <td>${escHtml(o.source || '—')}</td>
+    </tr>`).join('');
+  }
+}
+
+// ── workers / registry panel ──────────────────────────────────────────────────
+
+async function refreshRegistry() {
+  const data = await apiFetch('/api/tools/list');
+  if (!data || !data.data) return;
+  const tools = data.data;
+  const tbody = document.getElementById('registry-body');
+  if (!tools.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No tools registered</td></tr>'; return; }
+  tbody.innerHTML = tools.map(t => `<tr>
+    <td><strong>${escHtml(t.tool_name || '')}</strong></td>
+    <td><span class="pill ${escHtml(t.tool_type || 'built')}">${escHtml(t.tool_type || '')}</span></td>
+    <td style="color:var(--muted)">${escHtml((t.description || '').slice(0, 80))}</td>
+    <td>${t.use_count || 0}</td>
+  </tr>`).join('');
+}
+
+// ── task submission ───────────────────────────────────────────────────────────
+
+async function submitTask(description) {
+  const btn = document.getElementById('task-submit');
+  btn.disabled = true;
+  appendLog(`[Task] Submitting: ${description}`, 'event');
+  const r = await apiFetch('/api/tasks/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description, source: 'desktop', context: { wait_for_approval: false } }),
+  });
+  btn.disabled = false;
+  if (!r || r.status === 'error') {
+    appendLog(`[Task] Error: ${(r || {}).error || 'unknown'}`, 'error');
+    return;
+  }
+  const d = r.data || {};
+  appendLog(`[Task] Created ${d.task_id || ''} — status: ${d.status}`, 'event');
+  if (d.approval_id) {
+    appendLog(`[Task] Forge approval required — check Approvals tab`, 'error');
+  }
+  await Promise.all([refreshTasksTable(), refreshApprovals()]);
+}
+
+const taskInput = document.getElementById('task-input');
+const taskSubmit = document.getElementById('task-submit');
+taskInput.addEventListener('keydown', e => { if (e.key === 'Enter' && taskInput.value.trim()) { submitTask(taskInput.value.trim()); taskInput.value = ''; } });
+taskSubmit.addEventListener('click', () => { if (taskInput.value.trim()) { submitTask(taskInput.value.trim()); taskInput.value = ''; } });
+
+// ── poll loop ─────────────────────────────────────────────────────────────────
+
+async function pollAll() {
+  await Promise.allSettled([
+    refreshWorkerCards(),
+    refreshTasksTable(),
+    refreshApprovals(),
+    refreshLogs(),
+  ]);
+}
+
+async function pollRevenue() {
+  await refreshRevenue();
+}
+
+async function pollWorkers() {
+  await refreshRegistry();
+  await refreshWorkerCards();
+}
+
+setInterval(pollAll, 3000);
+setInterval(pollRevenue, 3000);
+setInterval(pollWorkers, 5000);
+
+// Initial load
+pollAll();
+pollRevenue();
+pollWorkers();
+
+// Re-poll when switching tabs to make sure data is fresh
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const name = tab.dataset.panel;
+    if (name === 'revenue') pollRevenue();
+    if (name === 'workers') pollWorkers();
+    if (name === 'approvals') refreshApprovals();
+    if (name === 'dashboard') pollAll();
+  });
+});
+
+// ── utilities ─────────────────────────────────────────────────────────────────
+
+function escHtml(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Electron IPC bridge (no-op when running in browser)
+try {
+  const { ipcRenderer } = require('electron');
+  ipcRenderer.on('backend-status', (_e, payload) => {
+    if (payload.status === 'running') appendLog('[System] Backend running', 'event');
+    else appendLog(`[System] Backend ${payload.status}: ${payload.message}`, 'error');
+  });
+} catch (_) {}
+</script>
 </body>
 </html>

@@ -5,14 +5,17 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const fetch = require('node-fetch');
+const pty = require('node-pty');
 
 // ============================================================================
 // STATE
 // ============================================================================
 
-let mainWindow = null;
+let orbWindow = null;          // Window 1 - The Orb
+let workerWindow = null;        // Window 2 - Contextual worker windows
 let splashWindow = null;
 let backendProcess = null;
+let ptyProcess = null;          // Terminal PTY for Forge window
 let backendReady = false;
 let isQuitting = false;
 let isRestarting = false;
@@ -42,8 +45,11 @@ function sleep(ms) {
 }
 
 function broadcastBackendStatus(payload) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('backend-status', payload);
+  if (orbWindow && !orbWindow.isDestroyed()) {
+    orbWindow.webContents.send('backend-status', payload);
+  }
+  if (workerWindow && !workerWindow.isDestroyed()) {
+    workerWindow.webContents.send('backend-status', payload);
   }
 }
 
@@ -63,6 +69,7 @@ function createSplashScreen() {
       contextIsolation: false
     }
   });
+  // Splash uses a minimal loading screen (we'll keep index.html as splash for now)
   splashWindow.loadFile('index.html');
   splashWindow.center();
 }
@@ -224,8 +231,9 @@ async function restartBackend() {
     console.log('[Backend] Restart successful');
     broadcastBackendStatus({ status: 'running', message: 'Backend restarted successfully' });
 
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.loadURL(BACKEND_URL);
+    // No need to reload - orb window is static HTML
+    if (orbWindow && !orbWindow.isDestroyed()) {
+      orbWindow.webContents.send('backend-status', { status: 'running', message: 'Backend restarted' });
     }
   } catch (error) {
     console.error(`[Backend] Restart failed: ${error.message}`);
@@ -307,6 +315,18 @@ async function pollBackendReady() {
   throw new Error('Backend readiness timeout (30 s)');
 }
 
+async function existingBackendReady() {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/status`, { timeout: 2000 });
+    if (!response.ok) return false;
+    backendReady = true;
+    console.log('[Backend] Reusing existing backend on port 5001');
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function validateBackendHealth() {
   try {
     const response = await fetch(`${BACKEND_URL}/api/system/health`, { timeout: 5000 });
@@ -350,55 +370,143 @@ function startBackendMonitor() {
 }
 
 // ============================================================================
-// MAIN WINDOW
+// ORB WINDOW (Window 1 — Main persistent UI)
 // ============================================================================
 
-function createMainWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 850,
-    minWidth: 900,
-    minHeight: 650,
+function createOrbWindow() {
+  orbWindow = new BrowserWindow({
+    width: 800,
+    height: 700,
+    minWidth: 600,
+    minHeight: 500,
     show: false,
     title: 'SentinelAI',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true
+      nodeIntegration: true,
+      contextIsolation: false
     },
-    backgroundColor: '#0a0a0a'
+    backgroundColor: '#0a0a0f',
+    frame: true
   });
 
-  mainWindow.loadURL(BACKEND_URL);
+  orbWindow.loadFile('orb.html');
 
-  mainWindow.once('ready-to-show', () => {
+  orbWindow.once('ready-to-show', () => {
     if (splashWindow && !splashWindow.isDestroyed()) {
       splashWindow.close();
       splashWindow = null;
     }
-    mainWindow.show();
-    mainWindow.focus();
+    orbWindow.show();
+    orbWindow.focus();
   });
 
   // Clicking X hides to tray instead of closing
-  mainWindow.on('close', (event) => {
+  orbWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
-      mainWindow.hide();
+      orbWindow.hide();
     }
   });
 
-  mainWindow.on('closed', () => { mainWindow = null; });
+  orbWindow.on('closed', () => { orbWindow = null; });
+}
 
-  // Retry load on failure (backend may still be starting)
-  mainWindow.webContents.on('did-fail-load', (_event, _code, description) => {
-    console.warn('[Window] Load failed:', description);
-    setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed() && backendReady) {
-        mainWindow.loadURL(BACKEND_URL);
-      }
-    }, 2000);
+// ============================================================================
+// WORKER WINDOW (Window 2 — Contextual worker UIs)
+// ============================================================================
+
+function createWorkerWindow(workerType = 'forge', context = {}) {
+  // Close existing worker window if open
+  if (workerWindow && !workerWindow.isDestroyed()) {
+    workerWindow.close();
+  }
+
+  const windowMap = {
+    forge: 'forge_window.html',
+    earn: 'earn_window.html',
+    market: 'market_window.html',
+    guardian: 'guardian_window.html'
+  };
+
+  const htmlFile = windowMap[workerType] || windowMap['forge'];
+
+  workerWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+    show: true,
+    title: `SentinelAI - ${workerType.charAt(0).toUpperCase() + workerType.slice(1)}`,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    },
+    backgroundColor: '#0a0a0f'
   });
+
+  workerWindow.loadFile(htmlFile);
+
+  workerWindow.once('ready-to-show', () => {
+    workerWindow.show();
+    workerWindow.focus();
+
+    // Send context to the window
+    if (Object.keys(context).length > 0) {
+      workerWindow.webContents.send(`${workerType}-context`, context);
+    }
+
+    // If this is Forge, spawn a PTY terminal
+    if (workerType === 'forge') {
+      spawnPtyTerminal();
+    }
+  });
+
+  workerWindow.on('closed', () => {
+    workerWindow = null;
+    // Clean up PTY if this was a Forge window
+    if (ptyProcess && workerType === 'forge') {
+      try { ptyProcess.kill(); } catch (_) {}
+      ptyProcess = null;
+    }
+  });
+}
+
+// ============================================================================
+// PTY TERMINAL (For Forge window)
+// ============================================================================
+
+function spawnPtyTerminal() {
+  if (ptyProcess) {
+    try { ptyProcess.kill(); } catch (_) {}
+    ptyProcess = null;
+  }
+
+  const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+  const cwd = path.join(__dirname, '..');
+
+  try {
+    ptyProcess = pty.spawn(shell, [], {
+      name: 'xterm-color',
+      cols: 80,
+      rows: 24,
+      cwd,
+      env: process.env
+    });
+
+    ptyProcess.onData((data) => {
+      if (workerWindow && !workerWindow.isDestroyed()) {
+        workerWindow.webContents.send('terminal-output', data);
+      }
+    });
+
+    ptyProcess.onExit((exitCode) => {
+      console.log(`[PTY] Terminal exited with code ${exitCode.exitCode}`);
+    });
+
+    console.log('[PTY] Terminal spawned successfully');
+  } catch (err) {
+    console.error('[PTY] Failed to spawn terminal:', err.message);
+  }
 }
 
 // ============================================================================
@@ -406,6 +514,23 @@ function createMainWindow() {
 // ============================================================================
 
 function setupIPC() {
+  // Route to a specific worker window
+  ipcMain.on('route-to-worker', (event, { worker, context }) => {
+    console.log(`[IPC] Routing to worker: ${worker}`);
+    createWorkerWindow(worker, context);
+  });
+
+  // Terminal I/O for Forge window (node-pty integration will be added in Track 3)
+  ipcMain.on('terminal-input', (event, data) => {
+    if (ptyProcess) {
+      try {
+        ptyProcess.write(data);
+      } catch (err) {
+        console.error('[PTY] Write error:', err.message);
+      }
+    }
+  });
+
   ipcMain.on('restart-backend', async (event) => {
     console.log('[IPC] restart-backend');
     await restartBackend();
@@ -440,17 +565,24 @@ async function startupSequence() {
     updateSplash('Initializing SentinelAI...', 5);
     await sleep(300); // Let splash render
 
-    updateSplash('Starting Python backend...', 15);
-    await launchBackend();
+    updateSplash('Checking backend...', 15);
+    const reusedBackend = await existingBackendReady();
+    if (!reusedBackend) {
+      updateSplash('Starting Python backend...', 15);
+      await launchBackend();
 
-    updateSplash('Waiting for backend...', 35);
-    await pollBackendReady();
+      updateSplash('Waiting for backend...', 35);
+      await pollBackendReady();
+    }
 
     updateSplash('Validating runtime health...', 82);
     await validateBackendHealth();
 
     updateSplash('Opening dashboard...', 92);
-    createMainWindow();
+
+    // Launch BOTH windows on startup
+    createOrbWindow();           // Window 1 - The Orb (persistent)
+    createWorkerWindow('forge'); // Window 2 - Default to Forge dashboard
 
     startBackendMonitor();
 
@@ -496,10 +628,11 @@ app.whenReady().then(() => {
 
   app.on('activate', () => {
     // macOS: re-show window when dock icon clicked
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.show();
+    if (orbWindow && !orbWindow.isDestroyed()) {
+      orbWindow.show();
     } else if (BrowserWindow.getAllWindows().length === 0 && backendReady) {
-      createMainWindow();
+      createOrbWindow();
+      createWorkerWindow('forge');
     }
   });
 });

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sentinel Market</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      background: #111118;
+      border-bottom: 1px solid rgba(0,255,136,0.15);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header h1 {
+      font-size: 18px;
+      color: #00ff88;
+    }
+
+    .paper-trading-banner {
+      background: rgba(255,165,0,0.1);
+      color: #ffa500;
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid rgba(255,165,0,0.3);
+    }
+
+    .tickers {
+      display: flex;
+      gap: 12px;
+      padding: 16px 20px;
+      background: #0a0a0f;
+      border-bottom: 1px solid rgba(0,255,136,0.15);
+    }
+
+    .ticker-card {
+      flex: 1;
+      background: #111118;
+      border: 1px solid rgba(0,255,136,0.15);
+      border-radius: 8px;
+      padding: 14px;
+      text-align: center;
+    }
+
+    .ticker-symbol {
+      font-size: 12px;
+      color: #666;
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+
+    .ticker-price {
+      font-size: 22px;
+      font-weight: 700;
+      color: #00ff88;
+      margin: 6px 0;
+    }
+
+    .ticker-change {
+      font-size: 11px;
+      color: #00ff88;
+    }
+
+    .ticker-change.negative {
+      color: #ff4444;
+    }
+
+    #freqtrade-iframe {
+      flex: 1;
+      border: none;
+      background: #111118;
+    }
+
+    .news-feed {
+      height: 180px;
+      overflow-y: auto;
+      background: #111118;
+      border-top: 1px solid rgba(0,255,136,0.15);
+      padding: 12px 20px;
+    }
+
+    .news-item {
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      font-size: 12px;
+    }
+
+    .news-item:last-child {
+      border-bottom: none;
+    }
+
+    .refresh-btn {
+      padding: 6px 14px;
+      background: #00ff88;
+      color: #000;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>📈 Sentinel Market</h1>
+    <div class="paper-trading-banner">⚠ PAPER TRADING MODE</div>
+    <button class="refresh-btn" id="refresh-btn">Refresh</button>
+  </div>
+
+  <div class="tickers" id="tickers">
+    <div class="ticker-card">
+      <div class="ticker-symbol">BTC</div>
+      <div class="ticker-price">—</div>
+      <div class="ticker-change">—</div>
+    </div>
+    <div class="ticker-card">
+      <div class="ticker-symbol">ETH</div>
+      <div class="ticker-price">—</div>
+      <div class="ticker-change">—</div>
+    </div>
+    <div class="ticker-card">
+      <div class="ticker-symbol">SPY</div>
+      <div class="ticker-price">—</div>
+      <div class="ticker-change">—</div>
+    </div>
+    <div class="ticker-card">
+      <div class="ticker-symbol">QQQ</div>
+      <div class="ticker-price">—</div>
+      <div class="ticker-change">—</div>
+    </div>
+  </div>
+
+  <iframe id="freqtrade-iframe" src="http://localhost:5003"></iframe>
+
+  <div class="news-feed">
+    <div id="news-list">
+      <div style="color: #666;">Loading market news...</div>
+    </div>
+  </div>
+
+  <script>
+    async function loadMarketData() {
+      try {
+        const res = await fetch('http://127.0.0.1:5001/market/summary');
+        const data = await res.json();
+
+        // Update tickers (placeholder - will be populated when backend is wired)
+        console.log('Market data:', data);
+
+      } catch (e) {
+        console.error('Failed to load market data:', e);
+      }
+    }
+
+    document.getElementById('refresh-btn').addEventListener('click', loadMarketData);
+
+    loadMarketData();
+    setInterval(loadMarketData, 60000);
+  </script>
+</body>
+</html>

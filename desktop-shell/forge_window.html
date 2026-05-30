@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Forge</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/editor/editor.main.min.css">
+  <link rel="stylesheet" href="https://unpkg.com/@xterm/xterm@5.3.0/css/xterm.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #toolbar {
+      background: #111118;
+      border-bottom: 1px solid rgba(0,255,136,0.15);
+      padding: 8px 12px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .btn {
+      padding: 6px 14px;
+      background: #00ff88;
+      color: #000;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .btn:hover {
+      opacity: 0.85;
+    }
+
+    .btn.secondary {
+      background: rgba(255,255,255,0.1);
+      color: #e0e0e0;
+    }
+
+    #editor-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    #monaco-editor {
+      flex: 1;
+    }
+
+    #terminal-panel {
+      height: 30%;
+      border-top: 1px solid rgba(0,255,136,0.15);
+      background: #0a0a0f;
+      overflow: hidden;
+    }
+
+    #terminal {
+      width: 100%;
+      height: 100%;
+      padding: 8px;
+    }
+
+    .status-bar {
+      padding: 4px 12px;
+      background: #18181f;
+      border-top: 1px solid rgba(0,255,136,0.15);
+      font-size: 11px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <button class="btn" id="btn-run">Run Forge Task</button>
+    <button class="btn secondary" id="btn-diff">Show Diff</button>
+    <button class="btn secondary" id="btn-clear">Clear Editor</button>
+    <div style="flex: 1;"></div>
+    <span id="status-text">Ready</span>
+  </div>
+
+  <div id="editor-container">
+    <div id="monaco-editor"></div>
+    <div id="terminal-panel">
+      <div id="terminal"></div>
+    </div>
+  </div>
+
+  <div class="status-bar">Forge Script Editor - Monaco Editor with integrated terminal</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+  <script src="https://unpkg.com/@xterm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/@xterm/addon-fit@0.8.0/lib/addon-fit.js"></script>
+
+  <script>
+    let editor = null;
+    let terminal = null;
+
+    // Initialize Monaco Editor
+    require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
+
+    require(['vs/editor/editor.main'], function() {
+      editor = monaco.editor.create(document.getElementById('monaco-editor'), {
+        value: '# Write your Forge task here\n# Example: Fix the bug in auth.py\n',
+        language: 'markdown',
+        theme: 'vs-dark',
+        automaticLayout: true,
+        minimap: { enabled: true },
+        fontSize: 14,
+        lineNumbers: 'on',
+        wordWrap: 'on'
+      });
+    });
+
+    // Initialize xterm.js terminal
+    terminal = new Terminal({
+      cursorBlink: true,
+      theme: {
+        background: '#0a0a0f',
+        foreground: '#e0e0e0'
+      }
+    });
+
+    const fitAddon = new FitAddon.FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(document.getElementById('terminal'));
+    fitAddon.fit();
+
+    window.addEventListener('resize', () => {
+      if (fitAddon) fitAddon.fit();
+    });
+
+    // Write to terminal via IPC
+    try {
+      const { ipcRenderer } = require('electron');
+
+      ipcRenderer.on('terminal-output', (event, data) => {
+        terminal.write(data);
+      });
+
+      terminal.onData(data => {
+        ipcRenderer.send('terminal-input', data);
+      });
+
+      ipcRenderer.on('forge-context', (event, context) => {
+        if (context.task) {
+          editor.setValue(`# Forge Task: ${context.task}\n\n${context.prompt || ''}`);
+        }
+      });
+    } catch (e) {
+      console.error('Electron IPC not available:', e);
+    }
+
+    // Run button
+    document.getElementById('btn-run').addEventListener('click', async () => {
+      const content = editor.getValue();
+      document.getElementById('status-text').textContent = 'Running...';
+
+      try {
+        const res = await fetch('http://127.0.0.1:5001/forge/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: content })
+        });
+
+        const data = await res.json();
+        terminal.writeln(`\r\n[Forge] ${data.status}: ${data.message || ''}\r\n`);
+        document.getElementById('status-text').textContent = data.status;
+      } catch (e) {
+        terminal.writeln(`\r\n[Error] ${e.message}\r\n`);
+        document.getElementById('status-text').textContent = 'Error';
+      }
+    });
+
+    // Clear button
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      editor.setValue('# Write your Forge task here\n');
+    });
+
+    terminal.writeln('Forge terminal ready. Output will appear here.');
+  </script>
+</body>
+</html>
