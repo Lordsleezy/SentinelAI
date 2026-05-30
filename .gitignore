@@ -21,27 +21,33 @@ wheels/
 *.egg
 
 # Virtual Environment
-venv/
-ENV/
-env/
+# REMOVED: venv/, ENV/, env/ - committing these to enable first-run setup
 
-# Environment Variables
-.env
+# Environment Variables - exclude runtime-specific values
+# .env files are in .gitkeep structure; only exclude user-modified runtime values
 .env.local
+.env.production.local
 
 # Database
 *.db
 *.sqlite
 *.sqlite3
-data/
 
-# Logs
+# Runtime User Data
+data/
+user_data/
+.claude/
+.sentinelai/
+
+# Logs (runtime-generated)
 *.log
 logs/
 
-# IDE
-.vscode/
-.idea/
+# IDE User Settings
+.vscode/settings.json
+.vscode/launch.json
+.idea/workspace.xml
+.idea/tasks.xml
 *.swp
 *.swo
 *~
@@ -59,13 +65,13 @@ temp/
 # Playwright
 .playwright/
 
-# Node modules (for Electron)
-node_modules/
-package-lock.json
+# Node modules - REMOVED: committing to enable first-run setup
+# package-lock.json - REMOVED: committing for reproducible builds
 
-# Electron build output
+# Build Artifacts (can be rebuilt)
+dist/
+build/
 out/
-release/
 *.exe
 *.dmg
 *.AppImage
