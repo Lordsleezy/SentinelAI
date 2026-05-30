@@ -1,0 +1,97 @@
+name: Build SentinelAI Windows Installer
+
+on:
+  push:
+    branches: [master]
+  tags:
+    - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Create virtual environment
+        run: python -m venv venv
+
+      - name: Install Python dependencies
+        run: |
+          venv\Scripts\activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Python backend
+        run: |
+          venv\Scripts\activate
+          pyinstaller build_backend.spec --clean --noconfirm
+        env:
+          PYTHONPATH: .
+
+      - name: Install Node dependencies
+        run: |
+          cd desktop-shell
+          npm install
+
+      - name: Create application icon
+        run: node create_icon.js
+
+      - name: Build Electron installer
+        run: |
+          cd desktop-shell
+          npm run dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload installer as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SentinelAI-Windows-Installer
+          path: installer_dist/*.exe
+          retention-days: 90
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer_dist/*.exe
+          name: SentinelAI ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            SentinelAI ${{ github.ref_name }} - Windows Installer
+
+            Download and run `SentinelAI Setup.exe` to install.
+
+            **Requirements:**
+            - Windows 10 or later
+            - 4GB RAM minimum
+            - 5GB free disk space
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "Build successful! Installer ready in installer_dist/"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Build failed! Check logs above for details."

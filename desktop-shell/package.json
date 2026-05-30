@@ -1,15 +1,77 @@
 {
-  "name": "desktop-shell",
-  "version": "1.0.0",
-  "description": "",
+  "name": "sentinelai",
+  "version": "1.0.0-alpha",
+  "description": "SentinelAI - Intelligent Desktop Assistant",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "package": "electron-builder"
+    "dist": "electron-builder --win --publish never",
+    "dist:dir": "electron-builder --win --dir"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["ai", "assistant", "desktop", "automation"],
+  "author": "Sentinel Prime Inc.",
   "license": "ISC",
+  "build": {
+    "appId": "org.sentinelprime.sentinelai",
+    "productName": "SentinelAI",
+    "copyright": "Copyright 2026 Sentinel Prime Inc.",
+    "directories": {
+      "output": "../installer_dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend_dist/sentinel_backend",
+        "to": "sentinel_backend",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../.env.example",
+        "to": ".env.example"
+      },
+      {
+        "from": "../memory",
+        "to": "memory",
+        "filter": ["**/.gitkeep"]
+      },
+      {
+        "from": "../config",
+        "to": "config",
+        "filter": ["**/.gitkeep"]
+      },
+      {
+        "from": "../capability_registry.json",
+        "to": "capability_registry.json"
+      },
+      {
+        "from": "../README.md",
+        "to": "README.md"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SentinelAI",
+      "runAfterFinish": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico"
+    }
+  },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",

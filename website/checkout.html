@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Checkout - Sentinel Prime</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="page.css">
+<script src="https://js.stripe.com/v3/"></script>
+</head>
+<body>
+<nav class="nav">
+  <a class="logo" href="index.html">SENTINELPRIME</a>
+  <div class="nav-links">
+    <a href="products.html">Products</a><a href="pricing.html">Pricing</a><a href="download.html">Download</a><a href="about.html">About</a><a href="contact.html">Contact</a><a class="nav-cta" href="checkout.html">Buy Pro &rarr;</a>
+  </div>
+</nav>
+
+<main>
+  <section class="page-hero">
+    <div class="wrap narrow">
+      <p class="eyebrow">Checkout</p>
+      <h1>SentinelAI Pro</h1>
+      <p class="lead">$199 one-time. Activation code delivered by email after purchase.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap grid-2">
+      <div class="panel">
+        <p class="eyebrow">Order Summary</p>
+        <h2>SentinelAI Pro</h2>
+        <div class="price">$199</div>
+        <p class="copy">Includes all Pro integrations, proactive agents, smart home, market dashboard, messaging bridges, wake word voice activation, and all future Pro features.</p>
+      </div>
+      <div class="form-panel">
+        <form id="checkoutForm">
+          <input required type="email" id="email" placeholder="Email for activation code">
+          <div id="paymentElement" class="panel" style="padding:16px"></div>
+          <button class="button" id="submitButton" type="submit">Complete Purchase</button>
+          <div class="form-status" id="checkoutStatus"></div>
+        </form>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="footer-links">
+    <a href="index.html">Home</a><a href="products.html">Products</a><a href="download.html">Download</a><a href="pricing.html">Pricing</a><a href="about.html">About</a><a href="contact.html">Contact</a><a href="https://github.com/Lordsleezy/sentinelprime" target="_blank" rel="noopener">GitHub</a>
+  </div>
+  <div>&copy; 2026 Sentinel Prime Inc. - paul@sentinelprime.org</div>
+</footer>
+
+<script>
+let stripe;
+let elements;
+const statusEl = document.getElementById("checkoutStatus");
+
+async function initCheckout() {
+  try {
+    const config = await fetch("/api/stripe/config").then(r => r.json());
+    if (!config.publishableKey) throw new Error("Stripe publishable key missing");
+    stripe = Stripe(config.publishableKey);
+    const intent = await fetch("/api/create-payment-intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ product: "sentinelai-pro", amount: 19900 })
+    }).then(r => r.json());
+    elements = stripe.elements({ clientSecret: intent.clientSecret });
+    elements.create("payment").mount("#paymentElement");
+  } catch (error) {
+    statusEl.className = "form-status error";
+    statusEl.textContent = "Checkout backend is not configured yet. Set Stripe environment variables and run the checkout server.";
+  }
+}
+
+document.getElementById("checkoutForm").addEventListener("submit", async function (event) {
+  event.preventDefault();
+  if (!stripe || !elements) {
+    statusEl.className = "form-status error";
+    statusEl.textContent = "Checkout is not ready.";
+    return;
+  }
+  statusEl.className = "form-status";
+  statusEl.textContent = "Processing...";
+  const email = document.getElementById("email").value;
+  const result = await stripe.confirmPayment({
+    elements,
+    confirmParams: {
+      receipt_email: email,
+      return_url: `${window.location.origin}/success.html?email=${encodeURIComponent(email)}`
+    }
+  });
+  if (result.error) {
+    statusEl.className = "form-status error";
+    statusEl.textContent = result.error.message;
+  }
+});
+
+initCheckout();
+</script>
+</body>
+</html>
