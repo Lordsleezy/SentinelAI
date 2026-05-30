@@ -15,11 +15,6 @@ a = Analysis(
         ('memory/vault', 'memory/vault'),
         ('config', 'config'),
         ('.env.example', '.'),
-        ('workers', 'workers'),
-        ('market', 'market'),
-        ('capability_registry.json', '.'),
-        ('BUILD_SYSTEM_ROADMAP.md', '.'),
-        ('README.md', '.'),
     ],
     hiddenimports=[
         # Orchestration
