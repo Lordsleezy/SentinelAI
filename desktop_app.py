@@ -2185,7 +2185,13 @@ def api_home_status():
     try:
         feature_check = license_manager.check_feature("home_assistant")
         if not feature_check["allowed"]:
-            return jsonify({"status": "error", "error": feature_check["message"], "code": "pro_required"}), 403
+            return jsonify({
+                "status": "ok",
+                "connected": False,
+                "url": None,
+                "note": feature_check.get("message", "Home Assistant requires Pro tier"),
+                "code": "pro_required"
+            })
 
         from workers.home.home_assistant import get_ha_bridge
         ha = get_ha_bridge()
@@ -2671,6 +2677,195 @@ def api_license_check(feature_name):
     except Exception as e:
         logger.error(f"License check failed: {e}")
         return jsonify({"allowed": False, "error": str(e)}), 500
+
+
+# ─── Earn Jobs API ───────────────────────────────────────────────────────────
+
+@app.route('/earn/jobs')
+def api_earn_jobs():
+    """Multi-source earn jobs: bounty programs + remote jobs."""
+    import threading
+
+    results = {"bounty": [], "remoteok": [], "error": None}
+
+    def _fetch_bounty():
+        try:
+            from workers.earn.sources.bounty_targets import scan
+            results["bounty"] = scan(limit=15)
+        except Exception as exc:
+            logger.debug("bounty_targets scan failed: %s", exc)
+
+    def _fetch_remoteok():
+        try:
+            from workers.earn.sources.remoteok_scanner import scan
+            results["remoteok"] = scan(limit=15)
+        except Exception as exc:
+            logger.debug("remoteok scan failed: %s", exc)
+
+    t1 = threading.Thread(target=_fetch_bounty, daemon=True)
+    t2 = threading.Thread(target=_fetch_remoteok, daemon=True)
+    t1.start(); t2.start()
+    t1.join(timeout=12); t2.join(timeout=12)
+
+    jobs = []
+    for item in results["bounty"]:
+        jobs.append({
+            "source": "hackerone",
+            "title": item.get("name") or item.get("handle") or "Bug Bounty Program",
+            "url": f"https://hackerone.com/{item.get('handle', '')}" if item.get("handle") else None,
+            "type": "bounty",
+            "data": item,
+        })
+    for item in results["remoteok"]:
+        jobs.append({
+            "source": "remoteok",
+            "title": item.get("position") or item.get("company") or "Remote Job",
+            "url": item.get("url"),
+            "type": "job",
+            "company": item.get("company"),
+            "tags": item.get("tags", []),
+            "data": item,
+        })
+
+    return jsonify({"status": "ok", "jobs": jobs,
+                    "counts": {"bounty": len(results["bounty"]), "remoteok": len(results["remoteok"])},
+                    "error": None})
+
+
+# ─── Market Summary API ───────────────────────────────────────────────────────
+
+@app.route('/market/summary')
+def api_market_summary():
+    """Market summary — crypto + equity quote scaffold."""
+    try:
+        from market.openbb_bridge import get_quote, DRY_RUN
+        btc = get_quote("BTC-USD") or {}
+        eth = get_quote("ETH-USD") or {}
+        return jsonify({
+            "status": "ok",
+            "dry_run": DRY_RUN,
+            "quotes": {"BTC": btc, "ETH": eth},
+            "note": "Install openbb for live quotes" if not btc else None,
+        })
+    except Exception as e:
+        logger.debug("market/summary error: %s", e)
+        return jsonify({"status": "ok", "dry_run": True, "quotes": {}, "note": str(e)})
+
+
+# ─── Capability List API ──────────────────────────────────────────────────────
+
+@app.route('/capability/list')
+def api_capability_list():
+    """List all registered capabilities / tools."""
+    try:
+        from tools.registry import list_tools
+        tools = list_tools()
+        return jsonify({"status": "ok", "capabilities": tools, "count": len(tools)})
+    except Exception as e:
+        return jsonify({"status": "ok", "capabilities": [], "count": 0, "error": str(e)})
+
+
+# ─── Chat Routing API ─────────────────────────────────────────────────────────
+
+@app.route('/api/chat', methods=['POST'])
+def api_chat():
+    """Route a chat message to the correct worker.
+
+    Accepts: { "message": "..." }
+    Returns: { "worker": "...", "response": "...", "intent": {...} }
+    """
+    try:
+        data = request.get_json() or {}
+        message = (data.get("message") or "").strip()
+        if not message:
+            return jsonify({"error": "message required"}), 400
+
+        from workers.orchestration.task_decomposer import get_decomposer, is_conversational_input
+
+        # Conversational inputs never go to Forge
+        if is_conversational_input(message):
+            return jsonify({
+                "status": "ok",
+                "worker": "general",
+                "response": None,
+                "intent": {"intent": "general"},
+                "routed": True,
+            })
+
+        lower = message.lower()
+
+        # Keyword-based pre-routing — overrides Ollama for high-confidence patterns.
+        # Order matters: more specific checks first.
+        _pre_worker = None
+
+        # Forge: code/script/build/fix/debug/implement requests
+        _forge_kw = ('write a', 'write me', 'build a', 'build me', 'create a', 'create me',
+                     'implement', 'debug', 'fix the', 'fix my', 'refactor',
+                     'python function', 'python script', 'javascript', 'bash script',
+                     'new function', 'new class', 'new module', 'new worker', 'def ',
+                     'import ', 'code to', 'script to', 'program to', 'snippet')
+        if any(kw in lower for kw in _forge_kw):
+            _pre_worker = "forge"
+
+        # Earn: bounty/bug bounty/freelance/remote job requests
+        _earn_kw = ('bounty', 'bug bounty', 'bounties', 'freelance', 'remote job',
+                    'find jobs', 'find work', 'hackerone', 'bugcrowd', 'upwork',
+                    'earn money', 'earn online', 'paid task')
+        if any(kw in lower for kw in _earn_kw):
+            _pre_worker = "earn"
+
+        # Market: crypto/stock price/market data (but NOT when also asking to write code)
+        _market_kw = ('bitcoin price', 'eth price', 'crypto price', 'stock price',
+                      'market cap', 'market data', 'trading view', 'chart for')
+        if any(kw in lower for kw in _market_kw) and _pre_worker != "forge":
+            _pre_worker = "market"
+
+        if _pre_worker:
+            return jsonify({
+                "status": "ok",
+                "worker": _pre_worker,
+                "response": None,
+                "intent": {"intent": _pre_worker},
+                "routed": True,
+            })
+
+        decomposer = get_decomposer()
+        plan = decomposer.generate_plan(message)
+        subtasks = plan.get("subtasks", [])
+        first = subtasks[0] if subtasks else {}
+        worker_raw = first.get("worker", "ollama_general")
+
+        # Normalize worker names for client consumption
+        _worker_map = {
+            "forge": "forge",
+            "earn": "earn",
+            "market": "market",
+            "ollama_general": "general",
+            "openclaw.web": "general",
+            "memory": "general",
+            "home_assistant": "home",
+            "openclaw.calendar": "general",
+            "entertainment.spotify": "general",
+            "finance.firefly": "finance",
+            "home.camera_worker": "home",
+        }
+        worker = _worker_map.get(worker_raw, "general")
+
+        # Safety: if worker resolved to forge but message is conversational, override
+        if worker == "forge" and is_conversational_input(message):
+            worker = "general"
+
+        return jsonify({
+            "status": "ok",
+            "worker": worker,
+            "response": None,
+            "intent": {"intent": first.get("type", "GENERAL").lower()},
+            "plan": plan,
+            "routed": True,
+        })
+    except Exception as e:
+        logger.exception("api_chat failed")
+        return jsonify({"status": "error", "worker": "general", "error": str(e)}), 500
 
 
 # ─── Backend Launcher ─────────────────────────────────────────────────────────

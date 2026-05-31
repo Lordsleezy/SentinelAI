@@ -471,80 +471,72 @@
     <div id="status-line"></div>
   </div>
 
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-  <script src="https://unpkg.com/@react-three/fiber@8.15.12/dist/index.umd.js"></script>
-
   <script>
-    const { useState, useEffect, useRef } = React;
-    const { Canvas } = window.ReactThreeFiber;
+    // 3D orb via pure Three.js (loaded via Node require — nodeIntegration is on)
+    const THREE = require('three');
 
-    // Simple animated orb component
-    function Orb({ state }) {
-      const meshRef = useRef();
-
-      useEffect(() => {
-        if (!meshRef.current) return;
-
-        let frame;
-        const animate = () => {
-          if (meshRef.current) {
-            meshRef.current.rotation.x += 0.001;
-            meshRef.current.rotation.y += 0.002;
-
-            // Pulsing scale based on state
-            const baseScale = state === 'thinking' ? 1.1 : state === 'speaking' ? 1.05 : 1.0;
-            const pulse = Math.sin(Date.now() * 0.003) * 0.05;
-            meshRef.current.scale.setScalar(baseScale + pulse);
-          }
-          frame = requestAnimationFrame(animate);
-        };
-
-        animate();
-        return () => cancelAnimationFrame(frame);
-      }, [state]);
-
-      const getColor = () => {
-        switch(state) {
-          case 'speaking': return '#ffa500';
-          case 'thinking': return '#00ccff';
-          default: return '#8844ff';
-        }
-      };
-
-      return React.createElement('mesh', { ref: meshRef },
-        React.createElement('icosahedronGeometry', { args: [1, 1] }),
-        React.createElement('meshStandardMaterial', {
-          color: getColor(),
-          emissive: getColor(),
-          emissiveIntensity: state === 'thinking' ? 0.6 : state === 'speaking' ? 0.8 : 0.4,
-          wireframe: false,
-          metalness: 0.8,
-          roughness: 0.2
-        })
-      );
-    }
-
-    function OrbCanvas({ state }) {
-      return React.createElement(Canvas, {
-        camera: { position: [0, 0, 3], fov: 45 }
-      },
-        React.createElement('ambientLight', { intensity: 0.5 }),
-        React.createElement('pointLight', { position: [10, 10, 10], intensity: 1 }),
-        React.createElement(Orb, { state })
-      );
-    }
-
-    // Main app
-    const root = ReactDOM.createRoot(document.getElementById('orb-root'));
     let orbState = 'idle';
+    let _orbScene = null, _orbRenderer = null, _orbMesh = null, _orbAnimFrame = null;
+
+    function initOrb() {
+      const container = document.getElementById('orb-root');
+      if (!container || _orbRenderer) return;
+
+      const w = container.clientWidth || 300;
+      const h = container.clientHeight || 300;
+
+      _orbScene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+      camera.position.z = 3;
+
+      _orbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      _orbRenderer.setSize(w, h);
+      _orbRenderer.setClearColor(0x000000, 0);
+      container.appendChild(_orbRenderer.domElement);
+
+      const geo = new THREE.IcosahedronGeometry(1, 1);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x8844ff, emissive: 0x8844ff, emissiveIntensity: 0.4,
+        metalness: 0.8, roughness: 0.2
+      });
+      _orbMesh = new THREE.Mesh(geo, mat);
+      _orbScene.add(_orbMesh);
+
+      const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+      const point = new THREE.PointLight(0xffffff, 1);
+      point.position.set(10, 10, 10);
+      _orbScene.add(ambient, point);
+
+      (function loop() {
+        _orbAnimFrame = requestAnimationFrame(loop);
+        _orbMesh.rotation.x += 0.001;
+        _orbMesh.rotation.y += 0.002;
+        const baseScale = orbState === 'thinking' ? 1.1 : orbState === 'speaking' ? 1.05 : 1.0;
+        const pulse = Math.sin(Date.now() * 0.003) * 0.05;
+        _orbMesh.scale.setScalar(baseScale + pulse);
+        _orbRenderer.render(_orbScene, camera);
+      })();
+
+      window.addEventListener('resize', () => {
+        const nw = container.clientWidth || 300;
+        const nh = container.clientHeight || 300;
+        camera.aspect = nw / nh;
+        camera.updateProjectionMatrix();
+        _orbRenderer.setSize(nw, nh);
+      });
+    }
 
     function renderOrb() {
-      root.render(React.createElement(OrbCanvas, { state: orbState }));
+      if (!_orbMesh) return;
+      const colors = { speaking: 0xffa500, thinking: 0x00ccff, idle: 0x8844ff };
+      const intensities = { speaking: 0.8, thinking: 0.6, idle: 0.4 };
+      const c = colors[orbState] || colors.idle;
+      _orbMesh.material.color.setHex(c);
+      _orbMesh.material.emissive.setHex(c);
+      _orbMesh.material.emissiveIntensity = intensities[orbState] || 0.4;
     }
 
-    renderOrb();
+    window.addEventListener('DOMContentLoaded', () => { initOrb(); renderOrb(); });
 
     // Worker status polling
     const statusLine = document.getElementById('status-line');

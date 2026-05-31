@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Forge</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/editor/editor.main.min.css">
-  <link rel="stylesheet" href="https://unpkg.com/@xterm/xterm@5.3.0/css/xterm.css" />
+  <link rel="stylesheet" href="./node_modules/monaco-editor/min/vs/editor/editor.main.css">
+  <link rel="stylesheet" href="./node_modules/@xterm/xterm/css/xterm.css" />
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -96,16 +96,14 @@
 
   <div class="status-bar">Forge Script Editor - Monaco Editor with integrated terminal</div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
-  <script src="https://unpkg.com/@xterm/xterm@5.3.0/lib/xterm.js"></script>
-  <script src="https://unpkg.com/@xterm/addon-fit@0.8.0/lib/addon-fit.js"></script>
+  <script src="./node_modules/monaco-editor/min/vs/loader.js"></script>
 
   <script>
     let editor = null;
     let terminal = null;
 
-    // Initialize Monaco Editor
-    require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
+    // Initialize Monaco Editor from local node_modules
+    require.config({ paths: { vs: './node_modules/monaco-editor/min/vs' }});
 
     require(['vs/editor/editor.main'], function() {
       editor = monaco.editor.create(document.getElementById('monaco-editor'), {
@@ -120,7 +118,10 @@
       });
     });
 
-    // Initialize xterm.js terminal
+    // Initialize xterm.js terminal from local node_modules
+    const { Terminal } = require('@xterm/xterm');
+    const { FitAddon } = require('@xterm/addon-fit');
+
     terminal = new Terminal({
       cursorBlink: true,
       theme: {
@@ -129,7 +130,7 @@
       }
     });
 
-    const fitAddon = new FitAddon.FitAddon();
+    const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(document.getElementById('terminal'));
     fitAddon.fit();
