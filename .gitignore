@@ -87,6 +87,9 @@ desktop-shell/electron_logs/
 desktop-shell/backend.pid
 desktop-shell/node_modules/
 
+# Runtime config (generated on first run)
+.env
+
 # Test coverage
 .coverage
 htmlcov/
