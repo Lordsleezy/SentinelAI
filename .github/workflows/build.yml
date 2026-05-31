@@ -12,6 +12,9 @@ jobs:
   build-windows:
     runs-on: windows-2025
     timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
 
     steps:
       - name: Checkout code
@@ -28,55 +31,94 @@ jobs:
           node-version: '20'
 
       - name: Create virtual environment
-        run: python -m venv venv
+        run: |
+          python -m venv venv
 
       - name: Install Python dependencies
         run: |
-          venv\Scripts\activate
-          pip install --upgrade pip
+          .\venv\Scripts\Activate.ps1
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller==6.11.1
 
       - name: Build Python backend
-        run: |
-          venv\Scripts\activate
-          pyinstaller build_backend.spec --clean --noconfirm
         env:
           PYTHONPATH: .
+        run: |
+          .\venv\Scripts\Activate.ps1
+          pyinstaller build_backend.spec --clean --noconfirm
 
       - name: Verify backend build
         run: |
-          if not exist "dist\sentinel_backend\sentinel_backend.exe" (echo BACKEND BUILD FAILED && exit 1)
-          echo Backend build successful
-          dir dist\sentinel_backend\
+          $exe = "dist\sentinel_backend\sentinel_backend.exe"
+          if (-not (Test-Path $exe)) {
+              Write-Error "BACKEND BUILD FAILED - $exe not found"
+              exit 1
+          }
+          $size = (Get-Item $exe).Length
+          Write-Host "Backend exe size: $size bytes"
+          if ($size -lt 1MB) {
+              Write-Error "Backend exe is suspiciously small ($size bytes)"
+              exit 1
+          }
+          $bundle = Get-ChildItem "dist\sentinel_backend\" -Recurse |
+              Measure-Object -Property Length -Sum
+          Write-Host ("Backend bundle: {0} files, {1:N1} MB" -f
+              $bundle.Count, ($bundle.Sum / 1MB))
 
       - name: Copy backend to backend_dist
         run: |
-          if exist "backend_dist" rmdir /s /q backend_dist
-          mkdir backend_dist
-          xcopy dist\sentinel_backend backend_dist\sentinel_backend\ /E /I /Y
-          echo Backend copied to backend_dist
-          dir /s backend_dist\
-
-      - name: Install Node dependencies
-        run: |
-          cd desktop-shell
-          npm install --legacy-peer-deps
+          if (Test-Path "backend_dist") {
+              Remove-Item -Path "backend_dist" -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path "backend_dist" | Out-Null
+          Copy-Item -Path "dist\sentinel_backend" -Destination "backend_dist\sentinel_backend" -Recurse
+          $copied = "backend_dist\sentinel_backend\sentinel_backend.exe"
+          if (-not (Test-Path $copied)) {
+              Write-Error "Copy to backend_dist failed - $copied not found"
+              exit 1
+          }
+          Write-Host "Backend copied to backend_dist successfully"
+          Get-ChildItem "backend_dist\sentinel_backend\" |
+              Select-Object -First 20 |
+              Format-Table Name, Length
 
       - name: Generate icon
         run: |
           pip install Pillow
           python scripts/generate_icon.py
+          if (-not (Test-Path "desktop-shell\assets\icon.ico")) {
+              Write-Error "Icon generation failed"
+              exit 1
+          }
+          Write-Host "Icon ready: desktop-shell\assets\icon.ico"
+
+      - name: Install Node dependencies
+        run: |
+          Set-Location desktop-shell
+          npm install --legacy-peer-deps
 
       - name: Build Electron installer
-        run: |
-          cd desktop-shell
-          npm run dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Set-Location desktop-shell
+          npm run dist
+
+      - name: Verify installer output
+        run: |
+          $installers = Get-ChildItem "installer_dist\*.exe" -ErrorAction SilentlyContinue
+          if (-not $installers) {
+              Write-Error "No installer produced in installer_dist\"
+              exit 1
+          }
+          foreach ($i in $installers) {
+              $mb = [math]::Round($i.Length / 1MB, 1)
+              Write-Host ("Installer: {0} - {1} MB" -f $i.Name, $mb)
+          }
 
       - name: Upload installer as artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: SentinelAI-Windows-Installer
           path: installer_dist/*.exe
@@ -103,12 +145,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Notify on success
-        if: success()
-        run: |
-          echo "Build successful! Installer ready in installer_dist/"
-
       - name: Notify on failure
         if: failure()
         run: |
-          echo "Build failed! Check logs above for details."
+          Write-Host "Build failed! Check logs above for details."

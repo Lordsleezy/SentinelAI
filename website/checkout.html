@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Checkout - Sentinel Prime</title>
+<meta name="description" content="Checkout for SentinelAI Pro, a $199 one-time purchase that unlocks the full local AI operating system.">
+<link rel="canonical" href="https://sentinelprime.org/checkout.html">
+<meta name="robots" content="noindex,follow">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -13,8 +16,9 @@
 <body>
 <nav class="nav">
   <a class="logo" href="index.html">SENTINELPRIME</a>
+  <button class="nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false"><span></span></button>
   <div class="nav-links">
-    <a href="products.html">Products</a><a href="pricing.html">Pricing</a><a href="download.html">Download</a><a href="about.html">About</a><a href="contact.html">Contact</a><a class="nav-cta" href="checkout.html">Buy Pro &rarr;</a>
+    <a href="products.html">Products</a><a href="sentinel-drive.html">Sentinel Drive</a><a href="pricing.html">Pricing</a><a href="download.html">Download</a><a href="about.html">About</a><a href="contact.html">Contact</a><a class="nav-cta" href="checkout.html">Buy Pro &rarr;</a>
   </div>
 </nav>
 
@@ -49,7 +53,7 @@
 
 <footer>
   <div class="footer-links">
-    <a href="index.html">Home</a><a href="products.html">Products</a><a href="download.html">Download</a><a href="pricing.html">Pricing</a><a href="about.html">About</a><a href="contact.html">Contact</a><a href="https://github.com/Lordsleezy/sentinelprime" target="_blank" rel="noopener">GitHub</a>
+    <a href="index.html">Home</a><a href="products.html">Products</a><a href="sentinel-drive.html">Sentinel Drive</a><a href="download.html">Download</a><a href="pricing.html">Pricing</a><a href="about.html">About</a><a href="contact.html">Contact</a><a href="https://github.com/Lordsleezy/sentinelprime" target="_blank" rel="noopener">GitHub</a>
   </div>
   <div>&copy; 2026 Sentinel Prime Inc. - paul@sentinelprime.org</div>
 </footer>
@@ -60,6 +64,11 @@ let elements;
 const statusEl = document.getElementById("checkoutStatus");
 
 async function initCheckout() {
+  if (window.location.protocol === "file:") {
+    statusEl.className = "form-status";
+    statusEl.textContent = "Checkout backend is required for payments. Run the site server with Stripe environment variables.";
+    return;
+  }
   try {
     const config = await fetch("/api/stripe/config").then(r => r.json());
     if (!config.publishableKey) throw new Error("Stripe publishable key missing");
@@ -102,5 +111,6 @@ document.getElementById("checkoutForm").addEventListener("submit", async functio
 
 initCheckout();
 </script>
+<script src="nav.js"></script>
 </body>
 </html>

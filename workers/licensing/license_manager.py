@@ -67,8 +67,10 @@ class LicenseManager:
         # Ensure directory exists
         os.makedirs(os.path.dirname(self.license_file_path), exist_ok=True)
 
-        self.license = self.load_license()
+        # Initialise cache BEFORE load_license() — load_license() calls
+        # get_machine_id() which reads self._machine_id_cache.
         self._machine_id_cache = None
+        self.license = self.load_license()
 
     def load_license(self) -> Dict[str, Any]:
         """Load license from file, create default if missing"""

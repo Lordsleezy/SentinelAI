@@ -134,17 +134,39 @@ function findPython() {
   return 'python';
 }
 
+// In a packaged install (NSIS), the bundled backend lives under
+// process.resourcesPath/sentinel_backend/sentinel_backend.exe (configured in
+// package.json extraResources). In dev we fall back to spawning Python on the
+// source desktop_app.py so reloads remain instant.
+function resolveBundledBackend() {
+  if (!app.isPackaged) return null;
+  const exePath = path.join(process.resourcesPath, 'sentinel_backend', 'sentinel_backend.exe');
+  return fs.existsSync(exePath) ? exePath : null;
+}
+
 function launchBackend() {
   return new Promise((resolve, reject) => {
-    const pythonPath = findPython();
-    const backendDir = path.join(__dirname, '..');
-    const scriptPath = path.join(backendDir, 'desktop_app.py');
+    const bundled = resolveBundledBackend();
+    let command;
+    let args;
+    let backendDir;
 
-    console.log('[Backend] Launching Python backend...');
-    console.log('[Backend] Python:', pythonPath);
-    console.log('[Backend] Script:', scriptPath);
+    if (bundled) {
+      command = bundled;
+      args = [];
+      backendDir = path.dirname(bundled);
+      console.log('[Backend] Launching bundled backend...');
+      console.log('[Backend] Exe:', bundled);
+    } else {
+      command = findPython();
+      backendDir = path.join(__dirname, '..');
+      args = [path.join(backendDir, 'desktop_app.py')];
+      console.log('[Backend] Launching Python backend (dev mode)...');
+      console.log('[Backend] Python:', command);
+      console.log('[Backend] Script:', args[0]);
+    }
 
-    backendProcess = spawn(pythonPath, [scriptPath], {
+    backendProcess = spawn(command, args, {
       cwd: backendDir,
       env: { ...process.env },
       stdio: ['ignore', 'pipe', 'pipe'],

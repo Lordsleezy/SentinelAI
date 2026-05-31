@@ -1983,9 +1983,9 @@ def api_memory_recent():
         return jsonify({"status": "error", "data": None, "error": str(e)}), 500
 
 
-@app.route('/api/memory/search')
-def api_memory_search():
-    """Search the memory vault"""
+@app.route('/api/memory/vault/search')
+def api_memory_vault_search():
+    """Search the memory vault (file-system corpus)."""
     try:
         query = request.args.get('q', '')
         if not query:
@@ -1998,7 +1998,7 @@ def api_memory_search():
 
         return jsonify({"status": "ok", "data": results, "error": None})
     except Exception as e:
-        logger.exception("Memory search failed")
+        logger.exception("Memory vault search failed")
         return jsonify({"status": "error", "data": None, "error": str(e)}), 500
 
 
@@ -2510,7 +2510,7 @@ def api_orchestration_chat():
 
 
 @app.route('/orchestration/plan/<plan_id>/approve', methods=['POST'])
-def api_orchestration_approve(plan_id):
+def api_orchestration_plan_approve(plan_id):
     """Approve and execute a pending plan"""
     try:
         from workers.orchestration.pipeline import get_pipeline
@@ -2524,7 +2524,7 @@ def api_orchestration_approve(plan_id):
 
 
 @app.route('/orchestration/plan/<plan_id>/deny', methods=['POST'])
-def api_orchestration_deny(plan_id):
+def api_orchestration_plan_deny(plan_id):
     """Deny and cancel a pending plan"""
     try:
         from workers.orchestration.pipeline import get_pipeline
@@ -2567,7 +2567,7 @@ def api_orchestration_pending():
 
 
 @app.route('/orchestration/status', methods=['GET'])
-def api_orchestration_status():
+def api_orchestration_pipeline_status():
     """Get orchestration pipeline status"""
     try:
         from workers.orchestration.pipeline import get_pipeline

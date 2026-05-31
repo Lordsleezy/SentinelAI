@@ -9,6 +9,16 @@ const app = express();
 const port = process.env.PORT || 3000;
 const stripe = process.env.STRIPE_SECRET_KEY ? require("stripe")(process.env.STRIPE_SECRET_KEY) : null;
 const db = new sqlite3.Database(process.env.SQLITE_PATH || path.join(__dirname, "activation_codes.sqlite"));
+const publicBaseUrl = process.env.PUBLIC_BASE_URL || "https://sentinelprime.org";
+const seoPages = [
+  { route: "/", file: "index.html", loc: `${publicBaseUrl}/` },
+  { route: "/products", file: "products.html", loc: `${publicBaseUrl}/products.html` },
+  { route: "/sentinel-drive", file: "sentinel-drive.html", loc: `${publicBaseUrl}/sentinel-drive.html` },
+  { route: "/pricing", file: "pricing.html", loc: `${publicBaseUrl}/pricing.html` },
+  { route: "/download", file: "download.html", loc: `${publicBaseUrl}/download.html` },
+  { route: "/about", file: "about.html", loc: `${publicBaseUrl}/about.html` },
+  { route: "/contact", file: "contact.html", loc: `${publicBaseUrl}/contact.html` }
+];
 
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS activation_codes (
@@ -24,6 +34,11 @@ db.serialize(() => {
     email TEXT,
     subject TEXT,
     message TEXT,
+    created_at TEXT NOT NULL
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS drive_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE NOT NULL,
     created_at TEXT NOT NULL
   )`);
 });
@@ -69,7 +84,42 @@ app.use((req, res, next) => {
   if (req.originalUrl === "/api/stripe/webhook") return next();
   express.json()(req, res, next);
 });
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (req.path.endsWith(".html") || seoPages.some(page => page.route === req.path)) {
+    const htmlPath = req.path === "/" ? "/" : req.path.replace(/\.html$/, "");
+    const seoPage = seoPages.find(page => page.route === htmlPath);
+    if (seoPage) res.setHeader("Link", `<${seoPage.loc}>; rel="canonical"`);
+  }
+  next();
+});
 app.use(express.static(__dirname));
+
+seoPages.forEach(page => {
+  if (page.route !== "/") {
+    app.get(page.route, (req, res) => res.sendFile(path.join(__dirname, page.file)));
+  }
+});
+
+app.get("/sitemap.xml", (req, res) => {
+  res.type("application/xml");
+  res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${seoPages.map(page => `  <url><loc>${page.loc}</loc></url>`).join("\n")}
+</urlset>`);
+});
+
+app.get("/robots.txt", (req, res) => {
+  res.type("text/plain");
+  res.send(`User-agent: *
+Allow: /
+Disallow: /checkout.html
+Disallow: /success.html
+
+Sitemap: ${publicBaseUrl}/sitemap.xml
+`);
+});
 
 app.get("/api/stripe/config", (req, res) => {
   res.json({ publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || "" });
@@ -144,6 +194,22 @@ app.post("/api/contact", async (req, res) => {
     subject: `SentinelPrime Contact: ${subject}`,
     text: `${name} <${email}>\n\n${message}`,
     html: `<p><strong>${name}</strong> &lt;${email}&gt;</p><p>${String(message).replace(/\n/g, "<br>")}</p>`
+  });
+  res.json({ ok: true });
+});
+
+app.post("/api/drive-notify", async (req, res) => {
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ error: "Email is required" });
+  db.run(
+    "INSERT OR IGNORE INTO drive_notifications(email, created_at) VALUES (?, ?)",
+    [email, new Date().toISOString()]
+  );
+  await sendMail({
+    to: process.env.CONTACT_TO || "paul@sentinelprime.org",
+    subject: "Sentinel Drive launch notification signup",
+    text: `${email} wants to be notified about Sentinel Drive.`,
+    html: `<p>${email} wants to be notified about Sentinel Drive.</p>`
   });
   res.json({ ok: true });
 });

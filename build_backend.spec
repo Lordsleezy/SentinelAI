@@ -1,23 +1,63 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for SentinelAI Python backend
-Bundles all workers, dependencies, and config into sentinel_backend executable
+PyInstaller spec for SentinelAI Python backend.
+
+Bundles the Flask backend, all worker modules, and the integrations that
+ship in this build into ``dist/sentinel_backend/sentinel_backend.exe``.
+
+Optional integrations (telethon, openwakeword, whisper, selenium, openai,
+prometheus_client, etc.) are loaded lazily by their workers and protected
+by try/except, so they intentionally are NOT in hiddenimports — keeping
+them out lets PyInstaller succeed even when those packages are absent
+from the build environment.
 """
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 
+# Pull in submodule trees for the heavy ML / data packages that PyInstaller's
+# static analyzer can miss. Each call is guarded so a missing optional package
+# does not crash the build.
+def _safe_submodules(name: str):
+    try:
+        return collect_submodules(name)
+    except Exception:
+        return []
+
+
+def _safe_data(name: str):
+    try:
+        return collect_data_files(name)
+    except Exception:
+        return []
+
+
+hidden_chromadb = _safe_submodules('chromadb')
+hidden_sentence_transformers = _safe_submodules('sentence_transformers')
+hidden_transformers = _safe_submodules('transformers')
+hidden_anthropic = _safe_submodules('anthropic')
+hidden_langgraph = _safe_submodules('langgraph')
+hidden_crewai = _safe_submodules('crewai')
+
+data_chromadb = _safe_data('chromadb')
+data_sentence_transformers = _safe_data('sentence_transformers')
+
+
 a = Analysis(
     ['desktop_app.py'],
-    pathex=[],
+    pathex=['.'],
     binaries=[],
     datas=[
-        ('memory/vault', 'memory/vault'),
+        ('memory', 'memory'),
         ('config', 'config'),
+        ('templates', 'templates'),
+        ('static', 'static'),
         ('.env.example', '.'),
-    ],
+        ('capability_registry.json', '.'),
+    ] + data_chromadb + data_sentence_transformers,
     hiddenimports=[
-        # Orchestration
+        # Orchestration pipeline
+        'workers.orchestration',
         'workers.orchestration.task_decomposer',
         'workers.orchestration.confidence',
         'workers.orchestration.verifier',
@@ -28,9 +68,11 @@ a = Analysis(
         'workers.orchestration.pipeline',
 
         # Licensing
+        'workers.licensing',
         'workers.licensing.license_manager',
 
-        # Capability system
+        # Capability system (minimal stubs that exist in this repo)
+        'workers.capability',
         'workers.capability.registry',
         'workers.capability.gap_detector',
         'workers.capability.capability_finder',
@@ -38,6 +80,7 @@ a = Analysis(
         'workers.capability.capability_builder',
 
         # OpenClaw workers
+        'workers.openclaw',
         'workers.openclaw.calendar',
         'workers.openclaw.contacts',
         'workers.openclaw.reminders',
@@ -46,33 +89,45 @@ a = Analysis(
         'workers.openclaw.openclaw_worker',
 
         # Voice & Messaging
+        'workers.voice',
         'workers.voice.wake_word',
+        'workers.messaging',
         'workers.messaging.telegram_bridge',
         'workers.messaging.whatsapp_bridge',
 
         # Smart Home
+        'workers.home',
         'workers.home.home_assistant',
         'workers.home.camera_worker',
 
         # Background workers
+        'workers.proactive',
         'workers.proactive.scheduler',
+        'workers.health',
         'workers.health.wearables',
+        'workers.finance',
         'workers.finance.firefly',
+        'workers.entertainment',
         'workers.entertainment.spotify',
+        'workers.logistics',
         'workers.logistics.package_tracker',
+        'workers.news',
         'workers.news.miniflux_reader',
 
-        # Earn
+        # Earn (stubs)
+        'workers.earn',
+        'workers.earn.sources',
         'workers.earn.sources.bounty_targets',
         'workers.earn.sources.remoteok_scanner',
         'workers.earn.sources.freelancer_scanner',
         'workers.earn.sources.upwork_scanner',
 
-        # Market
+        # Market (stubs, dry_run only)
+        'market',
         'market.openbb_bridge',
         'market.freqtrade_manager',
 
-        # Core modules
+        # Core root modules
         'memory_manager',
         'db',
         'learning_memory',
@@ -96,67 +151,46 @@ a = Analysis(
         'flask',
         'flask_cors',
         'flask_socketio',
+        'engineio.async_drivers.threading',
 
-        # AI & ML
-        'anthropic',
-        'chromadb',
-        'sentence_transformers',
-        'openai',
-        'ollama',
-
-        # Data & Storage
-        'sqlalchemy',
-        'sqlalchemy.orm',
-        'sqlalchemy.dialects.sqlite',
-
-        # Async & Scheduling
+        # Async / scheduling
         'apscheduler',
         'apscheduler.schedulers.background',
         'apscheduler.triggers.cron',
+        'apscheduler.triggers.interval',
 
-        # Monitoring
-        'prometheus_client',
-
-        # Calendar & Events
-        'gcsa',
-        'gcsa.event',
-
-        # Smart Home
-        'blinkpy',
-        'blinkpy.auth',
-        'blinkpy.sync',
-
-        # Music
-        'spotipy',
-        'spotipy.client',
-
-        # Messaging
-        'telethon',
-        'telethon.client',
-        'telethon.sessions',
-
-        # Voice
-        'openwakeword',
-        'openwakeword.model',
-        'whisper',
-        'whisper.audio',
-
-        # News
-        'feedparser',
-
-        # Additional
-        'pystray',
-        'PIL',
+        # HTTP / parsing
         'httpx',
         'requests',
-        'beautifulsoup4',
-        'selenium',
-        'playwright',
-    ],
+        'bs4',
+        'lxml',
+        'feedparser',
+        'yaml',
+
+        # System tray + imaging
+        'pystray',
+        'PIL',
+        'PIL.Image',
+        'PIL.ImageDraw',
+
+        # System monitoring
+        'psutil',
+    ] + hidden_chromadb + hidden_sentence_transformers + hidden_transformers
+       + hidden_anthropic + hidden_langgraph + hidden_crewai,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludedimports=[],
+    excludes=[
+        'tkinter',
+        'matplotlib',
+        'PyQt5',
+        'PyQt6',
+        'PySide6',
+        'IPython',
+        'jupyter',
+        'pytest',
+        'setuptools._distutils',
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -174,7 +208,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=True,
     disable_windowed_traceback=False,
     target_arch=None,
@@ -188,7 +222,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='sentinel_backend',
 )

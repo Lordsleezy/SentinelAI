@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Products - Sentinel Prime</title>
+<meta name="description" content="Explore SentinelAI and Sentinel Drive: the local-first AI operating system and encrypted portable AI stack from Sentinel Prime.">
+<link rel="canonical" href="https://sentinelprime.org/products.html">
+<meta property="og:title" content="Sentinel Prime Products">
+<meta property="og:description" content="SentinelAI, Sentinel Drive, and the local-first private AI ecosystem.">
+<meta property="og:url" content="https://sentinelprime.org/products.html">
+<meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -12,8 +18,10 @@
 <body>
 <nav class="nav">
   <a class="logo" href="index.html">SENTINELPRIME</a>
+  <button class="nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false"><span></span></button>
   <div class="nav-links">
     <a href="products.html">Products</a>
+    <a href="sentinel-drive.html">Sentinel Drive</a>
     <a href="pricing.html">Pricing</a>
     <a href="download.html">Download</a>
     <a href="about.html">About</a>
@@ -40,7 +48,7 @@
       <div class="panel">
         <p class="eyebrow">How The Orb Works</p>
         <h2>One interface. Many workers.</h2>
-        <p class="copy">The orb is the user-facing brain. It listens for intent, chooses the right worker, checks whether approval is needed, and gives the result back in plain language. OpenClaw handles commands, Forge writes and repairs code, Guardian scans and protects, Earn finds opportunities, Market tracks paper trading, Voice handles wake word flows, and the Home Assistant bridge connects your smart home.</p>
+        <p class="copy">The orb is the user-facing brain. It listens for intent, chooses the right worker, checks whether approval is needed, and gives the result back in plain language. OpenClaw handles commands, Forge writes and repairs code, Guardian scans and protects, Market tracks paper trading, Voice handles wake word flows, and the Home Assistant bridge connects your smart home.</p>
       </div>
       <div class="panel">
         <p class="eyebrow">Self-Extending</p>
@@ -59,7 +67,7 @@
         <li>Smart home control: lights, locks, cameras, thermostat</li>
         <li>Calendar, contacts, and reminders</li>
         <li>Web search and page summarization</li>
-        <li>Freelance job scanning: HackerOne, Upwork, RemoteOK</li>
+        <li>Local automation workflows and scheduled agents</li>
         <li>Paper trading market dashboard: Freqtrade + OpenBB</li>
         <li>Code writing and repair with Forge</li>
         <li>Health tracking with wearables integration</li>
@@ -97,7 +105,7 @@
 
 <footer>
   <div class="footer-links">
-    <a href="index.html">Home</a><a href="products.html">Products</a><a href="download.html">Download</a><a href="pricing.html">Pricing</a><a href="about.html">About</a><a href="contact.html">Contact</a><a href="https://github.com/Lordsleezy/sentinelprime" target="_blank" rel="noopener">GitHub</a>
+    <a href="index.html">Home</a><a href="products.html">Products</a><a href="sentinel-drive.html">Sentinel Drive</a><a href="download.html">Download</a><a href="pricing.html">Pricing</a><a href="about.html">About</a><a href="contact.html">Contact</a><a href="https://github.com/Lordsleezy/sentinelprime" target="_blank" rel="noopener">GitHub</a>
   </div>
   <div>&copy; 2026 Sentinel Prime Inc. - paul@sentinelprime.org</div>
 </footer>
@@ -108,5 +116,6 @@ document.getElementById("driveNotifyForm").addEventListener("submit", function (
   document.getElementById("driveNotifyStatus").textContent = "Thanks. We will email you when Sentinel Drive is ready.";
 });
 </script>
+<script src="nav.js"></script>
 </body>
 </html>

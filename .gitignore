@@ -72,9 +72,20 @@ temp/
 dist/
 build/
 out/
+backend_dist/
+installer_dist/
 *.exe
 *.dmg
 *.AppImage
+
+# PyInstaller runtime caches
+.rag_db/
+.chroma/
+
+# Electron runtime state
+desktop-shell/electron_logs/
+desktop-shell/backend.pid
+desktop-shell/node_modules/
 
 # Test coverage
 .coverage

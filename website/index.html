@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SENTINEL PRIME - The AI Operating System</title>
+<meta name="description" content="SentinelAI is a local-first personal AI operating system with voice, smart home, code repair, memory, finance, markets, and automation running on your hardware.">
+<link rel="canonical" href="https://sentinelprime.org/">
+<meta property="og:title" content="Sentinel Prime - The AI Operating System">
+<meta property="og:description" content="The future runs locally. SentinelAI is your private local AI OS for work, home, code, memory, and automation.">
+<meta property="og:url" content="https://sentinelprime.org/">
+<meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -161,6 +167,33 @@ body.site-ready .nav { pointer-events: auto; }
   border: 1px solid rgba(0, 212, 255, 0.55);
   background: rgba(0, 212, 255, 0.08);
   color: #fff;
+}
+
+.nav-toggle {
+  display: none;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 212, 255, 0.38);
+  border-radius: 4px;
+  background: rgba(0, 4, 8, 0.82);
+  color: #fff;
+  cursor: pointer;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.nav-toggle span,
+.nav-toggle::before,
+.nav-toggle::after {
+  content: "";
+  display: block;
+  width: 18px;
+  height: 2px;
+  background: currentColor;
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.55);
+  transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
 main {
@@ -454,9 +487,31 @@ footer {
 .footer-links a:hover { color: #fff; }
 
 @media (max-width: 800px) {
-  .nav { padding: 18px; }
-  .nav-links { gap: 12px; }
-  .nav-links a { font-size: 0.62rem; }
+  .nav {
+    padding: 18px;
+    flex-wrap: wrap;
+  }
+  .nav-toggle { display: inline-flex; }
+  .nav-links {
+    width: 100%;
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid rgba(0, 212, 255, 0.15);
+    border-radius: 4px;
+    background: rgba(0, 4, 8, 0.92);
+  }
+  .nav.nav-open .nav-links { display: flex; }
+  .nav.nav-open .nav-toggle::before { transform: translateY(7px) rotate(45deg); }
+  .nav.nav-open .nav-toggle span { opacity: 0; }
+  .nav.nav-open .nav-toggle::after { transform: translateY(-7px) rotate(-45deg); }
+  .nav-links a {
+    width: 100%;
+    padding: 12px 10px;
+    font-size: 0.62rem;
+  }
   .content-grid { grid-template-columns: 1fr; }
   .feature-grid,
   .stats-strip,
@@ -482,8 +537,10 @@ footer {
 
 <nav class="nav" id="nav">
   <a class="logo" href="index.html">SENTINELPRIME</a>
+  <button class="nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false"><span></span></button>
   <div class="nav-links">
     <a href="products.html">Products</a>
+    <a href="sentinel-drive.html">Sentinel Drive</a>
     <a href="pricing.html">Pricing</a>
     <a href="download.html">Download</a>
     <a href="about.html">About</a>
@@ -514,7 +571,7 @@ footer {
       <div class="info-panel body-copy">
         <p>SentinelAI is a local-first AI assistant and automation platform that runs entirely on your own hardware. It gives you a personal AI operating system without renting your life back from a cloud subscription.</p>
         <p>You talk to Sentinel through an orb interface. Ask for what you need, and the system routes your request to the right worker automatically: search, code, repair, organize, monitor, summarize, automate, or build something new.</p>
-        <p>Sentinel can control your smart home, manage your calendar, track your finances, find freelance work, trade markets in paper mode, write and repair code, monitor your health data, capture memory and notes, and more.</p>
+        <p>Sentinel can control your smart home, manage your calendar, track your finances, trade markets in paper mode, write and repair code, monitor your health data, capture memory and notes, and more.</p>
         <p>Everything runs on your machine. No subscriptions. No cloud requirement. Your data never leaves unless you explicitly connect an integration that needs the internet.</p>
       </div>
     </div>
@@ -522,7 +579,7 @@ footer {
       <article class="feature-card"><h3>Voice Control</h3><p>Wake word and voice workflows built around the Sentinel orb.</p></article>
       <article class="feature-card"><h3>Smart Home</h3><p>Control lights, locks, cameras, thermostats, and routines.</p></article>
       <article class="feature-card"><h3>Code & Repair</h3><p>Forge writes code, fixes bugs, and extends the system.</p></article>
-      <article class="feature-card"><h3>Earn & Market</h3><p>Scan freelance work and run paper trading dashboards locally.</p></article>
+      <article class="feature-card"><h3>Market & Automate</h3><p>Run paper trading dashboards and local automation workflows.</p></article>
       <article class="feature-card"><h3>Memory & Notes</h3><p>Local memory vault and Obsidian-compatible notes.</p></article>
       <article class="feature-card"><h3>Health & Finance</h3><p>Bring wearables, budgets, and personal signals into one private OS.</p></article>
     </div>
@@ -544,7 +601,7 @@ footer {
       <div class="tier-grid">
         <article class="tier-card">
           <h3>Free Tier</h3>
-          <p>Core orb interface, Forge, limited Earn scanning, memory, web search, calendar, and notes.</p>
+          <p>Core orb interface, Forge, memory, web search, calendar, notes, and local automations.</p>
           <div class="buttons"><a class="button" href="pricing.html">Compare Tiers</a></div>
         </article>
         <article class="tier-card">
@@ -573,6 +630,7 @@ footer {
   <div class="footer-links">
     <a href="index.html">Home</a>
     <a href="products.html">Products</a>
+    <a href="sentinel-drive.html">Sentinel Drive</a>
     <a href="download.html">Download</a>
     <a href="pricing.html">Pricing</a>
     <a href="about.html">About</a>
@@ -783,5 +841,6 @@ footer {
   runIntro();
 })();
 </script>
+<script src="nav.js"></script>
 </body>
 </html>
