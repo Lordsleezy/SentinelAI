@@ -21,6 +21,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Desktop notifications
   notify: (title, body) => ipcRenderer.send('show-notification', { title, body }),
 
+  // Setup wizard
+  submitSetup: (config) => ipcRenderer.send('setup-complete', config),
+  onSetupError: (callback) => {
+    ipcRenderer.on('setup-error', (_event, data) => callback(data));
+  },
+
   // Platform info (read-only)
   platform: process.platform
 });

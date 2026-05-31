@@ -439,20 +439,25 @@
 
     function finishSetup() {
       const config = collectConfig();
+      const btn = document.getElementById('finishBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Launching...';
+      }
 
-      // Send to Electron main process
-      if (window.ipcRenderer) {
-        window.ipcRenderer.send('setup-complete', config);
-      } else {
-        console.log('Setup config:', config);
-        // Fallback: post to backend
-        fetch('http://127.0.0.1:5001/api/setup/complete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(config)
-        }).then(() => {
-          window.close();
+      if (window.electronAPI && window.electronAPI.submitSetup) {
+        window.electronAPI.onSetupError((data) => {
+          console.error('Setup error:', data);
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Launch SentinelAI 🚀';
+          }
+          alert('Setup failed: ' + (data && data.error ? data.error : 'unknown error'));
         });
+        window.electronAPI.submitSetup(config);
+      } else {
+        console.error('electronAPI not available - preload script did not load');
+        alert('Setup cannot complete: Electron bridge not available. Please restart the app.');
       }
     }
 

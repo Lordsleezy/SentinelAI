@@ -14,9 +14,11 @@ const pty = require('node-pty');
 let orbWindow = null;          // Window 1 - The Orb
 let workerWindow = null;        // Window 2 - Contextual worker windows
 let splashWindow = null;
+let setupWizardWindow = null;   // Setup wizard window (first run only)
 let backendProcess = null;
 let ptyProcess = null;          // Terminal PTY for Forge window
 let backendReady = false;
+let appReady = false;           // True once main windows have launched - guards window-all-closed
 let isQuitting = false;
 let isRestarting = false;
 
@@ -420,6 +422,8 @@ function createOrbWindow() {
     }
     orbWindow.show();
     orbWindow.focus();
+    appReady = true;
+    console.log('[Orb] Window shown — appReady = true');
   });
 
   // Clicking X hides to tray instead of closing
@@ -542,9 +546,10 @@ function isFirstRun() {
 }
 
 function createSetupWizardWindow() {
-  const setupWindow = new BrowserWindow({
+  setupWizardWindow = new BrowserWindow({
     width: 800,
     height: 900,
+    title: 'SentinelAI Setup',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -552,10 +557,14 @@ function createSetupWizardWindow() {
     }
   });
 
-  setupWindow.loadFile(path.join(__dirname, 'setup_wizard.html'));
-  setupWindow.show();
+  setupWizardWindow.loadFile(path.join(__dirname, 'setup_wizard.html'));
+  setupWizardWindow.show();
 
-  return setupWindow;
+  setupWizardWindow.on('closed', () => {
+    setupWizardWindow = null;
+  });
+
+  return setupWizardWindow;
 }
 
 // ============================================================================
@@ -602,10 +611,10 @@ function setupIPC() {
   });
 
   // Setup wizard completion
-  ipcMain.on('setup-complete', (event, config) => {
-    console.log('[IPC] Setup wizard completed - writing .env');
+  ipcMain.on('setup-complete', async (event, config) => {
+    console.log('[Wizard] setup-complete received');
 
-    // Convert config to .env format
+    // Step 1: write .env (do NOT abort launch if this fails — user can fix later)
     const envContent = Object.entries(config)
       .filter(([_, v]) => v !== null && v !== undefined && v !== '')
       .map(([k, v]) => {
@@ -615,28 +624,31 @@ function setupIPC() {
       })
       .join('\n');
 
-    // Write .env file
     const envPath = path.join(__dirname, '..', '.env');
     try {
       fs.writeFileSync(envPath, envContent, 'utf8');
-      console.log('[IPC] .env file written successfully');
-
-      // Close setup window and launch main windows
-      const setupWin = BrowserWindow.fromWebContents(event.sender);
-      if (setupWin && !setupWin.isDestroyed()) {
-        setupWin.close();
-      }
-
-      // Launch main windows after small delay
-      setTimeout(() => {
-        createOrbWindow();
-        createWorkerWindow('forge');
-        startBackendMonitor();
-      }, 500);
+      console.log('[Wizard] .env written to', envPath);
     } catch (err) {
-      console.error('[IPC] Failed to write .env:', err);
-      event.reply('setup-error', { error: err.message });
+      console.error('[Wizard] .env write failed:', err.message);
+      // Continue anyway — main windows must still launch
     }
+
+    // Step 2: launch main windows BEFORE closing the wizard.
+    // This ensures `window-all-closed` never fires with zero windows
+    // (which would trigger gracefulShutdown and kill the app).
+    console.log('[Wizard] Creating orb window...');
+    createOrbWindow();
+    console.log('[Wizard] Creating forge worker window...');
+    createWorkerWindow('forge');
+    startBackendMonitor();
+
+    // Step 3: close the wizard now that the main windows exist
+    if (setupWizardWindow && !setupWizardWindow.isDestroyed()) {
+      console.log('[Wizard] Closing wizard window');
+      setupWizardWindow.close();
+    }
+
+    console.log('[Wizard] Launch complete');
   });
 }
 
@@ -734,7 +746,13 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  // On non-macOS this only fires when windows are truly closed (not hidden)
+  // Guard against wizard-to-orb transition: if the wizard window closes
+  // before createOrbWindow's ready-to-show fires, this would otherwise quit
+  // the app. appReady flips to true once the orb is shown.
+  if (!appReady) {
+    console.log('[App] window-all-closed fired before appReady — ignoring to allow wizard transition');
+    return;
+  }
   if (process.platform !== 'darwin') {
     gracefulShutdown();
   }
