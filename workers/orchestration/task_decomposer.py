@@ -17,6 +17,55 @@ except ImportError:
     HTTPX_AVAILABLE = False
     logger.warning("httpx not available - task decomposition disabled")
 
+# Technical content indicators — presence of any of these means the input is NOT conversational
+_TECHNICAL_KEYWORDS = frozenset([
+    '.py', '.js', '.ts', '.go', '.java', '.cpp', '.c', '.sh', '.yaml', '.json',
+    'function', 'class', 'def ', 'import ', 'script', 'code', 'bug', 'error',
+    'fix ', 'write a', 'build a', 'create a', 'implement', 'debug', 'deploy',
+    'install', 'configure', 'api', 'database', 'server', 'worker', 'module',
+    'algorithm', 'variable', 'endpoint', 'http', 'rest', 'sql', 'query', 'schema',
+    'write me a', 'fix the', 'build me', 'create me', 'new worker', 'new function',
+])
+
+_CONVERSATIONAL_STARTERS = frozenset([
+    'hi', 'hello', 'hey', 'what', 'how', 'why', 'who', 'when',
+    'is', 'are', 'can', 'does', 'do', 'tell', 'say',
+])
+
+
+def is_conversational_input(text: str) -> bool:
+    """Return True if input is conversational/non-technical and should NOT route to Forge.
+
+    Pre-checks run in order:
+    1. Single word or very short input (<10 chars) → conversational
+    2. Starts with a greeting/question word → conversational
+    3. Contains a question mark → conversational
+    4. No technical keywords found → conversational
+    """
+    stripped = text.strip() if text else ""
+
+    # 1. Single word or very short input
+    if len(stripped) < 10:
+        return True
+
+    lower = stripped.lower()
+    words = lower.split()
+    first_word = words[0].rstrip('?!.,;:') if words else ''
+
+    # 2. Starts with a conversational/question word
+    if first_word in _CONVERSATIONAL_STARTERS:
+        return True
+
+    # 3. Contains a question mark
+    if '?' in stripped:
+        return True
+
+    # 4. No technical keywords → treat as general conversation
+    if not any(kw in lower for kw in _TECHNICAL_KEYWORDS):
+        return True
+
+    return False
+
 
 class TaskDecomposer:
     """Decomposes complex tasks into executable subtasks with routing"""
@@ -45,6 +94,11 @@ class TaskDecomposer:
 
     def classify_complexity(self, user_request: str) -> str:
         """Classify request as SIMPLE or COMPLEX"""
+        # Pre-check: conversational/non-technical inputs are always SIMPLE — no Ollama call
+        if is_conversational_input(user_request):
+            logger.debug("Pre-check: conversational input → SIMPLE (skipping Ollama)")
+            return "SIMPLE"
+
         if not HTTPX_AVAILABLE:
             logger.warning("httpx not available - defaulting to SIMPLE")
             return "SIMPLE"
@@ -139,6 +193,11 @@ Maximum 8 subtasks. Be as specific as possible."""
 
     def classify_type(self, subtask: str) -> str:
         """Classify subtask into a task type category"""
+        # Pre-check: greetings, questions, and general conversation are always GENERAL — no Ollama call
+        if is_conversational_input(subtask):
+            logger.debug("Pre-check: conversational input → GENERAL (skipping Ollama)")
+            return "GENERAL"
+
         if not HTTPX_AVAILABLE:
             return "GENERAL"
 

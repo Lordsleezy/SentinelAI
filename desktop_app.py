@@ -1402,6 +1402,20 @@ def api_tasks_submit():
             context=context,
         )
 
+        # Safety check: if forge was selected but input has no technical content, override to ollama_general
+        from workers.orchestration.task_decomposer import is_conversational_input
+        if (result or {}).get("needs_forge") and is_conversational_input(description):
+            logger.warning(
+                "Safety override: non-technical input blocked from Forge — routing to ollama_general: %r",
+                description,
+            )
+            result = {
+                "status": "completed",
+                "worker": "ollama_general",
+                "intent": {"intent": "general"},
+                "note": "Conversational input was rerouted from forge to general AI",
+            }
+
         # Reflect routing in the live worker state so the dock/panels react (Issue 2/6).
         try:
             status = (result or {}).get("status")
@@ -2500,8 +2514,21 @@ def api_orchestration_chat():
             return jsonify({"error": "No message provided"}), 400
 
         from workers.orchestration.pipeline import get_pipeline
+        from workers.orchestration.task_decomposer import is_conversational_input
         pipeline = get_pipeline()
         result = pipeline.process(user_request)
+
+        # Safety check: if forge was routed for non-technical input, override to ollama_general
+        if is_conversational_input(user_request):
+            plan = result.get("plan") or {}
+            for subtask in plan.get("subtasks", []):
+                if subtask.get("worker") == "forge":
+                    logger.warning(
+                        "Safety override: non-technical input was routed to forge — overriding to ollama_general: %r",
+                        user_request,
+                    )
+                    subtask["worker"] = "ollama_general"
+                    subtask["type"] = "GENERAL"
 
         return jsonify(result)
     except Exception as e:

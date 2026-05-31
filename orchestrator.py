@@ -82,7 +82,7 @@ def ensure_orchestrator_table() -> None:
 
 # ─── Intent shape ─────────────────────────────────────────────────────────────
 
-VALID_INTENTS = {"repair", "build", "search", "monitor", "unknown"}
+VALID_INTENTS = {"repair", "build", "search", "monitor", "unknown", "general"}
 
 
 def _now() -> str:
@@ -99,9 +99,49 @@ def _serialize(obj: Any) -> str:
 # ─── Intent parsing ───────────────────────────────────────────────────────────
 
 
+_CONVERSATIONAL_STARTERS_ORCH = frozenset([
+    'hi', 'hello', 'hey', 'what', 'how', 'why', 'who', 'when',
+    'is', 'are', 'can', 'does', 'do', 'tell', 'say',
+])
+
+_TECHNICAL_KW_ORCH = frozenset([
+    '.py', '.js', '.ts', 'function', 'class', 'def ', 'import ', 'script',
+    'bug', 'error', 'fix ', 'write a', 'build a', 'create a', 'implement',
+    'deploy', 'api', 'database', 'server', 'worker', 'module', 'write me a',
+    'fix the', 'new worker', 'new function',
+])
+
+
+def _is_conversational_orch(text: str) -> bool:
+    """Return True if text is a greeting, question, or general chat — should NOT go to Forge."""
+    stripped = text.strip() if text else ""
+    if len(stripped) < 10:
+        return True
+    lower = stripped.lower()
+    words = lower.split()
+    first = words[0].rstrip('?!.,;:') if words else ''
+    if first in _CONVERSATIONAL_STARTERS_ORCH:
+        return True
+    if '?' in stripped:
+        return True
+    if not any(kw in lower for kw in _TECHNICAL_KW_ORCH):
+        return True
+    return False
+
+
 def _parse_intent_keywords(text: str) -> Dict[str, Any]:
     """Cheap keyword-based intent fallback when Ollama is unavailable."""
     lowered = text.lower()
+
+    # Conversational/non-technical inputs → general, NOT build/unknown (which triggers Forge)
+    if _is_conversational_orch(text):
+        return {
+            "intent": "general",
+            "target": text.strip()[:200],
+            "parameters": {},
+            "_fallback": True,
+        }
+
     repair_kw = ("repair", "fix", "bug", "patch", "issue", "pr ", "pull request", "bounty")
     build_kw = ("build", "create", "make", "implement", "scaffold", "generate", "write a")
     search_kw = ("search", "find", "look up", "list", "discover", "scan", "github")
@@ -179,7 +219,11 @@ def parse_intent(
     keyword classification if Ollama isn't reachable.
     """
     if not text or not str(text).strip():
-        return {"intent": "unknown", "target": "", "parameters": {}}
+        return {"intent": "general", "target": "", "parameters": {}}
+
+    # Pre-check: greetings, short inputs, and questions never need Forge
+    if _is_conversational_orch(text):
+        return {"intent": "general", "target": text.strip()[:200], "parameters": {}, "_precheck": True}
 
     if not _ollama_available():
         return _parse_intent_keywords(text)
@@ -316,9 +360,32 @@ class WorkerManager:
                     "intent": intent_info,
                 }
 
-        # Unknown intent — try the registry first; otherwise needs_forge.
+        # "general" intent (conversational/non-technical) → route to ollama_general, never Forge
+        if intent == "general":
+            logger.debug("General/conversational intent — routing to ollama_general, not Forge")
+            return {
+                "worker": "ollama_general",
+                "status": "ok",
+                "result": {"routed": "ollama_general"},
+                "intent": intent_info,
+            }
+
+        # Unknown intent — try the registry first
         if tool_match:
             return self._invoke_built_tool(tool_match, task_id, task_description)
+
+        # Final safety: don't route conversational/non-technical unknowns to Forge
+        if _is_conversational_orch(task_description):
+            logger.warning(
+                "Safety override: non-technical input blocked from Forge routing: %r",
+                task_description,
+            )
+            return {
+                "worker": "ollama_general",
+                "status": "ok",
+                "result": {"routed": "ollama_general"},
+                "intent": intent_info,
+            }
 
         return {
             "needs_forge": True,
