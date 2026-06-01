@@ -349,56 +349,78 @@ function shutdownBackend() {
 }
 
 // ============================================================================
-// READINESS POLLING
+// READINESS POLLING  (uses Node built-in http — avoids node-fetch quirks)
 // ============================================================================
 
+/**
+ * Single HTTP GET using Node's built-in http module.
+ * Returns the status code on success, or null on any connection error /
+ * timeout.  Never throws.
+ */
+function httpGetStatus(url, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const http = require('http');
+    let settled = false;
+    const settle = (v) => { if (!settled) { settled = true; resolve(v); } };
+
+    try {
+      const req = http.get(url, (res) => {
+        // Drain the body so the socket can be reused
+        res.on('data', () => {});
+        res.on('end', () => settle(res.statusCode));
+      });
+      req.setTimeout(timeoutMs, () => { req.destroy(); settle(null); });
+      req.on('error', () => settle(null));
+    } catch (_) {
+      settle(null);
+    }
+  });
+}
+
 async function pollBackendReady() {
-  const deadline = Date.now() + READINESS_TIMEOUT_MS;
+  const startTime = Date.now();
+  const deadline = startTime + READINESS_TIMEOUT_MS;
   let attempt = 0;
 
   while (Date.now() < deadline) {
     attempt++;
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/status`, { timeout: 2000 });
-      if (response.ok) {
-        console.log(`[Backend] Ready after ${attempt} poll(s)`);
-        backendReady = true;
-        return true;
-      }
-    } catch (_) {
-      // Not ready yet
+    const status = await httpGetStatus(`${BACKEND_URL}/api/status`, 1500);
+
+    if (status === 200) {
+      console.log(`[Backend] Ready after ${attempt} poll(s) (${Date.now() - startTime} ms)`);
+      backendReady = true;
+      return true;
     }
 
-    const elapsed = Date.now() + READINESS_TIMEOUT_MS - deadline;
+    // Log non-200 (e.g. 500 during startup) but keep retrying
+    if (status !== null) {
+      console.warn(`[Backend] Poll ${attempt}: HTTP ${status} — retrying...`);
+    }
+
+    const elapsed = Date.now() - startTime;
     const progressPct = 40 + Math.min(40, Math.floor((elapsed / READINESS_TIMEOUT_MS) * 40));
     updateSplash(`Waiting for backend... (${attempt})`, progressPct);
     await sleep(POLL_INTERVAL_MS);
   }
 
-  throw new Error('Backend readiness timeout (90 s)');
+  throw new Error(`Backend readiness timeout (${READINESS_TIMEOUT_MS / 1000} s)`);
 }
 
 async function existingBackendReady() {
-  try {
-    const response = await fetch(`${BACKEND_URL}/api/status`, { timeout: 2000 });
-    if (!response.ok) return false;
+  const status = await httpGetStatus(`${BACKEND_URL}/api/status`, 2000);
+  if (status === 200) {
     backendReady = true;
     console.log('[Backend] Reusing existing backend on port 5001');
     return true;
-  } catch (_) {
-    return false;
   }
+  return false;
 }
 
 async function validateBackendHealth() {
-  try {
-    const response = await fetch(`${BACKEND_URL}/api/system/health`, { timeout: 5000 });
-    if (!response.ok) return true; // Non-fatal
-    const health = await response.json();
-    if ((health.cpu_percent || 0) > 85) console.warn('[Health] High CPU:', health.cpu_percent);
-    if ((health.ram_percent || 0) > 85) console.warn('[Health] High RAM:', health.ram_percent);
-  } catch (_) {
-    // Health check is non-fatal during startup
+  // Non-fatal — just log; use the lightweight status check
+  const status = await httpGetStatus(`${BACKEND_URL}/api/status`, 5000);
+  if (status && status !== 200) {
+    console.warn('[Health] /api/status returned HTTP', status);
   }
   return true;
 }
@@ -413,13 +435,9 @@ function startBackendMonitor() {
   setInterval(async () => {
     if (!backendReady || isQuitting || isRestarting) return;
 
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/status`, { timeout: 5000 });
-      if (response.ok) { failures = 0; return; }
-      failures++;
-    } catch (_) {
-      failures++;
-    }
+    const status = await httpGetStatus(`${BACKEND_URL}/api/status`, 5000);
+    if (status === 200) { failures = 0; return; }
+    failures++;
 
     if (failures >= CONSECUTIVE_FAILURES_THRESHOLD) {
       console.error(`[Monitor] Backend unresponsive (${failures} consecutive failures) — restarting`);
@@ -618,25 +636,83 @@ function isFirstRun() {
   return !fs.existsSync(getEnvPath());
 }
 
+// ---------------------------------------------------------------------------
+// VITALS CHECK — only 3 things block startup; everything else is lazy
+// ---------------------------------------------------------------------------
+async function ensureEnvFile() {
+  const envPath = getEnvPath();
+  if (fs.existsSync(envPath)) return;
+
+  console.log('[Startup] .env not found — creating empty one');
+  const examplePath = path.join(__dirname, '..', '.env.example');
+  if (fs.existsSync(examplePath)) {
+    fs.copyFileSync(examplePath, envPath);
+  } else {
+    fs.writeFileSync(envPath, '# SentinelAI configuration\n', 'utf8');
+  }
+}
+
+async function checkOllamaRunning() {
+  const status = await httpGetStatus('http://localhost:11434/api/tags', 2000);
+  return status === 200;
+}
+
+async function vitalsCheck() {
+  const { dialog } = require('electron');
+
+  // CHECK 1: Ollama
+  let ollamaOk = await checkOllamaRunning();
+  if (!ollamaOk) {
+    // Show dialog and poll until Ollama responds
+    dialog.showMessageBoxSync({
+      type: 'warning',
+      title: 'Ollama Not Running',
+      message: 'Ollama is not running.\n\nStart it with:  ollama serve\n\nClick OK once Ollama is running.',
+      buttons: ['OK — I started it']
+    });
+    // Poll for up to 60s
+    const deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+      await sleep(3000);
+      if (await checkOllamaRunning()) { ollamaOk = true; break; }
+    }
+    if (!ollamaOk) {
+      console.warn('[Vitals] Ollama still not reachable — continuing anyway');
+    }
+  }
+
+  // CHECK 2: venv Python
+  const venvPy = path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe');
+  if (!fs.existsSync(venvPy)) {
+    dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'Python venv Not Found',
+      message: 'Python virtual environment not found.\n\nRun these commands in the SentinelAI folder:\n\n  python -m venv venv\n  venv\\Scripts\\activate\n  pip install -r requirements.txt\n\nThen restart SentinelAI.',
+      buttons: ['OK']
+    });
+    app.quit();
+    return false;
+  }
+
+  return true;
+}
+
+// createSetupWizardWindow kept for reference but no longer called on first run
 function createSetupWizardWindow() {
   setupWizardWindow = new BrowserWindow({
     width: 800,
     height: 900,
     title: 'SentinelAI Setup',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true
     }
   });
-
-  setupWizardWindow.loadFile(path.join(__dirname, 'setup_wizard.html'));
-  setupWizardWindow.show();
-
-  setupWizardWindow.on('closed', () => {
-    setupWizardWindow = null;
-  });
-
+  if (fs.existsSync(path.join(__dirname, 'setup_wizard.html'))) {
+    setupWizardWindow.loadFile(path.join(__dirname, 'setup_wizard.html'));
+    setupWizardWindow.show();
+  }
+  setupWizardWindow.on('closed', () => { setupWizardWindow = null; });
   return setupWizardWindow;
 }
 
@@ -792,6 +868,11 @@ async function startupSequence() {
     updateSplash('Initializing SentinelAI...', 5);
     await sleep(300); // Let splash render
 
+    // Vitals: Ollama + venv check (lazy .env creation)
+    updateSplash('Checking system vitals...', 8);
+    const vitalsOk = await vitalsCheck();
+    if (!vitalsOk) return; // app.quit() already called
+
     updateSplash('Checking backend...', 15);
     const reusedBackend = await existingBackendReady();
     if (!reusedBackend) {
@@ -807,14 +888,8 @@ async function startupSequence() {
 
     updateSplash('Opening dashboard...', 92);
 
-    // Check if first run - show setup wizard
-    if (isFirstRun()) {
-      console.log('[Startup] First run detected - launching setup wizard');
-      updateSplash('First-run setup...', 95);
-      splashWindow.hide();
-      createSetupWizardWindow();
-      return; // Don't launch main windows yet
-    }
+    // First-run: ensure .env exists (create empty from .env.example if needed)
+    await ensureEnvFile();
 
     createOrbWindow();
     startBackendMonitor();
