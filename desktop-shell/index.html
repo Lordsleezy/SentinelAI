@@ -27,12 +27,14 @@
     #app { display: flex; flex-direction: column; height: 100vh; }
 
     /* top bar */
-    #topbar { display: flex; align-items: center; gap: 12px; padding: 0 16px; height: 42px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    #topbar { display: flex; align-items: center; gap: 12px; padding: 0 16px; height: 42px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; -webkit-app-region: drag; }
     #topbar h1 { font-size: 14px; font-weight: 700; letter-spacing: 1px; color: var(--accent); }
     #topbar .spacer { flex: 1; }
     #topbar .tag { font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; }
     #topbar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse 2s infinite; }
     @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
+    #close-btn { -webkit-app-region: no-drag; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 4px 8px; border-radius: 4px; line-height: 1; transition: background .15s, color .15s; }
+    #close-btn:hover { background: rgba(255,60,60,.25); color: #ff6060; }
 
     /* nav tabs */
     #nav { display: flex; gap: 2px; padding: 6px 12px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
@@ -141,6 +143,7 @@
     <span class="tag">Orchestration OS</span>
     <div class="spacer"></div>
     <span id="system-time" class="tag"></span>
+    <button id="close-btn" title="Close">✕</button>
   </div>
 
   <!-- nav -->
@@ -581,6 +584,16 @@ try {
     else appendLog(`[System] Backend ${payload.status}: ${payload.message}`, 'error');
   });
 } catch (_) {}
+
+// Close button — hides window via IPC (same as minimize-to-tray)
+document.getElementById('close-btn').addEventListener('click', () => {
+  try {
+    const { ipcRenderer } = require('electron');
+    ipcRenderer.send('minimize-window');
+  } catch (_) {
+    window.close();
+  }
+});
 </script>
 </body>
 </html>

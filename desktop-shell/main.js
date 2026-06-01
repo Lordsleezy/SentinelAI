@@ -61,18 +61,46 @@ function broadcastBackendStatus(payload) {
 
 function createSplashScreen() {
   splashWindow = new BrowserWindow({
-    width: 460,
-    height: 340,
+    width: 420,
+    height: 280,
     frame: false,
-    transparent: true,
-    alwaysOnTop: true,
+    transparent: false,
+    alwaysOnTop: false,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
-    }
+      nodeIntegration: false,
+      contextIsolation: true
+    },
+    backgroundColor: '#000000'
   });
-  // Splash uses a minimal loading screen (we'll keep index.html as splash for now)
-  splashWindow.loadFile('index.html');
+
+  // Minimal inline splash — does NOT load index.html (the Orchestration OS dashboard)
+  // index.html is reserved for the explicit Orchestration OS window opened via menu.
+  splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#000; color:#00ff88; font-family:'Segoe UI',sans-serif;
+         display:flex; flex-direction:column; align-items:center; justify-content:center;
+         height:100vh; gap:16px; }
+  h1 { font-size:18px; letter-spacing:4px; color:#00ff88; text-shadow:0 0 12px #00ff88; }
+  .sub { font-size:11px; letter-spacing:2px; color:#555; }
+  .progress-wrap { width:260px; height:3px; background:rgba(0,255,136,.15); border-radius:2px; }
+  .progress-bar { height:100%; background:#00ff88; border-radius:2px; transition:width .4s; box-shadow:0 0 8px #00ff88; }
+  .msg { font-size:11px; color:#888; min-height:16px; }
+</style></head>
+<body>
+  <h1>SENTINEL AI</h1>
+  <span class="sub">INITIALIZING</span>
+  <div class="progress-wrap"><div class="progress-bar" id="bar" style="width:5%"></div></div>
+  <span class="msg" id="msg">Starting up...</span>
+  <script>
+    try {
+      const {ipcRenderer} = require('electron');
+      ipcRenderer.on('splash-progress', (_,v) => { document.getElementById('bar').style.width = v+'%'; });
+      ipcRenderer.on('splash-message', (_,m) => { document.getElementById('msg').textContent = m; });
+    } catch(_) {}
+  </script>
+</body></html>`)}`);
   splashWindow.center();
 }
 
@@ -539,6 +567,31 @@ function spawnPtyTerminal() {
 }
 
 // ============================================================================
+// ORCHESTRATION OS WINDOW (on-demand only, NOT shown on startup)
+// ============================================================================
+
+let orchestrationWindow = null;
+
+function openOrchestrationOS() {
+  if (orchestrationWindow && !orchestrationWindow.isDestroyed()) {
+    orchestrationWindow.focus();
+    return;
+  }
+  orchestrationWindow = new BrowserWindow({
+    width: 1100,
+    height: 750,
+    title: 'SentinelAI — Orchestration OS',
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    },
+    backgroundColor: '#0a0a0f'
+  });
+  orchestrationWindow.loadFile('index.html');
+  orchestrationWindow.on('closed', () => { orchestrationWindow = null; });
+}
+
+// ============================================================================
 // SETUP WIZARD
 // ============================================================================
 
@@ -615,6 +668,10 @@ function setupIPC() {
     gracefulShutdown();
   });
 
+  ipcMain.on('open-orchestration-os', () => {
+    openOrchestrationOS();
+  });
+
   ipcMain.on('show-notification', (_event, { title, body }) => {
     new Notification({ title, body }).show();
   });
@@ -687,6 +744,16 @@ function buildAppMenu() {
           label: 'Guardian',
           accelerator: 'CmdOrCtrl+4',
           click: () => createWorkerWindow('guardian')
+        }
+      ]
+    },
+    {
+      label: 'Tools',
+      submenu: [
+        {
+          label: 'Orchestration OS',
+          accelerator: 'CmdOrCtrl+O',
+          click: () => openOrchestrationOS()
         }
       ]
     },
