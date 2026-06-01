@@ -8,6 +8,18 @@ const fetch = require('node-fetch');
 const pty = require('node-pty');
 
 // ============================================================================
+// STARTUP DEBUG LOG
+// ============================================================================
+const _dbgLog = path.join(__dirname, '..', 'startup_debug.log');
+function dbg(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  try { fs.appendFileSync(_dbgLog, line, 'utf8'); } catch (_) {}
+  console.log(msg);
+}
+// Clear log on each launch
+try { fs.writeFileSync(_dbgLog, '', 'utf8'); } catch (_) {}
+
+// ============================================================================
 // STATE
 // ============================================================================
 
@@ -384,7 +396,7 @@ async function pollBackendReady() {
 
   while (Date.now() < deadline) {
     attempt++;
-    const status = await httpGetStatus(`${BACKEND_URL}/api/status`, 1500);
+    const status = await httpGetStatus(`${BACKEND_URL}/api/ping`, 1500);
 
     if (status === 200) {
       console.log(`[Backend] Ready after ${attempt} poll(s) (${Date.now() - startTime} ms)`);
@@ -407,7 +419,7 @@ async function pollBackendReady() {
 }
 
 async function existingBackendReady() {
-  const status = await httpGetStatus(`${BACKEND_URL}/api/status`, 2000);
+  const status = await httpGetStatus(`${BACKEND_URL}/api/ping`, 2000);
   if (status === 200) {
     backendReady = true;
     console.log('[Backend] Reusing existing backend on port 5001');
@@ -417,8 +429,8 @@ async function existingBackendReady() {
 }
 
 async function validateBackendHealth() {
-  // Non-fatal — just log; use the lightweight status check
-  const status = await httpGetStatus(`${BACKEND_URL}/api/status`, 5000);
+  // Non-fatal — just log; use the fast ping probe
+  const status = await httpGetStatus(`${BACKEND_URL}/api/ping`, 5000);
   if (status && status !== 200) {
     console.warn('[Health] /api/status returned HTTP', status);
   }
@@ -435,7 +447,7 @@ function startBackendMonitor() {
   setInterval(async () => {
     if (!backendReady || isQuitting || isRestarting) return;
 
-    const status = await httpGetStatus(`${BACKEND_URL}/api/status`, 5000);
+    const status = await httpGetStatus(`${BACKEND_URL}/api/ping`, 5000);
     if (status === 200) { failures = 0; return; }
     failures++;
 
@@ -654,7 +666,9 @@ async function ensureEnvFile() {
 }
 
 async function checkOllamaRunning() {
-  const status = await httpGetStatus('http://localhost:11434/api/tags', 2000);
+  // Use 127.0.0.1 explicitly — on Windows, 'localhost' can resolve to ::1 (IPv6)
+  // but Ollama binds to 127.0.0.1 (IPv4), causing immediate ECONNREFUSED.
+  const status = await httpGetStatus('http://127.0.0.1:11434/api/tags', 3000);
   return status === 200;
 }
 
@@ -662,8 +676,11 @@ async function vitalsCheck() {
   const { dialog } = require('electron');
 
   // CHECK 1: Ollama
+  dbg('[Vitals] Checking Ollama...');
   let ollamaOk = await checkOllamaRunning();
+  dbg(`[Vitals] Ollama check result: ${ollamaOk}`);
   if (!ollamaOk) {
+    dbg('[Vitals] Showing Ollama dialog...');
     // Show dialog and poll until Ollama responds
     dialog.showMessageBoxSync({
       type: 'warning',
@@ -678,10 +695,12 @@ async function vitalsCheck() {
       if (await checkOllamaRunning()) { ollamaOk = true; break; }
     }
     if (!ollamaOk) {
+      dbg('[Vitals] Ollama still not reachable — continuing anyway');
       console.warn('[Vitals] Ollama still not reachable — continuing anyway');
     }
   }
 
+  dbg('[Vitals] Checking venv Python...');
   // CHECK 2: venv Python
   const venvPy = path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe');
   if (!fs.existsSync(venvPy)) {
@@ -868,6 +887,7 @@ function buildAppMenu() {
 
 async function startupSequence() {
   try {
+    dbg('[Startup] startupSequence BEGIN');
     cleanupOrphanedBackend();
 
     createSplashScreen();
@@ -875,18 +895,25 @@ async function startupSequence() {
     await sleep(300); // Let splash render
 
     // Vitals: Ollama + venv check (lazy .env creation)
+    dbg('[Startup] Running vitalsCheck...');
     updateSplash('Checking system vitals...', 8);
     const vitalsOk = await vitalsCheck();
+    dbg(`[Startup] vitalsCheck returned: ${vitalsOk}`);
     if (!vitalsOk) return; // app.quit() already called
 
+    dbg('[Startup] Checking for existing backend...');
     updateSplash('Checking backend...', 15);
     const reusedBackend = await existingBackendReady();
+    dbg(`[Startup] existingBackendReady: ${reusedBackend}`);
     if (!reusedBackend) {
+      dbg('[Startup] Launching backend...');
       updateSplash('Starting Python backend...', 15);
       await launchBackend();
+      dbg('[Startup] launchBackend complete, polling...');
 
       updateSplash('Waiting for backend...', 35);
       await pollBackendReady();
+      dbg('[Startup] pollBackendReady complete');
     }
 
     updateSplash('Validating runtime health...', 82);
@@ -897,10 +924,12 @@ async function startupSequence() {
     // First-run: ensure .env exists (create empty from .env.example if needed)
     await ensureEnvFile();
 
+    dbg('[Startup] Creating orb window...');
     createOrbWindow();
     startBackendMonitor();
 
     updateSplash('Ready!', 100);
+    dbg('[Startup] Complete — SentinelAI is running');
     console.log('[Startup] Complete — SentinelAI is running');
   } catch (error) {
     console.error('[Startup] Fatal error:', error.message);

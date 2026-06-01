@@ -483,6 +483,12 @@ def api_credentials_save():
     return jsonify({"status": "error", "error": "Failed to write .env"}), 500
 
 
+@app.route('/api/ping')
+def api_ping():
+    """Instant liveness probe — used by Electron readiness poll."""
+    return jsonify({"ok": True, "running": backend_state.get("running", False)})
+
+
 @app.route('/api/status')
 def api_status():
     """Get current system status."""
@@ -4198,12 +4204,26 @@ def main():
     if not os.getenv('SENTINEL_NO_BROWSER'):
         webbrowser.open('http://localhost:5001')
     
-    # Create and run system tray
+    # When spawned by Electron (SENTINEL_NO_BROWSER=1) there is no interactive
+    # desktop session context for pystray, so skip the tray and just keep alive.
+    if os.getenv('SENTINEL_NO_BROWSER'):
+        logger.info("Running under Electron — tray icon skipped. Backend serving on :5001")
+        import time
+        while backend_state.get("running", True):
+            time.sleep(5)
+        return
+
+    # Create and run system tray (standalone / terminal mode)
     logger.info("Creating system tray icon...")
-    icon = create_system_tray()
-    
-    logger.info("SentinelAI is now running. Check system tray for controls.")
-    icon.run()
+    try:
+        icon = create_system_tray()
+        logger.info("SentinelAI is now running. Check system tray for controls.")
+        icon.run()
+    except Exception as e:
+        logger.warning("System tray failed (%s) — keeping backend alive without tray", e)
+        import time
+        while backend_state.get("running", True):
+            time.sleep(5)
 
 
 if __name__ == "__main__":
