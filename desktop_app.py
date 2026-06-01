@@ -651,8 +651,50 @@ def api_forge_request():
         if not prompt:
             return jsonify({"error": "prompt required"}), 400
 
+        requires_approval = data.get("requires_approval", True)
+
+        # Direct generation path: call Ollama synchronously and return code immediately.
+        # Used by the Forge window when the user has already confirmed via the dialog.
+        if not requires_approval:
+            try:
+                import httpx as _hx
+                ollama_host = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
+                ollama_model = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
+                forge_prompt = (
+                    f"You are an expert programmer. Write clean, working, well-commented code "
+                    f"for the following task. Return ONLY the code, no prose explanations "
+                    f"before or after:\n\n{prompt}"
+                )
+                with _hx.Client(timeout=120.0) as client:
+                    resp = client.post(
+                        f"{ollama_host}/api/generate",
+                        json={
+                            "model": ollama_model,
+                            "prompt": forge_prompt,
+                            "system": SENTINEL_SYSTEM_PROMPT,
+                            "stream": False,
+                        },
+                    )
+                if resp.status_code == 200:
+                    code = resp.json().get("response", "").strip()
+                    license_manager.increment_usage("forge_tasks")
+                    db.log_event("forge_generated", f"Forge direct-generated code for: {prompt[:80]}")
+                    return jsonify({
+                        "status": "complete",
+                        "code": code,
+                        "model": ollama_model,
+                        "prompt": prompt,
+                        "forge_task_id": None,
+                    })
+                else:
+                    return jsonify({"error": f"Ollama returned HTTP {resp.status_code}"}), 500
+            except Exception as gen_err:
+                logger.error("Forge direct generation failed: %s", gen_err)
+                return jsonify({"error": f"Code generation failed: {gen_err}"}), 500
+
+        # Approval-pipeline path: queue to DB as before.
         task_id = db.create_forge_task(prompt)
-        license_manager.increment_usage("forge_tasks")  # Track usage
+        license_manager.increment_usage("forge_tasks")
 
         db.log_event("forge_approval_required", f"Forge task #{task_id} requires approval")
         send_notification(
@@ -663,6 +705,41 @@ def api_forge_request():
         )
         return jsonify({"status": "pending_approval", "forge_task_id": task_id})
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/forge/generate', methods=['POST'])
+def api_forge_generate():
+    """Direct Ollama code generation for the Forge window — no approval queue."""
+    try:
+        data = request.get_json() or {}
+        prompt = (data.get("prompt") or "").strip()
+        if not prompt:
+            return jsonify({"error": "prompt required"}), 400
+
+        import httpx as _hx
+        ollama_host = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
+        ollama_model = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
+        forge_sys = (
+            "You are Sentinel Forge, an expert AI programmer. "
+            "Write clean, working, well-commented code. "
+            "Return ONLY the code with no prose before or after it."
+        )
+        full_prompt = f"Task: {prompt}\n\nWrite the complete code:"
+        with _hx.Client(timeout=120.0) as client:
+            resp = client.post(
+                f"{ollama_host}/api/generate",
+                json={"model": ollama_model, "prompt": full_prompt,
+                      "system": forge_sys, "stream": False},
+            )
+        if resp.status_code != 200:
+            return jsonify({"error": f"Ollama HTTP {resp.status_code}"}), 500
+        code = resp.json().get("response", "").strip()
+        db.log_event("forge_generated", f"Forge generated code for: {prompt[:80]}")
+        return jsonify({"status": "complete", "code": code,
+                        "model": ollama_model, "lines": code.count('\n') + 1})
+    except Exception as e:
+        logger.error("forge/generate failed: %s", e, exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 

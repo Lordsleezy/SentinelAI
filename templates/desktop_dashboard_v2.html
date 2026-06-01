@@ -601,13 +601,13 @@ const HUD = (function(){
       if(data.status==='awaiting_approval'){
         reply='That action needs your approval. Please review the approval prompt.';
       } else if(data.response){
-        reply=data.response;
+        reply=typeof data.response==='string'?data.response:(data.response.response||data.response.text||data.response.message||JSON.stringify(data.response));
       } else if(data.message){
-        reply=data.message;
+        reply=typeof data.message==='string'?data.message:JSON.stringify(data.message);
       } else if(data.intent&&data.worker){
-        reply='Routing to '+data.worker+' as ['+(data.intent.type||data.intent)+']…';
+        reply='Routing to '+(data.worker||'general')+' worker…';
       } else if(data.intent){
-        reply='Routing as ['+(data.intent.type||data.intent)+']…';
+        reply='Routing as ['+(data.intent && (data.intent.type || data.intent.intent || data.intent.worker) || 'general')+']…';
       } else {
         reply='Task '+(data.status||'received')+'.';
       }

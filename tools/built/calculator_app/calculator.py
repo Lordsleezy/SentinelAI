@@ -11,25 +11,22 @@ def divide(x, y):
         return "Error: Division by zero"
     return x / y
 
-def main():
+if __name__ == "__main__":
     print("Simple Calculator")
     while True:
         print("Options: add, subtract, multiply, divide, exit")
-        choice = input("Enter your choice: ")
-        if choice == 'exit':
+        option = input("Enter your choice: ")
+        if option == 'exit':
             break
         num1 = float(input("Enter first number: "))
         num2 = float(input("Enter second number: "))
-        if choice == 'add':
+        if option == 'add':
             print(f"Result: {add(num1, num2)}")
-        elif choice == 'subtract':
+        elif option == 'subtract':
             print(f"Result: {subtract(num1, num2)}")
-        elif choice == 'multiply':
+        elif option == 'multiply':
             print(f"Result: {multiply(num1, num2)}")
-        elif choice == 'divide':
+        elif option == 'divide':
             print(f"Result: {divide(num1, num2)}")
         else:
-            print("Invalid choice. Please try again.")
-
-if __name__ == "__main__":
-    main()
+            print("Invalid option. Please try again.")
