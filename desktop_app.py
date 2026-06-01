@@ -138,6 +138,11 @@ backend_state = {
 
 SCAN_INTERVAL_SECONDS = 30 * 60
 
+# Set to True to scan immediately on Flask startup.
+# Off by default — scan runs only on the APScheduler 4-hour schedule or when
+# the user clicks "Scan Now" in the Earn window.
+SCAN_ON_STARTUP = False
+
 # ─── Sentinel Identity ────────────────────────────────────────────────────────
 
 SENTINEL_SYSTEM_PROMPT = """You are Sentinel, an advanced AI assistant and orchestration system created by Sentinel Prime Inc. You are intelligent, helpful, and concise. Important rules:
@@ -342,7 +347,16 @@ def handle_forge_build(task):
 
 
 def background_scan_loop():
+    """Periodic earn scanner.
+
+    When SCAN_ON_STARTUP is False the first scan is deferred by
+    SCAN_INTERVAL_SECONDS so it does not block or slow Flask startup.
+    """
     import time
+
+    if not SCAN_ON_STARTUP:
+        # Skip the immediate scan; wait for the first scheduled window
+        time.sleep(SCAN_INTERVAL_SECONDS)
 
     while backend_state.get("running"):
         try:
@@ -3874,8 +3888,10 @@ def main():
     # Start backend
     start_backend()
     
-    # Open dashboard in browser
-    webbrowser.open('http://localhost:5001')
+    # Open dashboard in browser only when NOT spawned by the Electron shell.
+    # Electron sets SENTINEL_NO_BROWSER=1 so the orb window is the only UI.
+    if not os.getenv('SENTINEL_NO_BROWSER'):
+        webbrowser.open('http://localhost:5001')
     
     # Create and run system tray
     logger.info("Creating system tray icon...")
