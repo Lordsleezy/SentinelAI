@@ -420,8 +420,10 @@ function createOrbWindow() {
       splashWindow.close();
       splashWindow = null;
     }
-    orbWindow.show();
-    orbWindow.focus();
+    if (orbWindow && !orbWindow.isDestroyed()) {
+      orbWindow.show();
+      orbWindow.focus();
+    }
     appReady = true;
     console.log('[Orb] Window shown — appReady = true');
   });
@@ -473,6 +475,7 @@ function createWorkerWindow(workerType = 'forge', context = {}) {
   workerWindow.loadFile(htmlFile);
 
   workerWindow.once('ready-to-show', () => {
+    if (!workerWindow || workerWindow.isDestroyed()) return;
     workerWindow.show();
     workerWindow.focus();
 

@@ -11,6 +11,7 @@
       font-family: 'Segoe UI', system-ui, sans-serif;
       height: 100vh;
       padding: 20px;
+      overflow-y: auto;
     }
 
     h1 {
@@ -67,11 +68,104 @@
     .jobs-table td {
       padding: 10px 12px;
       border-bottom: 1px solid rgba(255,255,255,0.04);
+      vertical-align: middle;
     }
 
     .jobs-table tr:hover {
       background: rgba(0,255,136,0.05);
     }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .badge-bounty {
+      background: rgba(0,255,136,0.15);
+      color: #00ff88;
+      border: 1px solid rgba(0,255,136,0.3);
+    }
+
+    .badge-vdp {
+      background: rgba(255,255,255,0.05);
+      color: #666;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .reward-text {
+      color: #00ff88;
+      font-weight: 600;
+    }
+
+    .reward-vdp {
+      color: #555;
+    }
+
+    .accept-btn {
+      background: linear-gradient(135deg, #00aa55, #00ff88);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    .accept-btn:hover {
+      opacity: 0.85;
+      transform: scale(1.03);
+    }
+
+    .accept-btn:active {
+      transform: scale(0.97);
+    }
+
+    .accept-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    #status-msg {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      display: none;
+    }
+
+    #status-msg.success {
+      background: rgba(0,255,136,0.1);
+      border: 1px solid rgba(0,255,136,0.3);
+      color: #00ff88;
+      display: block;
+    }
+
+    #status-msg.error {
+      background: rgba(255,60,60,0.1);
+      border: 1px solid rgba(255,60,60,0.3);
+      color: #ff4444;
+      display: block;
+    }
+
+    .scope-list {
+      color: #888;
+      font-size: 11px;
+    }
+
+    a.prog-link {
+      color: #00aaff;
+      text-decoration: none;
+    }
+    a.prog-link:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -79,55 +173,133 @@
 
   <div class="stats" id="stats-container">
     <div class="stat-card">
-      <div class="stat-label">Total Jobs</div>
-      <div class="stat-value">—</div>
+      <div class="stat-label">Total Programs</div>
+      <div class="stat-value" id="stat-total">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Bounty Programs</div>
+      <div class="stat-value" id="stat-bounty">—</div>
     </div>
   </div>
+
+  <div id="status-msg"></div>
 
   <table class="jobs-table">
     <thead>
       <tr>
-        <th>Title</th>
-        <th>Source</th>
+        <th>Program</th>
+        <th>Type</th>
         <th>Reward</th>
-        <th>Fetched</th>
+        <th>In-Scope Targets</th>
+        <th>Action</th>
       </tr>
     </thead>
     <tbody id="jobs-body">
-      <tr><td colspan="4" style="text-align: center; color: #666;">Loading jobs...</td></tr>
+      <tr><td colspan="5" style="text-align: center; color: #666; padding: 30px;">Loading bounty programs...</td></tr>
     </tbody>
   </table>
 
   <script>
+    const BASE = 'http://127.0.0.1:5001';
+
     async function loadJobs() {
       try {
-        const res = await fetch('http://127.0.0.1:5001/earn/jobs');
+        const res = await fetch(`${BASE}/earn/jobs`);
         const data = await res.json();
 
-        if (data && data.jobs) {
-          const tbody = document.getElementById('jobs-body');
-          tbody.innerHTML = data.jobs.map(job => `
-            <tr>
-              <td>${escapeHtml(job.title || 'Untitled')}</td>
-              <td>${escapeHtml(job.source || '—')}</td>
-              <td>${escapeHtml(job.reward_range || '—')}</td>
-              <td>${escapeHtml((job.fetched_at || '').slice(0, 16))}</td>
-            </tr>
-          `).join('');
+        if (!data || !data.jobs) return;
+
+        const jobs = data.jobs;
+        const bountyCount = jobs.filter(j => j.offers_bounties).length;
+
+        document.getElementById('stat-total').textContent = jobs.length;
+        document.getElementById('stat-bounty').textContent = bountyCount;
+
+        const tbody = document.getElementById('jobs-body');
+        if (jobs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#666;padding:30px;">No bounty programs found.</td></tr>';
+          return;
         }
+
+        tbody.innerHTML = jobs.map((job, idx) => {
+          const isBounty = job.offers_bounties;
+          const reward = job.reward || job.reward_range || '—';
+          const rewardClass = isBounty ? 'reward-text' : 'reward-vdp';
+          const badge = isBounty
+            ? '<span class="badge badge-bounty">BOUNTY</span>'
+            : '<span class="badge badge-vdp">VDP</span>';
+          const scope = (job.scope || []).slice(0, 3).join(', ') || '—';
+          const title = escapeHtml(job.title || job.program || 'Unknown');
+          const progUrl = escapeHtml(job.url || '#');
+
+          return `<tr>
+            <td><a class="prog-link" href="${progUrl}" target="_blank">${title}</a></td>
+            <td>${badge}</td>
+            <td class="${rewardClass}">${escapeHtml(reward)}</td>
+            <td class="scope-list">${escapeHtml(scope)}</td>
+            <td>
+              ${isBounty
+                ? `<button class="accept-btn" onclick="acceptJob(${idx})" id="btn-${idx}">Accept &amp; Work</button>`
+                : '<span style="color:#444;font-size:11px;">—</span>'}
+            </td>
+          </tr>`;
+        }).join('');
+
+        // Store jobs for accept handler
+        window._earnJobs = jobs;
       } catch (e) {
         console.error('Failed to load jobs:', e);
       }
     }
 
+    async function acceptJob(idx) {
+      const job = window._earnJobs && window._earnJobs[idx];
+      if (!job) return;
+
+      const btn = document.getElementById(`btn-${idx}`);
+      if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+
+      try {
+        const res = await fetch(`${BASE}/earn/accept`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(job)
+        });
+        const data = await res.json();
+
+        const msg = document.getElementById('status-msg');
+        if (data.status === 'ok') {
+          msg.className = 'success';
+          msg.textContent = data.message || 'Forge is analyzing the program...';
+          // Open Forge window
+          try {
+            const { ipcRenderer } = require('electron');
+            ipcRenderer.send('route-to-worker', { worker: 'forge', context: { forge_task_id: data.forge_task_id } });
+          } catch (_) {}
+        } else {
+          msg.className = 'error';
+          msg.textContent = 'Error: ' + (data.error || 'Unknown error');
+        }
+
+        if (btn) { btn.disabled = false; btn.textContent = 'Accept & Work'; }
+      } catch (e) {
+        console.error('Accept failed:', e);
+        const msg = document.getElementById('status-msg');
+        msg.className = 'error';
+        msg.textContent = 'Network error: ' + e.message;
+        if (btn) { btn.disabled = false; btn.textContent = 'Accept & Work'; }
+      }
+    }
+
     function escapeHtml(str) {
+      if (!str) return '';
       const div = document.createElement('div');
-      div.textContent = str;
+      div.textContent = String(str);
       return div.innerHTML;
     }
 
     loadJobs();
-    setInterval(loadJobs, 10000);
+    setInterval(loadJobs, 30000);
   </script>
 </body>
 </html>

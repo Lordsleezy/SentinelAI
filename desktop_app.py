@@ -138,6 +138,96 @@ backend_state = {
 
 SCAN_INTERVAL_SECONDS = 30 * 60
 
+# ─── Sentinel Identity ────────────────────────────────────────────────────────
+
+SENTINEL_SYSTEM_PROMPT = """You are Sentinel, an advanced AI assistant and orchestration system created by Sentinel Prime Inc. You are intelligent, helpful, and concise. Important rules:
+- Your name is always Sentinel. Never say you are qwen, llama, mistral, or any other model.
+- If asked who made you, say: Sentinel Prime Inc.
+- If asked what you are, say: I am Sentinel, an AI assistant by Sentinel Prime Inc.
+- Keep responses conversational and concise unless asked for detail.
+- You have access to real-time data including weather, crypto prices, news, and more.
+- You can control smart home devices, find freelance work, repair code, and much more."""
+
+
+# ─── Real-Time Data Helpers ───────────────────────────────────────────────────
+
+def get_weather_data(lat=37.3382, lon=-121.8863):
+    try:
+        import requests
+        r = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": lat,
+                "longitude": lon,
+                "current": "temperature_2m,weathercode,windspeed_10m,relativehumidity_2m,apparent_temperature",
+                "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+                "temperature_unit": "fahrenheit",
+                "timezone": "America/Los_Angeles",
+                "forecast_days": 3
+            },
+            timeout=5
+        )
+        d = r.json()
+        c = d["current"]
+        daily = d["daily"]
+        codes = {0:"Clear",1:"Mostly clear",2:"Partly cloudy",3:"Overcast",45:"Foggy",51:"Light drizzle",61:"Light rain",63:"Moderate rain",71:"Light snow",80:"Rain showers",95:"Thunderstorm"}
+        condition = codes.get(c["weathercode"], "Unknown")
+        return {
+            "temp": c["temperature_2m"],
+            "feels_like": c["apparent_temperature"],
+            "condition": condition,
+            "wind": c["windspeed_10m"],
+            "humidity": c["relativehumidity_2m"],
+            "today_high": daily["temperature_2m_max"][0],
+            "today_low": daily["temperature_2m_min"][0],
+            "rain_chance": daily["precipitation_probability_max"][0],
+            "tomorrow_high": daily["temperature_2m_max"][1],
+            "tomorrow_low": daily["temperature_2m_min"][1],
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_crypto_price(symbol="bitcoin"):
+    try:
+        import requests
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": symbol, "vs_currencies": "usd", "include_24hr_change": "true"},
+            timeout=5
+        )
+        data = r.json()
+        price = data[symbol]["usd"]
+        change = data[symbol]["usd_24h_change"]
+        return {"price": price, "change_24h": round(change, 2), "symbol": symbol}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_news_headlines(limit=5):
+    try:
+        import feedparser
+        feed = feedparser.parse("https://feeds.npr.org/1001/rss.xml")
+        headlines = [{"title": e.title, "link": e.link} for e in feed.entries[:limit]]
+        return headlines
+    except Exception as e:
+        return []
+
+
+def get_stock_price(ticker="SPY"):
+    try:
+        import yfinance as yf
+        stock = yf.Ticker(ticker)
+        info = stock.fast_info
+        return {
+            "ticker": ticker,
+            "price": round(info.last_price, 2),
+            "change": round(info.last_price - info.previous_close, 2),
+            "change_pct": round((info.last_price - info.previous_close) / info.previous_close * 100, 2)
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 
 def enqueue_new_repair_opportunities() -> int:
     enqueued = 0
@@ -2759,7 +2849,7 @@ def _chat_quick_response(message: str) -> str:
         with httpx.Client(timeout=8.0) as client:
             resp = client.post(
                 f"{ollama_host}/api/generate",
-                json={"model": ollama_model, "prompt": message, "stream": False},
+                json={"model": ollama_model, "prompt": message, "system": SENTINEL_SYSTEM_PROMPT, "stream": False},
             )
             if resp.status_code == 200:
                 text = resp.json().get('response', '').strip()
@@ -2839,6 +2929,67 @@ def api_chat():
         from workers.orchestration.task_decomposer import get_decomposer, is_conversational_input
 
         lower = message.lower()
+
+        # ── Real-time data routing (runs before all other routing) ──────────────
+        if any(w in lower for w in ['weather', 'temperature', 'forecast', 'raining', 'sunny', 'cold outside', 'hot outside', 'how cold', 'how hot']):
+            data = get_weather_data()
+            if 'error' not in data:
+                response = (f"Current weather in San Jose: {data['temp']}°F (feels like {data['feels_like']}°F), "
+                            f"{data['condition']}. Wind {data['wind']} mph, humidity {data['humidity']}%. "
+                            f"Today: high {data['today_high']}°F / low {data['today_low']}°F, {data['rain_chance']}% chance of rain. "
+                            f"Tomorrow: {data['tomorrow_high']}°F / {data['tomorrow_low']}°F.")
+            else:
+                response = "Could not fetch weather data right now."
+            return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
+
+        if any(w in lower for w in ['bitcoin', 'btc price', 'bitcoin price']):
+            data = get_crypto_price("bitcoin")
+            if 'error' not in data:
+                direction = "▲" if data['change_24h'] > 0 else "▼"
+                response = f"Bitcoin: ${data['price']:,.2f} {direction} {abs(data['change_24h'])}% in the last 24h."
+            else:
+                response = "Could not fetch Bitcoin price right now."
+            return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
+
+        if any(w in lower for w in ['ethereum', 'eth price', 'ethereum price']):
+            data = get_crypto_price("ethereum")
+            if 'error' not in data:
+                direction = "▲" if data['change_24h'] > 0 else "▼"
+                response = f"Ethereum: ${data['price']:,.2f} {direction} {abs(data['change_24h'])}% in the last 24h."
+            else:
+                response = "Could not fetch Ethereum price right now."
+            return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
+
+        if any(w in lower for w in ['stock price', 'spy', 'qqq', 'nasdaq', 's&p', 'market today']):
+            spy = get_stock_price("SPY")
+            qqq = get_stock_price("QQQ")
+            if 'error' not in spy:
+                response = (f"Markets: SPY ${spy['price']} ({'+' if spy['change_pct'] > 0 else ''}{spy['change_pct']}%), "
+                            f"QQQ ${qqq['price']} ({'+' if qqq['change_pct'] > 0 else ''}{qqq['change_pct']}%)")
+            else:
+                response = "Could not fetch market data right now."
+            return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
+
+        if any(w in lower for w in ['news', 'headlines', "what's happening", 'latest news']):
+            headlines = get_news_headlines(5)
+            if headlines:
+                response = "Latest headlines:\n" + "\n".join([f"• {h['title']}" for h in headlines])
+            else:
+                response = "Could not fetch news right now."
+            return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
+
+        if any(w in lower for w in ['what time', 'current time', "what's the time"]):
+            try:
+                import pytz
+                from datetime import datetime as _dt
+                tz = pytz.timezone('America/Los_Angeles')
+                now = _dt.now(tz)
+                response = f"It's {now.strftime('%I:%M %p')} Pacific Time, {now.strftime('%A, %B %d, %Y')}."
+            except Exception:
+                from datetime import datetime as _dt
+                now = _dt.now()
+                response = f"It's {now.strftime('%I:%M %p')} local time."
+            return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
 
         # Keyword-based pre-routing runs FIRST — overrides conversational classifier
         # for specific high-confidence patterns. Order: forge > earn > market > home.
@@ -2928,6 +3079,74 @@ def api_chat():
     except Exception as e:
         logger.exception("api_chat failed")
         return jsonify({"status": "error", "worker": "general", "response": "An error occurred. Please try again.", "error": str(e)}), 500
+
+
+# ─── Real-Time Data API Routes ────────────────────────────────────────────────
+
+@app.route('/api/realtime/weather')
+def api_realtime_weather():
+    data = get_weather_data()
+    return jsonify({"status": "ok", "data": data, "error": data.get("error")})
+
+
+@app.route('/api/realtime/crypto/<symbol>')
+def api_realtime_crypto(symbol):
+    data = get_crypto_price(symbol.lower())
+    return jsonify({"status": "ok", "data": data, "error": data.get("error")})
+
+
+@app.route('/api/realtime/news')
+def api_realtime_news():
+    limit = int(request.args.get('limit', 5))
+    headlines = get_news_headlines(limit)
+    return jsonify({"status": "ok", "data": headlines, "error": None})
+
+
+# ─── Earn Accept API ──────────────────────────────────────────────────────────
+
+@app.route('/earn/accept', methods=['POST'])
+def api_earn_accept():
+    """Accept an earn job and create a Forge analysis task."""
+    try:
+        data = request.get_json() or {}
+        title = data.get('title', 'Unknown Program')
+        program = data.get('program', '')
+        scope = data.get('scope', [])
+        reward = data.get('reward', '')
+        url = data.get('url', '')
+
+        # Save accepted job to memory vault
+        mm = get_memory_manager()
+        earn_dir = Path(mm.vault_root) / "earn_jobs" / "accepted"
+        earn_dir.mkdir(parents=True, exist_ok=True)
+        job_file = earn_dir / f"{program or 'job'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        import json
+        job_file.write_text(json.dumps(data, indent=2), encoding='utf-8')
+
+        # Build forge task prompt
+        scope_str = ', '.join(scope) if scope else 'general web/API targets'
+        forge_prompt = (
+            f"Analyze this HackerOne bug bounty program: {title}. "
+            f"In-scope targets: {scope_str}. "
+            f"Research the most common vulnerability types for these targets and suggest the "
+            f"top 3 attack vectors most likely to yield a valid bug report. "
+            f"Program URL: {url}. Reward: {reward}."
+        )
+
+        task_id = db.create_forge_task(forge_prompt)
+        db.log_event("earn_job_accepted", f"Earn job accepted: {title} — forge task #{task_id}")
+
+        emit_event("orb_state", {"state": "thinking"})
+
+        return jsonify({
+            "status": "ok",
+            "forge_task_id": task_id,
+            "message": f"Forge is analyzing {title}...",
+            "job_saved": str(job_file),
+        })
+    except Exception as e:
+        logger.exception("earn_accept failed")
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 
 # ─── Backend Launcher ─────────────────────────────────────────────────────────

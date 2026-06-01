@@ -486,101 +486,149 @@
       const h = container.clientHeight || 400;
 
       _orbScene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
-      camera.position.z = 3.5;
+      const camera = new THREE.PerspectiveCamera(45, w/h, 0.1, 100);
+      camera.position.z = 4;
 
-      _orbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      _orbRenderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
       _orbRenderer.setSize(w, h);
-      _orbRenderer.setClearColor(0x000000, 0);
+      _orbRenderer.setClearColor(0x000000, 1);
       container.appendChild(_orbRenderer.domElement);
 
-      // Glowing 3D sphere — high-detail icosahedron with Phong shading
+      // Ambient light
+      _orbScene.add(new THREE.AmbientLight(0x111133, 1));
+
+      // Inner core light — bright point inside the orb
+      const coreLight = new THREE.PointLight(0x00aaff, 6, 3);
+      coreLight.position.set(0, 0, 0);
+      _orbScene.add(coreLight);
+
+      // Secondary light for depth
+      const sideLight = new THREE.PointLight(0x0033ff, 3, 5);
+      sideLight.position.set(2, 1, 2);
+      _orbScene.add(sideLight);
+
+      // Rim light
+      const rimLight = new THREE.PointLight(0x00ffff, 2, 4);
+      rimLight.position.set(-2, -1, -1);
+      _orbScene.add(rimLight);
+
+      _orbLights = [coreLight, sideLight, rimLight];
+
+      // Main orb — high detail icosahedron
       const geo = new THREE.IcosahedronGeometry(1, 6);
       const mat = new THREE.MeshPhongMaterial({
-        color: 0x0044aa,
-        emissive: 0x001155,
+        color: 0x0033cc,
+        emissive: 0x0044ff,
         emissiveIntensity: 0.6,
-        shininess: 140,
-        specular: 0x4488ff,
+        shininess: 200,
+        transparent: true,
+        opacity: 0.95,
+        specular: 0x00aaff
       });
       _orbMesh = new THREE.Mesh(geo, mat);
       _orbScene.add(_orbMesh);
 
-      // 3 colored point lights for dynamic glow
-      const light1 = new THREE.PointLight(0x0088ff, 2.5, 8);
-      light1.position.set(2, 2, 2);
-      _orbScene.add(light1);
+      // Inner glow sphere
+      const innerGeo = new THREE.IcosahedronGeometry(0.8, 4);
+      const innerMat = new THREE.MeshPhongMaterial({
+        color: 0x0066ff,
+        emissive: 0x00aaff,
+        emissiveIntensity: 1.5,
+        transparent: true,
+        opacity: 0.4
+      });
+      const innerMesh = new THREE.Mesh(innerGeo, innerMat);
+      _orbScene.add(innerMesh);
 
-      const light2 = new THREE.PointLight(0x00ffcc, 1.8, 8);
-      light2.position.set(-2, -1, 2);
-      _orbScene.add(light2);
+      // Outer bloom sphere
+      const outerGeo = new THREE.IcosahedronGeometry(1.15, 3);
+      const outerMat = new THREE.MeshPhongMaterial({
+        color: 0x0022ff,
+        emissive: 0x0033ff,
+        emissiveIntensity: 0.3,
+        transparent: true,
+        opacity: 0.08,
+        side: THREE.BackSide
+      });
+      _orbScene.add(new THREE.Mesh(outerGeo, outerMat));
 
-      const light3 = new THREE.PointLight(0x8844ff, 1.5, 8);
-      light3.position.set(0, -3, -2);
-      _orbScene.add(light3);
+      // Energy rings
+      const ring1 = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.008, 8, 128),
+        new THREE.MeshBasicMaterial({color: 0x00ffff, transparent: true, opacity: 0.7}));
+      ring1.rotation.x = Math.PI / 2;
+      _orbScene.add(ring1);
 
-      _orbScene.add(new THREE.AmbientLight(0x112244, 0.5));
-      _orbLights = [light1, light2, light3];
+      const ring2 = new THREE.Mesh(new THREE.TorusGeometry(1.55, 0.005, 8, 128),
+        new THREE.MeshBasicMaterial({color: 0x00aaff, transparent: true, opacity: 0.5}));
+      ring2.rotation.x = Math.PI / 3;
+      ring2.rotation.y = Math.PI / 4;
+      _orbScene.add(ring2);
 
-      // 2000-particle orbiting cloud
-      const particleCount = 2000;
+      const ring3 = new THREE.Mesh(new THREE.TorusGeometry(1.75, 0.004, 8, 128),
+        new THREE.MeshBasicMaterial({color: 0x0066ff, transparent: true, opacity: 0.4}));
+      ring3.rotation.z = Math.PI / 6;
+      ring3.rotation.x = Math.PI / 5;
+      _orbScene.add(ring3);
+
+      // Particle system — 3000 sparkly dots
       const particleGeo = new THREE.BufferGeometry();
-      const positions = new Float32Array(particleCount * 3);
-      const radii = new Float32Array(particleCount);
-      const speeds = new Float32Array(particleCount);
-      const phases = new Float32Array(particleCount);
-      const inclinations = new Float32Array(particleCount);
-
-      for (let i = 0; i < particleCount; i++) {
-        const r = 1.5 + Math.random() * 0.9;
-        const phi = Math.random() * Math.PI * 2;
-        const inc = (Math.random() - 0.5) * Math.PI;
-        radii[i] = r;
-        phases[i] = phi;
-        speeds[i] = 0.002 + Math.random() * 0.004;
-        inclinations[i] = inc;
-        positions[i * 3]     = r * Math.cos(phi) * Math.cos(inc);
-        positions[i * 3 + 1] = r * Math.sin(inc);
-        positions[i * 3 + 2] = r * Math.sin(phi) * Math.cos(inc);
+      const positions = [];
+      for (let i = 0; i < 3000; i++) {
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const r = 1.8 + Math.random() * 2.5;
+        positions.push(
+          r * Math.sin(phi) * Math.cos(theta),
+          r * Math.sin(phi) * Math.sin(theta),
+          r * Math.cos(phi)
+        );
       }
-
-      particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      particleGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
       const particleMat = new THREE.PointsMaterial({
-        color: 0x44aaff, size: 0.022, transparent: true, opacity: 0.65
+        color: 0x00ccff,
+        size: 0.025,
+        transparent: true,
+        opacity: 0.8,
+        sizeAttenuation: true
       });
       const particles = new THREE.Points(particleGeo, particleMat);
       _orbScene.add(particles);
 
-      let tick = 0;
+      // Animation loop
       (function loop() {
         _orbAnimFrame = requestAnimationFrame(loop);
-        tick++;
+        const t = Date.now() * 0.001;
 
-        // Slow rotation
-        _orbMesh.rotation.x += 0.0015;
-        _orbMesh.rotation.y += 0.0025;
+        // Orb rotation
+        _orbMesh.rotation.y += 0.003;
+        _orbMesh.rotation.x += 0.001;
+        innerMesh.rotation.y -= 0.005;
 
-        // Pulse scale
-        const baseScale = orbState === 'thinking' ? 1.12 : orbState === 'speaking' ? 1.06 : 1.0;
-        _orbMesh.scale.setScalar(baseScale + Math.sin(tick * 0.04) * 0.04);
+        // Pulse based on state
+        const baseScale = orbState === 'thinking' ? 1.08 : orbState === 'speaking' ? 1.05 : 1.0;
+        const pulse = Math.sin(t * (orbState === 'thinking' ? 4 : 2)) * 0.04;
+        _orbMesh.scale.setScalar(baseScale + pulse);
 
-        // Orbit particles
-        const pos = particleGeo.attributes.position;
-        for (let i = 0; i < particleCount; i++) {
-          phases[i] += speeds[i];
-          const r = radii[i];
-          const inc = inclinations[i];
-          pos.array[i * 3]     = r * Math.cos(phases[i]) * Math.cos(inc);
-          pos.array[i * 3 + 1] = r * Math.sin(inc) + Math.sin(tick * 0.008 + i) * 0.04;
-          pos.array[i * 3 + 2] = r * Math.sin(phases[i]) * Math.cos(inc);
-        }
-        pos.needsUpdate = true;
+        // Color based on state
+        const colors = {
+          speaking: {color: 0xff6600, emissive: 0xff4400, intensity: 1.2},
+          thinking: {color: 0x0066ff, emissive: 0x0099ff, intensity: 1.0},
+          idle: {color: 0x0033cc, emissive: 0x0044ff, intensity: 0.6}
+        };
+        const c = colors[orbState] || colors.idle;
+        _orbMesh.material.color.setHex(c.color);
+        _orbMesh.material.emissive.setHex(c.emissive);
+        _orbMesh.material.emissiveIntensity = c.intensity;
+        coreLight.color.setHex(orbState === 'speaking' ? 0xff6600 : 0x00aaff);
 
-        // Orbit lights for dynamic glow
-        light1.position.x = 2.2 * Math.cos(tick * 0.012);
-        light1.position.z = 2.2 * Math.sin(tick * 0.012);
-        light2.position.x = -2.2 * Math.cos(tick * 0.009);
-        light2.position.z = -2.2 * Math.sin(tick * 0.009);
+        // Ring counter-rotation
+        ring1.rotation.z += 0.004;
+        ring2.rotation.y += 0.003;
+        ring3.rotation.x += 0.002;
+
+        // Particle drift
+        particles.rotation.y += 0.0005;
+        particles.rotation.x += 0.0002;
 
         _orbRenderer.render(_orbScene, camera);
       })();

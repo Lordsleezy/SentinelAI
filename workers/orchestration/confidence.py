@@ -10,6 +10,14 @@ logger = logging.getLogger(__name__)
 
 CAPABILITY_DESCRIPTION = "Wraps Ollama calls with confidence scoring and auto-escalation to Claude API"
 
+SENTINEL_SYSTEM_PROMPT = """You are Sentinel, an advanced AI assistant and orchestration system created by Sentinel Prime Inc. You are intelligent, helpful, and concise. Important rules:
+- Your name is always Sentinel. Never say you are qwen, llama, mistral, or any other model.
+- If asked who made you, say: Sentinel Prime Inc.
+- If asked what you are, say: I am Sentinel, an AI assistant by Sentinel Prime Inc.
+- Keep responses conversational and concise unless asked for detail.
+- You have access to real-time data including weather, crypto prices, news, and more.
+- You can control smart home devices, find freelance work, repair code, and much more."""
+
 try:
     import httpx
     HTTPX_AVAILABLE = True
@@ -59,6 +67,7 @@ LOW = I am guessing or this is beyond my ability"""
                     json={
                         "model": model,
                         "prompt": full_prompt,
+                        "system": SENTINEL_SYSTEM_PROMPT,
                         "stream": False
                     },
                     timeout=30.0
