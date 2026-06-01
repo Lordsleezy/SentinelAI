@@ -723,12 +723,41 @@ def api_forge_request():
 
 
 def _strip_code_fences(text: str) -> str:
-    """Strip leading/trailing markdown code fences that Ollama sometimes wraps code in."""
+    """Strip markdown code fences from Ollama output.
+
+    Handles all variants:
+      ```python ... ```   (with language tag)
+      ```py    ... ```
+      ```      ... ```   (bare)
+      Plain code with no fences — returned unchanged.
+
+    Also handles:
+      - Explanation text before/after the fence block
+      - Windows \\r\\n line endings
+      - Missing closing fence (fence at top, no bottom)
+    """
     import re as _re
-    # Remove ```language and ``` wrappers
     text = text.strip()
-    text = _re.sub(r'^```[a-zA-Z]*\n?', '', text)
-    text = _re.sub(r'\n?```\s*$', '', text)
+    if not text:
+        return text
+
+    # Case 1: Complete fence block — extract first code block content.
+    # Non-greedy match so we stop at the FIRST closing fence.
+    m = _re.search(r'```[a-zA-Z0-9]*[ \t]*\r?\n(.*?)\r?\n[ \t]*```', text, _re.DOTALL)
+    if m:
+        return m.group(1).strip()
+
+    # Case 2: Opening fence but no closing fence (Ollama cut off or forgot to close).
+    # Strip the opening fence line and return the rest.
+    if _re.match(r'^```[a-zA-Z0-9]*[ \t]*\r?\n', text):
+        text = _re.sub(r'^```[a-zA-Z0-9]*[ \t]*\r?\n?', '', text)
+        # Also strip any stray trailing ``` that might be a remnant
+        text = _re.sub(r'\r?\n?```[a-zA-Z0-9]*\s*$', '', text)
+        return text.strip()
+
+    # Case 3: Fence with no language tag and no newline after (edge case).
+    text = _re.sub(r'^`{3}[a-zA-Z0-9]*\s*', '', text)
+    text = _re.sub(r'\s*`{3}[a-zA-Z0-9]*\s*$', '', text)
     return text.strip()
 
 

@@ -169,7 +169,14 @@
   </style>
 </head>
 <body>
-  <h1>💰 Sentinel Earn</h1>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+    <h1 style="margin:0;">💰 Sentinel Earn</h1>
+    <button id="scan-now-btn" onclick="loadJobs(true)"
+      style="padding:8px 20px;background:linear-gradient(135deg,#00aa55,#00ff88);color:#000;border:none;
+             border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px;">
+      ⟳ Scan Now
+    </button>
+  </div>
 
   <div class="stats" id="stats-container">
     <div class="stat-card">
@@ -202,10 +209,13 @@
   <script>
     const BASE = 'http://127.0.0.1:5001';
 
-    async function loadJobs() {
+    async function loadJobs(manual = false) {
+      const btn = document.getElementById('scan-now-btn');
+      if (manual && btn) { btn.disabled = true; btn.textContent = '⟳ Scanning...'; }
       try {
         const res = await fetch(`${BASE}/earn/jobs`);
         const data = await res.json();
+        if (manual && btn) { btn.disabled = false; btn.textContent = '⟳ Scan Now'; }
 
         if (!data || !data.jobs) return;
 
@@ -249,6 +259,7 @@
         window._earnJobs = jobs;
       } catch (e) {
         console.error('Failed to load jobs:', e);
+        if (manual && btn) { btn.disabled = false; btn.textContent = '⟳ Scan Now'; }
       }
     }
 

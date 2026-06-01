@@ -145,8 +145,14 @@ function cleanupOrphanedBackend() {
 // ============================================================================
 
 function findPython() {
-  // Common Python paths on Windows — return first that exists
+  // Prefer the project venv so all pip dependencies are available.
+  // Fall back to system Python if venv is missing (e.g., first install before setup).
   const candidates = [
+    // Project venv — preferred (Windows)
+    path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe'),
+    // Project venv — preferred (Unix/macOS, keeps cross-platform compat)
+    path.join(__dirname, '..', 'venv', 'bin', 'python'),
+    // System Python fallbacks
     'python',
     'python3',
     path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
@@ -158,9 +164,14 @@ function findPython() {
   ];
   for (const candidate of candidates) {
     try {
-      if (!candidate.includes(path.sep) || fs.existsSync(candidate)) return candidate;
+      if (fs.existsSync(candidate)) {
+        console.log(`[Python] Using: ${candidate}`);
+        return candidate;
+      }
     } catch (_) { /* continue */ }
   }
+  // Last-resort: let the OS resolve it
+  console.warn('[Python] venv not found — falling back to system python');
   return 'python';
 }
 

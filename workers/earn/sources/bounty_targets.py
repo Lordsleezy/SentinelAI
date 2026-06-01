@@ -49,9 +49,9 @@ def parse_hackerone_program(program: Dict[str, Any]) -> Dict[str, Any]:
         if best_severity and best_severity in _SEVERITY_REWARD_HINT:
             reward = _SEVERITY_REWARD_HINT[best_severity]
         else:
-            reward = "Bounty offered"
+            reward = "Varies"
     else:
-        reward = "VDP (no bounty)"
+        reward = "VDP"
 
     avg_days = program.get("average_time_to_bounty_awarded")
     handle = program.get("handle") or program.get("name", "unknown")
