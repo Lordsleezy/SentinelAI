@@ -692,7 +692,7 @@ def api_forge_request():
                     },
                 )
             if resp.status_code == 200:
-                code = resp.json().get("response", "").strip()
+                code = _strip_code_fences(resp.json().get("response", ""))
                 license_manager.increment_usage("forge_tasks")
                 db.log_event("forge_generated", f"Forge direct-generated code for: {prompt[:80]}")
                 return jsonify({
@@ -722,6 +722,16 @@ def api_forge_request():
         return jsonify({"error": str(e)}), 500
 
 
+def _strip_code_fences(text: str) -> str:
+    """Strip leading/trailing markdown code fences that Ollama sometimes wraps code in."""
+    import re as _re
+    # Remove ```language and ``` wrappers
+    text = text.strip()
+    text = _re.sub(r'^```[a-zA-Z]*\n?', '', text)
+    text = _re.sub(r'\n?```\s*$', '', text)
+    return text.strip()
+
+
 @app.route('/api/forge/generate', methods=['POST'])
 def api_forge_generate():
     """Direct Ollama code generation for the Forge window — no approval queue."""
@@ -748,7 +758,7 @@ def api_forge_generate():
             )
         if resp.status_code != 200:
             return jsonify({"error": f"Ollama HTTP {resp.status_code}"}), 500
-        code = resp.json().get("response", "").strip()
+        code = _strip_code_fences(resp.json().get("response", ""))
         db.log_event("forge_generated", f"Forge generated code for: {prompt[:80]}")
         return jsonify({"status": "complete", "code": code,
                         "model": ollama_model, "lines": code.count('\n') + 1})
@@ -3123,6 +3133,31 @@ def api_chat():
             else:
                 _id_resp = "I'm Sentinel, an advanced AI assistant by Sentinel Prime Inc. I can help you with coding, finding work, managing your home, trading, and much more."
             return jsonify({"status": "ok", "worker": "general", "response": _id_resp, "routed": True})
+
+        # ── Memory save/recall — "remember that X" / "what is my X" ─────────────
+        import re as _re_mem
+        _remember_match = _re_mem.search(r'(?:remember|note|save|keep in mind|store)\s+that\s+(.+)', lower)
+        if _remember_match:
+            fact = message[_remember_match.start(1):]
+            try:
+                get_memory().remember("user_facts", fact, {"source": "chat"})
+            except Exception:
+                pass
+            return jsonify({"status": "ok", "worker": "memory",
+                            "response": f"Got it! I've saved: \"{fact.strip()}\"",
+                            "routed": True})
+
+        _recall_kw = ['what is my ', 'what are my ', 'tell me my ', 'remind me of my ',
+                      "what's my ", 'do you remember ', 'what did i tell you']
+        if any(kw in lower for kw in _recall_kw):
+            try:
+                facts = get_memory().recall("user_facts", lower, limit=5)
+                if facts:
+                    snippets = "\n".join(f"• {f.get('content', f)}" for f in facts[:5])
+                    return jsonify({"status": "ok", "worker": "memory",
+                                    "response": f"From your memory:\n{snippets}", "routed": True})
+            except Exception:
+                pass
 
         # ── Real-time data routing — runs before Ollama ───────────────────────
         if any(w in lower for w in ['weather', 'temperature', 'forecast', 'raining', 'sunny', 'cold outside', 'hot outside', 'how cold', 'how hot']):
