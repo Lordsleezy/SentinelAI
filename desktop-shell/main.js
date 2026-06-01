@@ -539,10 +539,16 @@ function spawnPtyTerminal() {
 // SETUP WIZARD
 // ============================================================================
 
+function getEnvPath() {
+  // Packaged app: write to resources dir (writable, outside asar)
+  // Dev mode: write to project root
+  return app.isPackaged
+    ? path.join(process.resourcesPath, '.env')
+    : path.join(__dirname, '..', '.env');
+}
+
 function isFirstRun() {
-  // Check if .env file exists in parent directory
-  const envPath = path.join(__dirname, '..', '.env');
-  return !fs.existsSync(envPath);
+  return !fs.existsSync(getEnvPath());
 }
 
 function createSetupWizardWindow() {
@@ -624,7 +630,7 @@ function setupIPC() {
       })
       .join('\n');
 
-    const envPath = path.join(__dirname, '..', '.env');
+    const envPath = getEnvPath();
     try {
       fs.writeFileSync(envPath, envContent, 'utf8');
       console.log('[Wizard] .env written to', envPath);

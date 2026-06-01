@@ -605,7 +605,11 @@
         orbState = 'speaking';
         renderOrb();
 
-        responseArea.textContent = data.response || 'Task completed';
+        const planResp = data.response;
+        const planText = typeof planResp === 'string'
+          ? planResp
+          : (planResp?.response || planResp?.text || planResp?.message || (planResp != null ? JSON.stringify(planResp) : ''));
+        responseArea.textContent = planText || 'Task completed';
         responseArea.classList.add('visible');
 
         setTimeout(() => {
@@ -679,8 +683,12 @@
           orbState = 'speaking';
           renderOrb();
 
-          // Show response
-          responseArea.textContent = data.response || 'Processing...';
+          // Show response — data.response may be a string, object, or null
+          const rawResp = data.response;
+          const displayText = typeof rawResp === 'string'
+            ? rawResp
+            : (rawResp?.response || rawResp?.text || rawResp?.message || (rawResp != null ? JSON.stringify(rawResp) : ''));
+          responseArea.textContent = displayText || 'Processing...';
           responseArea.classList.add('visible');
 
           setTimeout(() => {

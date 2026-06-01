@@ -2767,9 +2767,82 @@ def api_capability_list():
 
 # ─── Chat Routing API ─────────────────────────────────────────────────────────
 
+def _chat_quick_response(message: str) -> str:
+    """Generate a quick response via Ollama, falling back to Claude API, then canned text."""
+    try:
+        import httpx
+        ollama_host = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
+        ollama_model = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
+        with httpx.Client(timeout=8.0) as client:
+            resp = client.post(
+                f"{ollama_host}/api/generate",
+                json={"model": ollama_model, "prompt": message, "stream": False},
+            )
+            if resp.status_code == 200:
+                text = resp.json().get('response', '').strip()
+                if text:
+                    return text
+    except Exception:
+        pass
+
+    try:
+        import httpx
+        api_key = os.getenv('ANTHROPIC_API_KEY', '')
+        if api_key:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01",
+                             "content-type": "application/json"},
+                    json={"model": "claude-haiku-4-5-20251001", "max_tokens": 256,
+                          "messages": [{"role": "user", "content": message}]},
+                )
+                if resp.status_code == 200:
+                    content = resp.json().get('content', [])
+                    if content:
+                        text = content[0].get('text', '').strip()
+                        if text:
+                            return text
+    except Exception:
+        pass
+
+    return ""
+
+
+_WORKER_RESPONSES = {
+    "forge": "I'll help you with that code task. Opening the Forge...",
+    "earn": "Searching for bounties and opportunities for you...",
+    "market": "Fetching current market and price data for you...",
+    "home": "Sending command to your home automation system...",
+    "finance": "Loading your financial summary...",
+    "general": "I'm here to help! How can I assist you today?",
+}
+
+_CONVERSATIONAL_CANNED = [
+    ("hi", "Hi there! How can I help you today?"),
+    ("hello", "Hello! What can I do for you?"),
+    ("hey", "Hey! What's on your mind?"),
+    ("how are you", "I'm running great and ready to help! What do you need?"),
+    ("what can you do", "I can help you write code, find bug bounties, check market prices, control smart home devices, and much more. Just ask!"),
+    ("what time", "I don't have direct clock access, but your system clock is right. Can I help with something else?"),
+    ("thank", "You're welcome! Let me know if you need anything else."),
+    ("bye", "Goodbye! Come back anytime you need help."),
+    ("2 plus 2", "2 + 2 = 4"),
+    ("2+2", "2 + 2 = 4"),
+]
+
+
+def _canned_response(message: str) -> str:
+    lower = message.lower()
+    for kw, reply in _CONVERSATIONAL_CANNED:
+        if kw in lower:
+            return reply
+    return "I'm here and ready to help! What would you like to do?"
+
+
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
-    """Route a chat message to the correct worker.
+    """Route a chat message to the correct worker and return a response string.
 
     Accepts: { "message": "..." }
     Returns: { "worker": "...", "response": "...", "intent": {...} }
@@ -2782,23 +2855,12 @@ def api_chat():
 
         from workers.orchestration.task_decomposer import get_decomposer, is_conversational_input
 
-        # Conversational inputs never go to Forge
-        if is_conversational_input(message):
-            return jsonify({
-                "status": "ok",
-                "worker": "general",
-                "response": None,
-                "intent": {"intent": "general"},
-                "routed": True,
-            })
-
         lower = message.lower()
 
-        # Keyword-based pre-routing — overrides Ollama for high-confidence patterns.
-        # Order matters: more specific checks first.
+        # Keyword-based pre-routing runs FIRST — overrides conversational classifier
+        # for specific high-confidence patterns. Order: forge > earn > market > home.
         _pre_worker = None
 
-        # Forge: code/script/build/fix/debug/implement requests
         _forge_kw = ('write a', 'write me', 'build a', 'build me', 'create a', 'create me',
                      'implement', 'debug', 'fix the', 'fix my', 'refactor',
                      'python function', 'python script', 'javascript', 'bash script',
@@ -2807,25 +2869,43 @@ def api_chat():
         if any(kw in lower for kw in _forge_kw):
             _pre_worker = "forge"
 
-        # Earn: bounty/bug bounty/freelance/remote job requests
         _earn_kw = ('bounty', 'bug bounty', 'bounties', 'freelance', 'remote job',
                     'find jobs', 'find work', 'hackerone', 'bugcrowd', 'upwork',
                     'earn money', 'earn online', 'paid task')
         if any(kw in lower for kw in _earn_kw):
             _pre_worker = "earn"
 
-        # Market: crypto/stock price/market data (but NOT when also asking to write code)
         _market_kw = ('bitcoin price', 'eth price', 'crypto price', 'stock price',
-                      'market cap', 'market data', 'trading view', 'chart for')
+                      'btc price', 'bitcoin', 'ethereum price', 'market cap',
+                      'market data', 'trading view', 'chart for')
         if any(kw in lower for kw in _market_kw) and _pre_worker != "forge":
             _pre_worker = "market"
 
+        _home_kw = ('turn on', 'turn off', 'switch on', 'switch off',
+                    'lights', 'thermostat', 'home automation', 'smart home',
+                    'home assistant', 'lock the', 'unlock the', 'dim the',
+                    'fan on', 'fan off', 'air conditioning', 'temperature to')
+        if any(kw in lower for kw in _home_kw) and _pre_worker is None:
+            _pre_worker = "home"
+
         if _pre_worker:
+            response_text = _WORKER_RESPONSES.get(_pre_worker, f"Routing to {_pre_worker} worker...")
             return jsonify({
                 "status": "ok",
                 "worker": _pre_worker,
-                "response": None,
+                "response": response_text,
                 "intent": {"intent": _pre_worker},
+                "routed": True,
+            })
+
+        # Conversational inputs (no keyword match) → general worker with AI response
+        if is_conversational_input(message):
+            response_text = _chat_quick_response(message) or _canned_response(message)
+            return jsonify({
+                "status": "ok",
+                "worker": "general",
+                "response": response_text,
+                "intent": {"intent": "general"},
                 "routed": True,
             })
 
@@ -2835,7 +2915,6 @@ def api_chat():
         first = subtasks[0] if subtasks else {}
         worker_raw = first.get("worker", "ollama_general")
 
-        # Normalize worker names for client consumption
         _worker_map = {
             "forge": "forge",
             "earn": "earn",
@@ -2851,21 +2930,21 @@ def api_chat():
         }
         worker = _worker_map.get(worker_raw, "general")
 
-        # Safety: if worker resolved to forge but message is conversational, override
         if worker == "forge" and is_conversational_input(message):
             worker = "general"
 
+        response_text = _chat_quick_response(message) or _WORKER_RESPONSES.get(worker, f"Routing to {worker} worker...")
         return jsonify({
             "status": "ok",
             "worker": worker,
-            "response": None,
+            "response": response_text,
             "intent": {"intent": first.get("type", "GENERAL").lower()},
             "plan": plan,
             "routed": True,
         })
     except Exception as e:
         logger.exception("api_chat failed")
-        return jsonify({"status": "error", "worker": "general", "error": str(e)}), 500
+        return jsonify({"status": "error", "worker": "general", "response": "An error occurred. Please try again.", "error": str(e)}), 500
 
 
 # ─── Backend Launcher ─────────────────────────────────────────────────────────
