@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, Notification } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -644,8 +644,6 @@ function setupIPC() {
     // (which would trigger gracefulShutdown and kill the app).
     console.log('[Wizard] Creating orb window...');
     createOrbWindow();
-    console.log('[Wizard] Creating forge worker window...');
-    createWorkerWindow('forge');
     startBackendMonitor();
 
     // Step 3: close the wizard now that the main windows exist
@@ -656,6 +654,49 @@ function setupIPC() {
 
     console.log('[Wizard] Launch complete');
   });
+}
+
+// ============================================================================
+// APP MENU
+// ============================================================================
+
+function buildAppMenu() {
+  const template = [
+    {
+      label: 'Platforms',
+      submenu: [
+        {
+          label: 'Forge',
+          accelerator: 'CmdOrCtrl+1',
+          click: () => createWorkerWindow('forge')
+        },
+        {
+          label: 'Earn',
+          accelerator: 'CmdOrCtrl+2',
+          click: () => createWorkerWindow('earn')
+        },
+        {
+          label: 'Market',
+          accelerator: 'CmdOrCtrl+3',
+          click: () => createWorkerWindow('market')
+        },
+        {
+          label: 'Guardian',
+          accelerator: 'CmdOrCtrl+4',
+          click: () => createWorkerWindow('guardian')
+        }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'close' }
+      ]
+    }
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 // ============================================================================
@@ -694,10 +735,7 @@ async function startupSequence() {
       return; // Don't launch main windows yet
     }
 
-    // Launch BOTH windows on startup
-    createOrbWindow();           // Window 1 - The Orb (persistent)
-    createWorkerWindow('forge'); // Window 2 - Default to Forge dashboard
-
+    createOrbWindow();
     startBackendMonitor();
 
     updateSplash('Ready!', 100);
@@ -738,6 +776,7 @@ async function gracefulShutdown() {
 
 app.whenReady().then(() => {
   setupIPC();
+  buildAppMenu();
   startupSequence();
 
   app.on('activate', () => {

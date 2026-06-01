@@ -2707,25 +2707,8 @@ def api_earn_jobs():
     t1.start(); t2.start()
     t1.join(timeout=12); t2.join(timeout=12)
 
-    jobs = []
-    for item in results["bounty"]:
-        jobs.append({
-            "source": "hackerone",
-            "title": item.get("name") or item.get("handle") or "Bug Bounty Program",
-            "url": f"https://hackerone.com/{item.get('handle', '')}" if item.get("handle") else None,
-            "type": "bounty",
-            "data": item,
-        })
-    for item in results["remoteok"]:
-        jobs.append({
-            "source": "remoteok",
-            "title": item.get("position") or item.get("company") or "Remote Job",
-            "url": item.get("url"),
-            "type": "job",
-            "company": item.get("company"),
-            "tags": item.get("tags", []),
-            "data": item,
-        })
+    # Scanners already return normalized dicts — combine directly
+    jobs = results["bounty"] + results["remoteok"]
 
     return jsonify({"status": "ok", "jobs": jobs,
                     "counts": {"bounty": len(results["bounty"]), "remoteok": len(results["remoteok"])},

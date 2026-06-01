@@ -34,6 +34,7 @@ class CodebaseRAG:
         self.db_path = os.path.join(self.codebase_root, '.rag_db')
         self.indexed = False
         self.index_lock = threading.Lock()
+        self.collection = None  # always initialize — prevents AttributeError if deps missing
 
         if CHROMADB_AVAILABLE and SENTENCE_TRANSFORMERS_AVAILABLE:
             try:
@@ -43,7 +44,6 @@ class CodebaseRAG:
                     anonymized_telemetry=False
                 ))
                 self.model = SentenceTransformer('all-MiniLM-L6-v2')
-                self.collection = None
             except Exception as e:
                 logger.error(f"Failed to initialize ChromaDB: {e}")
                 self.client = None
@@ -51,6 +51,25 @@ class CodebaseRAG:
         else:
             self.client = None
             self.model = None
+
+    def _ensure_collection(self) -> bool:
+        """Get or create the ChromaDB collection. Returns False if ChromaDB is unavailable."""
+        if self.collection is not None:
+            return True
+        if not self.client:
+            return False
+        try:
+            try:
+                self.collection = self.client.get_collection("codebase")
+            except Exception:
+                self.collection = self.client.create_collection(
+                    name="codebase",
+                    metadata={"hnsw:space": "cosine"}
+                )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to ensure ChromaDB collection: {e}")
+            return False
 
     def index_codebase(self, force: bool = False) -> bool:
         """Index all Python files in the codebase"""
@@ -179,8 +198,7 @@ class CodebaseRAG:
 
     def query(self, task: str, n_results: int = 5) -> List[Dict[str, Any]]:
         """Query for relevant code context"""
-        if not self.collection:
-            logger.warning("RAG collection not initialized")
+        if not self._ensure_collection():
             return []
 
         if not self.indexed:

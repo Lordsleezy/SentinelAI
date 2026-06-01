@@ -476,50 +476,118 @@
     const THREE = require('three');
 
     let orbState = 'idle';
-    let _orbScene = null, _orbRenderer = null, _orbMesh = null, _orbAnimFrame = null;
+    let _orbScene = null, _orbRenderer = null, _orbMesh = null, _orbAnimFrame = null, _orbLights = null;
 
     function initOrb() {
       const container = document.getElementById('orb-root');
       if (!container || _orbRenderer) return;
 
-      const w = container.clientWidth || 300;
-      const h = container.clientHeight || 300;
+      const w = container.clientWidth || 400;
+      const h = container.clientHeight || 400;
 
       _orbScene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
-      camera.position.z = 3;
+      camera.position.z = 3.5;
 
       _orbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       _orbRenderer.setSize(w, h);
       _orbRenderer.setClearColor(0x000000, 0);
       container.appendChild(_orbRenderer.domElement);
 
-      const geo = new THREE.IcosahedronGeometry(1, 1);
-      const mat = new THREE.MeshStandardMaterial({
-        color: 0x8844ff, emissive: 0x8844ff, emissiveIntensity: 0.4,
-        metalness: 0.8, roughness: 0.2
+      // Glowing 3D sphere — high-detail icosahedron with Phong shading
+      const geo = new THREE.IcosahedronGeometry(1, 6);
+      const mat = new THREE.MeshPhongMaterial({
+        color: 0x0044aa,
+        emissive: 0x001155,
+        emissiveIntensity: 0.6,
+        shininess: 140,
+        specular: 0x4488ff,
       });
       _orbMesh = new THREE.Mesh(geo, mat);
       _orbScene.add(_orbMesh);
 
-      const ambient = new THREE.AmbientLight(0xffffff, 0.5);
-      const point = new THREE.PointLight(0xffffff, 1);
-      point.position.set(10, 10, 10);
-      _orbScene.add(ambient, point);
+      // 3 colored point lights for dynamic glow
+      const light1 = new THREE.PointLight(0x0088ff, 2.5, 8);
+      light1.position.set(2, 2, 2);
+      _orbScene.add(light1);
 
+      const light2 = new THREE.PointLight(0x00ffcc, 1.8, 8);
+      light2.position.set(-2, -1, 2);
+      _orbScene.add(light2);
+
+      const light3 = new THREE.PointLight(0x8844ff, 1.5, 8);
+      light3.position.set(0, -3, -2);
+      _orbScene.add(light3);
+
+      _orbScene.add(new THREE.AmbientLight(0x112244, 0.5));
+      _orbLights = [light1, light2, light3];
+
+      // 2000-particle orbiting cloud
+      const particleCount = 2000;
+      const particleGeo = new THREE.BufferGeometry();
+      const positions = new Float32Array(particleCount * 3);
+      const radii = new Float32Array(particleCount);
+      const speeds = new Float32Array(particleCount);
+      const phases = new Float32Array(particleCount);
+      const inclinations = new Float32Array(particleCount);
+
+      for (let i = 0; i < particleCount; i++) {
+        const r = 1.5 + Math.random() * 0.9;
+        const phi = Math.random() * Math.PI * 2;
+        const inc = (Math.random() - 0.5) * Math.PI;
+        radii[i] = r;
+        phases[i] = phi;
+        speeds[i] = 0.002 + Math.random() * 0.004;
+        inclinations[i] = inc;
+        positions[i * 3]     = r * Math.cos(phi) * Math.cos(inc);
+        positions[i * 3 + 1] = r * Math.sin(inc);
+        positions[i * 3 + 2] = r * Math.sin(phi) * Math.cos(inc);
+      }
+
+      particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const particleMat = new THREE.PointsMaterial({
+        color: 0x44aaff, size: 0.022, transparent: true, opacity: 0.65
+      });
+      const particles = new THREE.Points(particleGeo, particleMat);
+      _orbScene.add(particles);
+
+      let tick = 0;
       (function loop() {
         _orbAnimFrame = requestAnimationFrame(loop);
-        _orbMesh.rotation.x += 0.001;
-        _orbMesh.rotation.y += 0.002;
-        const baseScale = orbState === 'thinking' ? 1.1 : orbState === 'speaking' ? 1.05 : 1.0;
-        const pulse = Math.sin(Date.now() * 0.003) * 0.05;
-        _orbMesh.scale.setScalar(baseScale + pulse);
+        tick++;
+
+        // Slow rotation
+        _orbMesh.rotation.x += 0.0015;
+        _orbMesh.rotation.y += 0.0025;
+
+        // Pulse scale
+        const baseScale = orbState === 'thinking' ? 1.12 : orbState === 'speaking' ? 1.06 : 1.0;
+        _orbMesh.scale.setScalar(baseScale + Math.sin(tick * 0.04) * 0.04);
+
+        // Orbit particles
+        const pos = particleGeo.attributes.position;
+        for (let i = 0; i < particleCount; i++) {
+          phases[i] += speeds[i];
+          const r = radii[i];
+          const inc = inclinations[i];
+          pos.array[i * 3]     = r * Math.cos(phases[i]) * Math.cos(inc);
+          pos.array[i * 3 + 1] = r * Math.sin(inc) + Math.sin(tick * 0.008 + i) * 0.04;
+          pos.array[i * 3 + 2] = r * Math.sin(phases[i]) * Math.cos(inc);
+        }
+        pos.needsUpdate = true;
+
+        // Orbit lights for dynamic glow
+        light1.position.x = 2.2 * Math.cos(tick * 0.012);
+        light1.position.z = 2.2 * Math.sin(tick * 0.012);
+        light2.position.x = -2.2 * Math.cos(tick * 0.009);
+        light2.position.z = -2.2 * Math.sin(tick * 0.009);
+
         _orbRenderer.render(_orbScene, camera);
       })();
 
       window.addEventListener('resize', () => {
-        const nw = container.clientWidth || 300;
-        const nh = container.clientHeight || 300;
+        const nw = container.clientWidth || 400;
+        const nh = container.clientHeight || 400;
         camera.aspect = nw / nh;
         camera.updateProjectionMatrix();
         _orbRenderer.setSize(nw, nh);
@@ -528,12 +596,17 @@
 
     function renderOrb() {
       if (!_orbMesh) return;
-      const colors = { speaking: 0xffa500, thinking: 0x00ccff, idle: 0x8844ff };
-      const intensities = { speaking: 0.8, thinking: 0.6, idle: 0.4 };
-      const c = colors[orbState] || colors.idle;
-      _orbMesh.material.color.setHex(c);
-      _orbMesh.material.emissive.setHex(c);
-      _orbMesh.material.emissiveIntensity = intensities[orbState] || 0.4;
+      const configs = {
+        speaking: { color: 0x0077dd, emissive: 0x002255, lights: [0x00aaff, 0x00ffaa, 0x0044ff] },
+        thinking: { color: 0x0055cc, emissive: 0x001133, lights: [0x0066ff, 0x00ccff, 0x4400cc] },
+        idle:     { color: 0x0044aa, emissive: 0x001155, lights: [0x0088ff, 0x00ffcc, 0x8844ff] },
+      };
+      const cfg = configs[orbState] || configs.idle;
+      _orbMesh.material.color.setHex(cfg.color);
+      _orbMesh.material.emissive.setHex(cfg.emissive);
+      if (_orbLights) {
+        _orbLights.forEach((l, i) => l.color.setHex(cfg.lights[i]));
+      }
     }
 
     window.addEventListener('DOMContentLoaded', () => { initOrb(); renderOrb(); });
