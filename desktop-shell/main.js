@@ -30,7 +30,7 @@ const RESTART_WINDOW_MS = 60000;
 // Configuration
 const BACKEND_PORT = 5001;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
-const READINESS_TIMEOUT_MS = 30000;
+const READINESS_TIMEOUT_MS = 90000;
 const POLL_INTERVAL_MS = 500;
 const HEALTH_CHECK_INTERVAL_MS = 10000;
 const CONSECUTIVE_FAILURES_THRESHOLD = 3;
@@ -170,7 +170,7 @@ function launchBackend() {
 
     backendProcess = spawn(command, args, {
       cwd: backendDir,
-      env: { ...process.env },
+      env: { ...process.env, SENTINEL_NO_BROWSER: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false
     });
@@ -336,7 +336,7 @@ async function pollBackendReady() {
     await sleep(POLL_INTERVAL_MS);
   }
 
-  throw new Error('Backend readiness timeout (30 s)');
+  throw new Error('Backend readiness timeout (90 s)');
 }
 
 async function existingBackendReady() {
@@ -399,18 +399,18 @@ function startBackendMonitor() {
 
 function createOrbWindow() {
   orbWindow = new BrowserWindow({
-    width: 800,
-    height: 700,
-    minWidth: 600,
-    minHeight: 500,
+    width: 1200,
+    height: 800,
+    minWidth: 1200,
+    minHeight: 800,
     show: false,
     title: 'SentinelAI',
+    frame: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
     },
-    backgroundColor: '#0a0a0f',
-    frame: true
+    backgroundColor: '#000000',
   });
 
   orbWindow.loadFile('orb.html');
