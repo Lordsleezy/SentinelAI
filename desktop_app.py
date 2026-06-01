@@ -3193,6 +3193,134 @@ def api_earn_accept():
         return jsonify({"status": "error", "error": str(e)}), 200
 
 
+# ─── Guardian Security Console API ───────────────────────────────────────────
+
+_guardian_brain = None
+
+
+def get_guardian_brain():
+    global _guardian_brain
+    if _guardian_brain is None:
+        from workers.guardian.guardian_brain import GuardianBrain
+        _guardian_brain = GuardianBrain()
+    return _guardian_brain
+
+
+@app.route('/guardian/status', methods=['GET'])
+def api_guardian_status():
+    try:
+        return jsonify({"status": "ok", **get_guardian_brain().get_status()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/guardian/chat', methods=['POST'])
+def api_guardian_chat():
+    try:
+        data = request.get_json() or {}
+        message = (data.get('message') or '').strip()
+        if not message:
+            return jsonify({"status": "error", "error": "No message provided"}), 200
+        result = get_guardian_brain().chat(message)
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        logger.error("Guardian chat error: %s", e, exc_info=True)
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/guardian/authorize', methods=['POST'])
+def api_guardian_authorize():
+    try:
+        data = request.get_json() or {}
+        target = data.get('target', '').strip()
+        if not target:
+            return jsonify({"status": "error", "error": "target required"}), 200
+        result = get_guardian_brain().confirm_authorization(target)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/guardian/mode', methods=['POST'])
+def api_guardian_mode():
+    try:
+        data = request.get_json() or {}
+        result = get_guardian_brain().set_mode(data.get('mode', 'defend'))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/guardian/clear', methods=['POST'])
+def api_guardian_clear():
+    try:
+        return jsonify(get_guardian_brain().clear_history())
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/guardian/tool/run', methods=['POST'])
+def api_guardian_tool_run():
+    try:
+        data = request.get_json() or {}
+        tool = data.get('tool', '').strip()
+        args = data.get('args', '').strip()
+        target = data.get('target', '').strip()
+        if not tool:
+            return jsonify({"status": "error", "error": "tool required"}), 200
+        result = get_guardian_brain().run_tool(tool, args, target)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/guardian/audit/code', methods=['POST'])
+def api_guardian_audit_code():
+    try:
+        data = request.get_json() or {}
+        content = data.get('code') or data.get('path', '')
+        if not content:
+            return jsonify({"status": "error", "error": "Provide code text or file path"}), 200
+        result = get_guardian_brain().audit_code(content)
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/guardian/audit/repo', methods=['POST'])
+def api_guardian_audit_repo():
+    try:
+        data = request.get_json() or {}
+        repo_path = data.get('path', '').strip()
+        if not repo_path or not os.path.isdir(repo_path):
+            return jsonify({"status": "error", "error": "Invalid or missing repository path"}), 200
+        result = get_guardian_brain().audit_repository(repo_path)
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/guardian/cves', methods=['GET'])
+def api_guardian_cves():
+    try:
+        product = request.args.get('product')
+        severity = request.args.get('severity', 'CRITICAL')
+        limit = int(request.args.get('limit', 10))
+        cves = get_guardian_brain().get_cves(product=product, severity=severity, limit=limit)
+        return jsonify({"status": "ok", "cves": cves, "count": len(cves)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/guardian/cves/<cve_id>', methods=['GET'])
+def api_guardian_cve_detail(cve_id):
+    try:
+        result = get_guardian_brain().analyze_cve(cve_id)
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
 # ─── Backend Launcher ─────────────────────────────────────────────────────────
 
 def run_flask_app():

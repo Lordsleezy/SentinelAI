@@ -1,0 +1,19 @@
+{
+  "models": {
+    "fast": "qwen2.5-coder:7b",
+    "reasoning": "deepseek-r1:14b",
+    "code": "qwen2.5-coder:14b"
+  },
+  "model_routing": {
+    "packet_analysis": "reasoning",
+    "exploit_research": "reasoning",
+    "code_audit": "code",
+    "quick_commands": "fast",
+    "vulnerability_research": "reasoning",
+    "default": "fast"
+  },
+  "ollama_url": "http://localhost:11434",
+  "require_target_confirmation": true,
+  "log_all_actions": true,
+  "wsl_available": true
+}

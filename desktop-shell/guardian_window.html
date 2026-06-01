@@ -2,104 +2,511 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Guardian</title>
+  <title>Sentinel Guardian</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      background: #0a0a0f;
-      color: #e0e0e0;
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      height: 100vh;
-      padding: 20px;
+    :root {
+      --bg:     #0a0a0f;
+      --bg2:    #111118;
+      --bg3:    #18181f;
+      --border: rgba(255,255,255,0.07);
+      --green:  #00ff88;
+      --red:    #ff4444;
+      --orange: #ff8800;
+      --yellow: #ffcc00;
+      --blue:   #00aaff;
+      --purple: #aa66ff;
+      --text:   #e0e0e0;
+      --muted:  #666;
     }
+    body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
 
-    h1 {
-      font-size: 24px;
-      margin-bottom: 20px;
-      color: #00ccff;
-    }
+    /* Header */
+    #header { background:var(--bg2); border-bottom:1px solid var(--border); padding:10px 16px; display:flex; align-items:center; gap:10px; flex-shrink:0; }
+    #header h1 { font-size:14px; font-weight:700; color:var(--green); letter-spacing:1px; white-space:nowrap; }
+    .mode-btn { padding:4px 11px; border:1px solid var(--border); border-radius:4px; background:var(--bg3); color:var(--muted); cursor:pointer; font-size:11px; font-weight:700; letter-spacing:.5px; transition:all .15s; }
+    .mode-btn[data-mode="attack"].active   { background:rgba(255,68,68,.15);   color:var(--red);    border-color:rgba(255,68,68,.4); }
+    .mode-btn[data-mode="defend"].active   { background:rgba(0,170,255,.15);   color:var(--blue);   border-color:rgba(0,170,255,.4); }
+    .mode-btn[data-mode="forensics"].active{ background:rgba(170,102,255,.15); color:var(--purple); border-color:rgba(170,102,255,.4); }
+    #model-badge { margin-left:auto; font-size:10px; color:var(--muted); background:var(--bg3); padding:3px 8px; border-radius:4px; white-space:nowrap; }
 
-    .controls {
-      margin-bottom: 20px;
-      display: flex;
-      gap: 8px;
-    }
+    /* Tabs */
+    #tabs { display:flex; background:var(--bg2); border-bottom:1px solid var(--border); flex-shrink:0; }
+    .tab-btn { padding:8px 15px; background:none; border:none; border-bottom:2px solid transparent; color:var(--muted); cursor:pointer; font-size:12px; font-weight:600; letter-spacing:.5px; transition:all .15s; }
+    .tab-btn.active { color:var(--green); border-bottom-color:var(--green); }
+    .tab-btn:hover  { color:var(--text); }
 
-    .btn {
-      padding: 8px 16px;
-      background: #00ccff;
-      color: #000;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 600;
-    }
+    /* Panels */
+    .tab-panel { display:none; flex:1; overflow:hidden; flex-direction:column; }
+    .tab-panel.active { display:flex; }
 
-    .log-area {
-      background: #111118;
-      border: 1px solid rgba(0,204,255,0.15);
-      border-radius: 8px;
-      padding: 16px;
-      height: calc(100vh - 140px);
-      overflow-y: auto;
-      font-family: 'Consolas', monospace;
-      font-size: 12px;
-      line-height: 1.6;
-    }
+    /* ── CHAT ─────────────────────────────────────────────────────────── */
+    #chat-messages { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+    .msg { max-width:84%; padding:10px 13px; border-radius:8px; font-size:13px; line-height:1.55; word-break:break-word; }
+    .msg.user     { align-self:flex-end;   background:var(--bg3); border:1px solid var(--border); }
+    .msg.guardian { align-self:flex-start; background:rgba(0,255,136,.06); border:1px solid rgba(0,255,136,.15); }
+    .msg.auth-req { align-self:center; background:rgba(255,136,0,.1); border:1px solid rgba(255,136,0,.3); color:var(--orange); max-width:95%; text-align:center; }
+    .msg.err      { align-self:center; background:rgba(255,68,68,.1); border:1px solid rgba(255,68,68,.3); color:var(--red); }
+    .tool-badge   { display:inline-block; margin-top:6px; padding:2px 8px; background:rgba(255,204,0,.12); border:1px solid rgba(255,204,0,.3); border-radius:4px; font-size:10px; color:var(--yellow); font-family:monospace; }
+    .tool-out     { margin-top:7px; background:#0d0d14; border:1px solid var(--border); border-radius:4px; padding:8px; font-family:monospace; font-size:11px; color:#99ffcc; max-height:180px; overflow-y:auto; white-space:pre-wrap; }
+    .tier-tag     { font-size:9px; color:var(--muted); margin-top:4px; }
+    .thinking-msg { color:var(--muted); font-style:italic; font-size:12px; align-self:flex-start; display:flex; align-items:center; gap:6px; }
 
-    .log-line {
-      margin-bottom: 4px;
-    }
+    #chat-bar { padding:10px 14px; background:var(--bg2); border-top:1px solid var(--border); display:flex; gap:8px; flex-shrink:0; }
+    #chat-input { flex:1; background:var(--bg3); border:1px solid var(--border); color:var(--text); padding:9px 13px; border-radius:6px; font-size:13px; outline:none; }
+    #chat-input:focus { border-color:rgba(0,255,136,.3); }
+    .send-btn  { padding:9px 18px; background:var(--green); color:#000; border:none; border-radius:6px; cursor:pointer; font-weight:700; font-size:12px; }
+    .clear-btn { padding:9px 12px; background:var(--bg3); color:var(--muted); border:1px solid var(--border); border-radius:6px; cursor:pointer; font-size:11px; }
 
-    .log-line.info { color: #aaa; }
-    .log-line.warn { color: #ffa500; }
-    .log-line.error { color: #ff4444; }
+    /* Auth overlay */
+    #auth-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:200; align-items:center; justify-content:center; }
+    #auth-overlay.vis { display:flex; }
+    #auth-box { background:var(--bg2); border:1px solid rgba(255,136,0,.5); border-radius:10px; padding:28px 32px; max-width:460px; text-align:center; }
+    #auth-box h2 { color:var(--orange); font-size:16px; margin-bottom:12px; }
+    #auth-box p  { font-size:13px; color:var(--text); margin-bottom:20px; line-height:1.6; }
+    #auth-target { font-family:monospace; color:var(--yellow); font-weight:700; font-size:15px; }
+    .auth-row { display:flex; gap:10px; justify-content:center; }
+    .auth-yes { padding:10px 20px; background:var(--orange); color:#000; border:none; border-radius:6px; cursor:pointer; font-weight:700; font-size:13px; }
+    .auth-no  { padding:10px 20px; background:var(--bg3); color:var(--muted); border:1px solid var(--border); border-radius:6px; cursor:pointer; font-size:13px; }
+
+    /* ── CODE AUDIT ──────────────────────────────────────────────────── */
+    #audit-wrap { display:flex; flex:1; overflow:hidden; }
+    #audit-left { width:42%; display:flex; flex-direction:column; padding:14px; gap:9px; border-right:1px solid var(--border); overflow:hidden; }
+    #audit-right { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:9px; }
+    .path-inp { background:var(--bg3); border:1px solid var(--border); color:var(--text); padding:7px 11px; border-radius:5px; font-size:12px; outline:none; width:100%; font-family:monospace; }
+    textarea.code-inp { flex:1; background:var(--bg3); border:1px solid var(--border); color:#99ffcc; font-family:monospace; font-size:12px; padding:10px; border-radius:5px; resize:none; outline:none; min-height:160px; }
+    .audit-btn { padding:8px 18px; border:none; border-radius:5px; cursor:pointer; font-weight:700; font-size:12px; }
+    .audit-btn:disabled { opacity:.4; cursor:not-allowed; }
+    .finding-block { background:var(--bg3); border-left:3px solid var(--border); border-radius:4px; padding:10px 12px; font-size:12px; white-space:pre-wrap; line-height:1.55; }
+    .finding-block.crit { border-color:var(--red); }
+    .finding-block.high { border-color:var(--orange); }
+    .finding-block.med  { border-color:var(--yellow); }
+    .finding-block.low  { border-color:var(--muted); }
+
+    /* ── CVE FEED ────────────────────────────────────────────────────── */
+    #cve-wrap  { display:flex; flex-direction:column; flex:1; overflow:hidden; }
+    #cve-bar   { padding:10px 14px; background:var(--bg2); border-bottom:1px solid var(--border); display:flex; gap:8px; align-items:center; flex-shrink:0; }
+    #cve-search{ background:var(--bg3); border:1px solid var(--border); color:var(--text); padding:7px 11px; border-radius:5px; font-size:12px; outline:none; flex:1; }
+    .sev-btn   { padding:5px 11px; background:var(--bg3); border:1px solid var(--border); color:var(--muted); border-radius:4px; cursor:pointer; font-size:11px; font-weight:700; }
+    .sev-btn.ac{ background:rgba(255,68,68,.15);  color:var(--red);    border-color:rgba(255,68,68,.4); }
+    .sev-btn.ah{ background:rgba(255,136,0,.15);  color:var(--orange); border-color:rgba(255,136,0,.4); }
+    .sev-btn.am{ background:rgba(255,204,0,.15);  color:var(--yellow); border-color:rgba(255,204,0,.4); }
+    #cve-fetch-btn { padding:6px 14px; background:var(--bg3); color:var(--blue); border:1px solid rgba(0,170,255,.3); border-radius:4px; cursor:pointer; font-size:11px; font-weight:700; }
+    #cve-body  { display:flex; flex:1; overflow:hidden; }
+    #cve-list  { flex:1; overflow-y:auto; padding:12px 14px; display:flex; flex-direction:column; gap:7px; }
+    #cve-panel { width:360px; border-left:1px solid var(--border); overflow-y:auto; padding:14px; flex-shrink:0; }
+    .cve-card  { background:var(--bg3); border:1px solid var(--border); border-radius:5px; padding:9px 11px; cursor:pointer; transition:border-color .15s; }
+    .cve-card:hover { border-color:rgba(0,170,255,.4); }
+    .cve-id    { font-size:11px; font-weight:700; color:var(--blue); font-family:monospace; }
+    .cve-score { float:right; font-size:13px; font-weight:700; }
+    .cve-score.sc{ color:var(--red); }
+    .cve-score.sh{ color:var(--orange); }
+    .cve-score.sm{ color:var(--yellow); }
+    .cve-desc  { font-size:11px; color:var(--muted); margin-top:3px; line-height:1.4; }
+    .cve-date  { font-size:10px; color:#444; margin-top:3px; }
+    #cve-panel h3 { color:var(--blue); font-size:13px; margin-bottom:8px; font-family:monospace; }
+    #cve-analysis { font-size:12px; line-height:1.6; white-space:pre-wrap; }
+
+    /* ── TOOLS ───────────────────────────────────────────────────────── */
+    #tools-wrap  { display:flex; flex:1; overflow:hidden; }
+    #tool-list   { width:200px; border-right:1px solid var(--border); padding:10px; display:flex; flex-direction:column; gap:5px; overflow-y:auto; flex-shrink:0; }
+    .tool-card   { background:var(--bg3); border:1px solid var(--border); border-radius:5px; padding:9px 11px; cursor:pointer; transition:border-color .15s; }
+    .tool-card:hover, .tool-card.sel { border-color:rgba(0,255,136,.35); }
+    .tool-nm     { font-size:12px; font-weight:700; color:var(--green); font-family:monospace; }
+    .tool-ds     { font-size:10px; color:var(--muted); margin-top:2px; }
+    #tool-right  { flex:1; display:flex; flex-direction:column; padding:14px; gap:9px; overflow:hidden; }
+    .form-row    { display:flex; gap:8px; align-items:center; }
+    .form-lbl    { font-size:11px; color:var(--muted); width:56px; flex-shrink:0; }
+    .form-inp    { flex:1; background:var(--bg3); border:1px solid var(--border); color:var(--text); padding:7px 10px; border-radius:4px; font-size:12px; outline:none; font-family:monospace; }
+    .run-btn     { padding:8px 20px; background:var(--green); color:#000; border:none; border-radius:5px; cursor:pointer; font-weight:700; font-size:12px; width:fit-content; }
+    .run-btn:disabled { opacity:.4; cursor:not-allowed; }
+    #tool-out    { flex:1; background:#0d0d14; border:1px solid var(--border); border-radius:5px; padding:11px; font-family:monospace; font-size:12px; color:#99ffcc; overflow-y:auto; white-space:pre-wrap; }
+
+    /* ── REPORTS ─────────────────────────────────────────────────────── */
+    #reports-wrap { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:9px; }
+    .rep-card    { background:var(--bg3); border:1px solid var(--border); border-radius:5px; padding:11px 13px; }
+    .rep-title   { font-size:13px; font-weight:600; color:var(--green); }
+    .rep-meta    { font-size:10px; color:var(--muted); margin-top:3px; }
+    .rep-body    { font-size:11px; color:var(--muted); margin-top:6px; white-space:pre-wrap; line-height:1.5; }
+
+    /* Shared */
+    .lbl { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
+    .empty { color:var(--muted); font-size:13px; text-align:center; padding:28px; }
+    .spinner { display:inline-block; width:11px; height:11px; border:2px solid var(--border); border-top-color:var(--green); border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    ::-webkit-scrollbar { width:4px; }
+    ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.1); border-radius:3px; }
   </style>
 </head>
 <body>
-  <h1>🛡 Guardian</h1>
 
-  <div class="controls">
-    <button class="btn" id="scan-btn">Run Security Scan</button>
-    <button class="btn" id="check-vulns">Check Vulnerabilities</button>
+<!-- Auth overlay -->
+<div id="auth-overlay">
+  <div id="auth-box">
+    <h2>⚠ Authorization Required</h2>
+    <p>Confirm you have <strong>written authorization</strong> to perform security testing on:<br><br>
+    <span id="auth-target">—</span></p>
+    <div class="auth-row">
+      <button class="auth-yes" id="auth-yes">I Have Authorization — Proceed</button>
+      <button class="auth-no"  id="auth-no">Cancel</button>
+    </div>
   </div>
+</div>
 
-  <div class="log-area" id="log-area">
-    <div class="log-line info">Guardian ready. Click "Run Security Scan" to start.</div>
+<!-- Header -->
+<div id="header">
+  <h1>🛡 SENTINEL GUARDIAN</h1>
+  <button class="mode-btn active" data-mode="defend" id="mode-defend">DEFEND</button>
+  <button class="mode-btn"        data-mode="attack" id="mode-attack">ATTACK</button>
+  <button class="mode-btn"     data-mode="forensics" id="mode-forensics">FORENSICS</button>
+  <div id="model-badge">connecting...</div>
+</div>
+
+<!-- Tab bar -->
+<div id="tabs">
+  <button class="tab-btn active" data-tab="chat">💬 Chat</button>
+  <button class="tab-btn"        data-tab="audit">🔍 Code Audit</button>
+  <button class="tab-btn"        data-tab="cve">📡 CVE Feed</button>
+  <button class="tab-btn"        data-tab="tools">🛠 Tools</button>
+  <button class="tab-btn"        data-tab="reports">📋 Reports</button>
+</div>
+
+<!-- ═══════════════════════════ CHAT ════════════════════════════════════ -->
+<div class="tab-panel active" id="tab-chat">
+  <div id="chat-messages">
+    <div class="msg guardian">Guardian online. I assist with authorized penetration testing, code auditing, CVE research, and security tool interpretation. How can I help?</div>
   </div>
+  <div id="chat-bar">
+    <input id="chat-input" type="text" placeholder="Ask Guardian about security…" />
+    <button class="send-btn" id="send-btn">Send</button>
+    <button class="clear-btn" id="clear-btn">Clear</button>
+  </div>
+</div>
 
-  <script>
-    function log(message, type = 'info') {
-      const logArea = document.getElementById('log-area');
-      const line = document.createElement('div');
-      line.className = `log-line ${type}`;
-      line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-      logArea.appendChild(line);
-      logArea.scrollTop = logArea.scrollHeight;
+<!-- ══════════════════════════ CODE AUDIT ═══════════════════════════════ -->
+<div class="tab-panel" id="tab-audit">
+  <div id="audit-wrap">
+    <div id="audit-left">
+      <div class="lbl">File path  <span style="color:#444">or paste code below</span></div>
+      <input class="path-inp" id="audit-path" placeholder="C:\path\to\file.py" />
+      <textarea class="code-inp" id="audit-code" placeholder="Paste code here for security audit…"></textarea>
+      <div style="display:flex;gap:8px;">
+        <button class="audit-btn" id="btn-audit-code"  style="background:var(--green);color:#000;">Audit Code</button>
+        <button class="audit-btn" id="btn-audit-repo"  style="background:var(--blue);color:#000;">Scan Repo</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);">Code audit runs locally — no target authorization needed.</div>
+    </div>
+    <div id="audit-right">
+      <div class="lbl">Security Findings</div>
+      <div id="audit-out"><div class="empty">Run an audit to see findings.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ CVE FEED ════════════════════════════════ -->
+<div class="tab-panel" id="tab-cve">
+  <div id="cve-wrap">
+    <div id="cve-bar">
+      <input id="cve-search" type="text" placeholder="Product (e.g. nginx, openssl, apache)…" />
+      <button class="sev-btn ac" data-sev="CRITICAL">CRITICAL</button>
+      <button class="sev-btn"    data-sev="HIGH">HIGH</button>
+      <button class="sev-btn"    data-sev="MEDIUM">MEDIUM</button>
+      <button id="cve-fetch-btn">Fetch CVEs</button>
+    </div>
+    <div id="cve-body">
+      <div id="cve-list"><div class="empty">Search a product name or fetch latest critical CVEs.</div></div>
+      <div id="cve-panel">
+        <h3 id="cve-panel-id">Select a CVE</h3>
+        <div id="cve-analysis" style="color:var(--muted);font-size:12px;">Click a CVE card to load Guardian's technical analysis.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════ TOOLS ══════════════════════════════════ -->
+<div class="tab-panel" id="tab-tools">
+  <div id="tools-wrap">
+    <div id="tool-list">
+      <div class="lbl" style="margin-bottom:6px;">Tools (via WSL)</div>
+      <div class="tool-card sel" data-tool="nmap"     data-tmpl="-sV -sC {target}"><div class="tool-nm">nmap</div><div class="tool-ds">Port scan & service detection</div></div>
+      <div class="tool-card"     data-tool="nikto"    data-tmpl="-h {target}"><div class="tool-nm">nikto</div><div class="tool-ds">Web server vuln scan</div></div>
+      <div class="tool-card"     data-tool="gobuster" data-tmpl="dir -u http://{target} -w /usr/share/wordlists/dirb/common.txt"><div class="tool-nm">gobuster</div><div class="tool-ds">Directory brute-force</div></div>
+      <div class="tool-card"     data-tool="sqlmap"   data-tmpl="-u http://{target} --dbs --batch"><div class="tool-nm">sqlmap</div><div class="tool-ds">SQL injection test</div></div>
+      <div class="tool-card"     data-tool="nmap"     data-tmpl="-sU --top-ports 50 {target}"><div class="tool-nm">nmap UDP</div><div class="tool-ds">UDP port scan</div></div>
+      <div class="tool-card"     data-tool="tshark"   data-tmpl="-i eth0 -c 200 -T fields -e ip.src -e ip.dst -e tcp.port"><div class="tool-nm">tshark</div><div class="tool-ds">Packet capture</div></div>
+      <div class="tool-card"     data-tool="dig"      data-tmpl="+any {target}"><div class="tool-nm">dig</div><div class="tool-ds">DNS enumeration</div></div>
+      <div class="tool-card"     data-tool="whois"    data-tmpl="{target}"><div class="tool-nm">whois</div><div class="tool-ds">Domain/IP WHOIS</div></div>
+    </div>
+    <div id="tool-right">
+      <div class="lbl" id="tool-title">nmap — Port Scan</div>
+      <div class="form-row"><div class="form-lbl">Target</div><input class="form-inp" id="tool-target" placeholder="IP, hostname, CIDR (e.g. 192.168.1.1)" /></div>
+      <div class="form-row"><div class="form-lbl">Extra args</div><input class="form-inp" id="tool-args" placeholder="Additional flags…" /></div>
+      <div style="font-size:11px;color:var(--muted);">External targets require authorization confirmation before execution.</div>
+      <button class="run-btn" id="run-btn">▶ Run</button>
+      <div class="lbl">Output</div>
+      <div id="tool-out">Select a tool and enter a target…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════ REPORTS ══════════════════════════════════ -->
+<div class="tab-panel" id="tab-reports">
+  <div id="reports-wrap">
+    <div id="reports-list"><div class="empty">No saved reports yet. Run scans or audits to populate this tab.</div></div>
+  </div>
+</div>
+
+<script>
+const BASE = 'http://127.0.0.1:5001';
+let pendingAuthTarget = null;
+let pendingRetryMsg   = null;
+let activeTool        = 'nmap';
+let activeTmpl        = '-sV -sC {target}';
+let cveActiveSev      = 'CRITICAL';
+const reports         = [];
+
+// ── Status ──────────────────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const d = await (await fetch(`${BASE}/guardian/status`)).json();
+    if (d.model_fast) {
+      document.getElementById('model-badge').textContent =
+        `fast:${d.model_fast.split(':')[0]} · reason:${d.model_reasoning?.split(':')[0]} · code:${d.model_code?.split(':')[0]}`;
     }
+  } catch(_) { document.getElementById('model-badge').textContent = 'backend offline'; }
+}
+loadStatus();
 
-    document.getElementById('scan-btn').addEventListener('click', async () => {
-      log('Starting security scan...', 'info');
-      try {
-        const res = await fetch('http://127.0.0.1:5001/guardian/scan', { method: 'POST' });
-        const data = await res.json();
-        log(`Scan complete: ${data.message || data.status}`, 'info');
-      } catch (e) {
-        log(`Scan failed: ${e.message}`, 'error');
-      }
-    });
+// ── Tabs ─────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tab-btn, .tab-panel').forEach(el => el.classList.remove('active'));
+  b.classList.add('active');
+  document.getElementById('tab-' + b.dataset.tab).classList.add('active');
+}));
 
-    document.getElementById('check-vulns').addEventListener('click', async () => {
-      log('Checking vulnerabilities...', 'info');
-      try {
-        const res = await fetch('http://127.0.0.1:5001/guardian/vulnerabilities');
-        const data = await res.json();
-        log(`Found ${data.count || 0} vulnerabilities`, data.count > 0 ? 'warn' : 'info');
-      } catch (e) {
-        log(`Check failed: ${e.message}`, 'error');
-      }
-    });
-  </script>
+// ── Mode ─────────────────────────────────────────────────────────────────
+document.querySelectorAll('.mode-btn').forEach(b => b.addEventListener('click', async () => {
+  const mode = b.dataset.mode;
+  await fetch(`${BASE}/guardian/mode`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mode}) }).catch(()=>{});
+  document.querySelectorAll('.mode-btn').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+}));
+
+// ── Auth overlay ──────────────────────────────────────────────────────────
+function showAuth(target, retryMsg) {
+  pendingAuthTarget = target;
+  pendingRetryMsg   = retryMsg;
+  document.getElementById('auth-target').textContent = target;
+  document.getElementById('auth-overlay').classList.add('vis');
+}
+
+document.getElementById('auth-yes').addEventListener('click', async () => {
+  if (!pendingAuthTarget) return;
+  await fetch(`${BASE}/guardian/authorize`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({target: pendingAuthTarget}) }).catch(()=>{});
+  document.getElementById('auth-overlay').classList.remove('vis');
+  addMsg(`✓ Authorized ${pendingAuthTarget}. Proceeding…`, 'guardian');
+  if (pendingRetryMsg) { const m = pendingRetryMsg; pendingAuthTarget = null; pendingRetryMsg = null; await doChat(m); }
+});
+
+document.getElementById('auth-no').addEventListener('click', () => {
+  document.getElementById('auth-overlay').classList.remove('vis');
+  addMsg('Testing cancelled.', 'err');
+  pendingAuthTarget = pendingRetryMsg = null;
+});
+
+// ── Chat helpers ──────────────────────────────────────────────────────────
+function escH(s) { const d = document.createElement('div'); d.textContent = String(s||''); return d.innerHTML; }
+
+function addMsg(text, type='guardian', extra={}) {
+  const wrap = document.getElementById('chat-messages');
+  const el   = document.createElement('div');
+  el.className = `msg ${type}`;
+  el.textContent = text;
+  (extra.tools||[]).forEach(tc => {
+    const b = document.createElement('div'); b.className='tool-badge'; b.textContent=`▶ ${tc.tool} ${tc.args}`; el.appendChild(b);
+    if (tc.output) { const o=document.createElement('div'); o.className='tool-out'; o.textContent=tc.output; el.appendChild(o); }
+  });
+  if (extra.tier) { const t=document.createElement('div'); t.className='tier-tag'; t.textContent=`model tier: ${extra.tier}`; el.appendChild(t); }
+  wrap.appendChild(el);
+  wrap.scrollTop = 999999;
+  return el;
+}
+
+function addThinking() {
+  const wrap = document.getElementById('chat-messages');
+  const el   = document.createElement('div');
+  el.className = 'thinking-msg'; el.id = 'thinking';
+  el.innerHTML = '<span class="spinner"></span> Guardian is thinking…';
+  wrap.appendChild(el); wrap.scrollTop = 999999;
+}
+function removeThinking() { const e = document.getElementById('thinking'); if (e) e.remove(); }
+
+// ── Chat logic ────────────────────────────────────────────────────────────
+async function doChat(message) {
+  document.getElementById('send-btn').disabled = true;
+  addThinking();
+  try {
+    const res  = await fetch(`${BASE}/guardian/chat`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message}) });
+    const data = await res.json();
+    removeThinking();
+    if (data.requires_confirmation) {
+      addMsg(`Authorization required for: ${data.target}`, 'auth-req');
+      showAuth(data.target, message);
+    } else if (data.response) {
+      addMsg(data.response, 'guardian', { tools: data.tool_calls||[], tier: data.tier });
+    } else {
+      addMsg(data.error || 'No response.', 'err');
+    }
+  } catch(e) { removeThinking(); addMsg(`Connection error: ${e.message}`, 'err'); }
+  document.getElementById('send-btn').disabled = false;
+}
+
+document.getElementById('send-btn').addEventListener('click', () => {
+  const inp = document.getElementById('chat-input');
+  const msg = inp.value.trim(); if (!msg) return;
+  addMsg(msg, 'user'); inp.value = ''; doChat(msg);
+});
+document.getElementById('chat-input').addEventListener('keydown', e => { if (e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); document.getElementById('send-btn').click(); } });
+document.getElementById('clear-btn').addEventListener('click', async () => {
+  await fetch(`${BASE}/guardian/clear`, {method:'POST'}).catch(()=>{});
+  document.getElementById('chat-messages').innerHTML = '<div class="msg guardian">History cleared. Ready.</div>';
+});
+
+// ── Code Audit ────────────────────────────────────────────────────────────
+function renderAudit(data) {
+  const el = document.getElementById('audit-out');
+  if (data.error) { el.innerHTML = `<div class="empty" style="color:var(--red);">${escH(data.error)}</div>`; return; }
+  const sev = t => t.includes('CRITICAL')?'crit':t.includes('HIGH')?'high':t.includes('MEDIUM')?'med':'low';
+  const init = data.initial_findings || '';
+  const deep = data.deep_review || '';
+  el.innerHTML = `
+    <div class="lbl">Initial Audit — ${data.lines_analyzed||0} lines, ${data.filename||'code'}</div>
+    <div class="finding-block ${sev(init)}">${escH(init)}</div>
+    ${deep?`<div class="lbl" style="margin-top:10px;">Deep Analysis (Reasoning Model)</div><div class="finding-block ${sev(deep)}">${escH(deep)}</div>`:''}
+  `;
+  saveReport(`Code Audit: ${data.filename||'code'}`, init.substring(0,220));
+}
+
+document.getElementById('btn-audit-code').addEventListener('click', async () => {
+  const path = document.getElementById('audit-path').value.trim();
+  const code = document.getElementById('audit-code').value.trim();
+  if (!path && !code) { alert('Enter a file path or paste code.'); return; }
+  const btn = document.getElementById('btn-audit-code');
+  btn.disabled = true; btn.textContent = 'Auditing…';
+  document.getElementById('audit-out').innerHTML = '<div class="empty"><span class="spinner"></span> Running security audit…</div>';
+  try {
+    const body = path ? {path} : {code};
+    const data = await (await fetch(`${BASE}/guardian/audit/code`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })).json();
+    renderAudit(data);
+  } catch(e) { document.getElementById('audit-out').innerHTML=`<div class="empty" style="color:var(--red);">Error: ${escH(e.message)}</div>`; }
+  btn.disabled = false; btn.textContent = 'Audit Code';
+});
+
+document.getElementById('btn-audit-repo').addEventListener('click', async () => {
+  const path = document.getElementById('audit-path').value.trim();
+  if (!path) { alert('Enter a repository path.'); return; }
+  const btn = document.getElementById('btn-audit-repo');
+  btn.disabled = true; btn.textContent = 'Scanning…';
+  document.getElementById('audit-out').innerHTML = '<div class="empty"><span class="spinner"></span> Scanning repo (up to 20 files)…</div>';
+  try {
+    const data = await (await fetch(`${BASE}/guardian/audit/repo`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path}) })).json();
+    if (data.status === 'ok') {
+      const crits = data.critical_findings || [];
+      document.getElementById('audit-out').innerHTML = `
+        <div class="finding-block" style="border-color:var(--blue);">
+          <strong>${data.files_audited} files audited</strong> of ${data.total_files_found} found.
+          ${crits.length?`<br><span style="color:var(--red);">${crits.length} file(s) with CRITICAL/HIGH findings.</span>`:'<br><span style="color:var(--green);">No critical findings.</span>'}
+        </div>
+        ${crits.map(f=>`<div class="finding-block crit"><div class="lbl">${escH(f.file)}</div><div style="margin-top:5px;">${escH(f.findings)}</div></div>`).join('')}
+      `;
+      saveReport(`Repo Scan: ${path}`, `${data.files_audited} files, ${crits.length} critical`);
+    } else { document.getElementById('audit-out').innerHTML=`<div class="empty" style="color:var(--red);">${escH(data.error)}</div>`; }
+  } catch(e) { document.getElementById('audit-out').innerHTML=`<div class="empty" style="color:var(--red);">Error: ${escH(e.message)}</div>`; }
+  btn.disabled = false; btn.textContent = 'Scan Repo';
+});
+
+// ── CVE Feed ──────────────────────────────────────────────────────────────
+document.querySelectorAll('.sev-btn[data-sev]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.sev-btn[data-sev]').forEach(x => x.className='sev-btn');
+  cveActiveSev = b.dataset.sev;
+  b.classList.add(cveActiveSev==='CRITICAL'?'ac':cveActiveSev==='HIGH'?'ah':'am');
+}));
+
+async function fetchCVEs() {
+  const product = document.getElementById('cve-search').value.trim()||null;
+  document.getElementById('cve-list').innerHTML = '<div class="empty"><span class="spinner"></span> Fetching from NVD…</div>';
+  try {
+    let url = `${BASE}/guardian/cves?severity=${cveActiveSev}&limit=15`;
+    if (product) url += `&product=${encodeURIComponent(product)}`;
+    const data = await (await fetch(url)).json();
+    const cves = data.cves||[];
+    if (!cves.length) { document.getElementById('cve-list').innerHTML='<div class="empty">No CVEs found.</div>'; return; }
+    document.getElementById('cve-list').innerHTML = cves.map(c=>{
+      const s = c.cvss_score!=null ? c.cvss_score.toFixed(1) : '—';
+      const cls = s>=9?'sc':s>=7?'sh':'sm';
+      return `<div class="cve-card" onclick="loadCVE('${c.id}')">
+        <span class="cve-id">${c.id}</span><span class="cve-score ${cls}">${s}</span>
+        <div class="cve-desc">${escH(c.description)}</div>
+        <div class="cve-date">${c.published||''}</div>
+      </div>`;
+    }).join('');
+  } catch(e) { document.getElementById('cve-list').innerHTML=`<div class="empty" style="color:var(--red);">Error: ${escH(e.message)}</div>`; }
+}
+
+async function loadCVE(id) {
+  document.getElementById('cve-panel-id').textContent = id;
+  document.getElementById('cve-analysis').textContent = 'Loading analysis…';
+  try {
+    const data = await (await fetch(`${BASE}/guardian/cves/${id}`)).json();
+    document.getElementById('cve-analysis').textContent = data.analysis || data.error || 'No analysis.';
+  } catch(e) { document.getElementById('cve-analysis').textContent = `Error: ${e.message}`; }
+}
+
+document.getElementById('cve-fetch-btn').addEventListener('click', fetchCVEs);
+document.getElementById('cve-search').addEventListener('keydown', e => { if (e.key==='Enter') fetchCVEs(); });
+
+// ── Tools ─────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tool-card').forEach(c => c.addEventListener('click', () => {
+  document.querySelectorAll('.tool-card').forEach(x => x.classList.remove('sel'));
+  c.classList.add('sel');
+  activeTool = c.dataset.tool;
+  activeTmpl = c.dataset.tmpl;
+  document.getElementById('tool-title').textContent = `${activeTool} — ${c.querySelector('.tool-ds').textContent}`;
+  document.getElementById('tool-args').placeholder = activeTmpl.replace('{target}','<target>');
+}));
+
+document.getElementById('run-btn').addEventListener('click', async () => {
+  const target = document.getElementById('tool-target').value.trim();
+  const extra  = document.getElementById('tool-args').value.trim();
+  if (!target) { alert('Enter a target.'); return; }
+  const args = (activeTmpl.replace('{target}', target) + (extra?' '+extra:'')).trim();
+  const btn  = document.getElementById('run-btn');
+  btn.disabled = true; btn.textContent = '⏳ Running…';
+  document.getElementById('tool-out').textContent = `$ wsl ${activeTool} ${args}\n\n`;
+  try {
+    const data = await (await fetch(`${BASE}/guardian/tool/run`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({tool:activeTool, args, target}) })).json();
+    if (data.requires_confirmation) {
+      document.getElementById('tool-out').textContent = `Authorization required for: ${data.target}`;
+      showAuth(data.target, null);
+    } else {
+      document.getElementById('tool-out').textContent = data.output || 'No output.';
+      saveReport(`${activeTool}: ${target}`, (data.output||'').substring(0,200));
+    }
+  } catch(e) { document.getElementById('tool-out').textContent=`Error: ${e.message}`; }
+  btn.disabled = false; btn.textContent = '▶ Run';
+});
+
+// ── Reports ───────────────────────────────────────────────────────────────
+function saveReport(title, summary) {
+  reports.unshift({ title, summary, ts: new Date().toLocaleString() });
+  const el = document.getElementById('reports-list');
+  el.innerHTML = reports.map(r=>`
+    <div class="rep-card">
+      <div class="rep-title">${escH(r.title)}</div>
+      <div class="rep-meta">${r.ts}</div>
+      <div class="rep-body">${escH(r.summary)}…</div>
+    </div>`).join('');
+}
+</script>
 </body>
 </html>
