@@ -6,8 +6,14 @@
   <title>SentinelAI</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --hud-blue: #00d4ff;
+      --hud-orange: #ff6b35;
+      --hud-cyan: #00d4ff;
+    }
+
     body {
-      background: #0a0a0f;
+      background: #000000;
       color: #e0e0e0;
       font-family: 'Segoe UI', system-ui, sans-serif;
       overflow: hidden;
@@ -429,11 +435,48 @@
     .usage-counter.pro {
       display: none;
     }
+
+    /* ── SentinelOrb visual layer ── */
+    #orb-root { width: min(60vh, 520px); height: min(60vh, 520px); position: relative; }
+    .sentinel-orb-canvas { position:absolute;inset:0;width:100%!important;height:100%!important; }
+    .sentinel-orb-rings  { position:absolute;inset:0;color:var(--hud-blue); }
+    .orb-ring-svg        { width:100%;height:100%; }
+    .orb-ring            { transform-origin:200px 200px; }
+    .orb-ring-1          { animation:spin 20s linear infinite; }
+    .orb-ring-2          { animation:spin 12s linear infinite reverse; }
+    .orb-ring-3          { animation:spin 35s linear infinite; }
+    .orb-ring-4          { animation:spin 8s linear infinite reverse;opacity:0;transition:opacity .4s; }
+    .orb-listening .orb-ring-4,
+    .orb-speaking  .orb-ring-4,
+    .orb-alert     .orb-ring-4,
+    .orb-earn      .orb-ring-4 { opacity:1; }
+    .orb-node { animation:nodepulse 1.6s infinite; }
+    @keyframes nodepulse { 0%,100%{opacity:.3} 50%{opacity:1} }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .sentinel-orb-core {
+      position:absolute;inset:30%;border-radius:50%;
+      background:radial-gradient(circle,var(--hud-blue),transparent 70%);
+      filter:blur(8px);pointer-events:none;
+    }
+    .sentinel-orb-label {
+      position:absolute;inset:0;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;pointer-events:none;text-align:center;
+    }
+    .orb-label-text { font-size:13px;letter-spacing:3px;color:#fff;text-shadow:0 0 10px var(--hud-blue); }
+    .orb-label-sub  { font-size:10px;color:var(--hud-orange);margin-top:4px;letter-spacing:1px; }
+    .sentinel-orb-wave {
+      position:absolute;bottom:18%;left:50%;transform:translateX(-50%);
+      display:flex;gap:2px;height:24px;align-items:center;opacity:0;transition:opacity .3s;
+    }
+    .sentinel-orb-wave i {
+      display:block;width:2px;height:100%;background:var(--hud-cyan);
+      transform:scaleY(.1);transform-origin:center;box-shadow:0 0 4px var(--hud-cyan);
+    }
   </style>
 </head>
 <body>
   <div id="orb-container">
-    <div id="orb-root" style="width: 400px; height: 400px;"></div>
+    <div id="orb-root"></div>
     <div id="response-area"></div>
     <div id="plan-preview"></div>
     <div class="tier-badge" id="tier-badge">FREE</div>
@@ -472,287 +515,405 @@
   </div>
 
   <script>
-    // 3D orb via pure Three.js (loaded via Node require — nodeIntegration is on)
+    // Expose THREE globally so SentinelOrb IIFE can find it
     const THREE = require('three');
+    window.THREE = THREE;
 
     let orbState = 'idle';
-    let _orbScene = null, _orbRenderer = null, _orbMesh = null, _orbAnimFrame = null, _orbLights = null;
-    let _voiceOrbSetState = null;
+
+    // ── SentinelOrb — inlined from static/orb.js ──────────────────────────────
+    // window.THREE is set above, so the IIFE will find it.
+/* ============================================================================
+ * SentinelAI — orb.js
+ * The center visual of the SENTINEL PRIME HUD.
+ *
+ * A layered Three.js star-field orb with SVG reticle rings, a core glow, and
+ * an inner status label. Six states drive particle behaviour, ring speed and
+ * colour:  idle | listening | thinking | speaking | alert | earn.
+ *
+ * Depends on a global `THREE` (load three.min.js before this file).
+ * Builds itself inside #orb-root on DOMContentLoaded (or call SentinelOrb.init).
+ *
+ * Public API:
+ *   window.SentinelOrb = {
+ *     init(containerId?),      // mount (auto-called for #orb-root)
+ *     setState(state),         // idle|listening|thinking|speaking|alert|earn
+ *     pulse(),                 // one-shot wave from the core
+ *     alert(msg),              // -> alert state + flashes a message
+ *     setVolume(v),            // 0..1 mic/output level (reactive scale)
+ *     getState()
+ *   }
+ * ========================================================================== */
+(function () {
+  'use strict';
+
+  // ─── State colour + behaviour table ──────────────────────────────────────
+  // colors are THREE-friendly hex ints; label is the inner status text.
+  var STATES = {
+    idle:      { core: 0x00d4ff, particle: 0x00d4ff, label: 'SENTINEL ONLINE', ring: 1.0,  glow: 0.55, swirl: 0.04,  expand: 0.0,  drift: 1.0 },
+    listening: { core: 0x00fff7, particle: 0x00fff7, label: 'LISTENING...',    ring: 2.2,  glow: 0.85, swirl: 0.02,  expand: 1.0,  drift: 0.2 },
+    thinking:  { core: 0xa855f7, particle: 0xbf80ff, label: 'PROCESSING...',   ring: 0.55, glow: 0.7,  swirl: 0.16,  expand: 0.2,  drift: 0.3 },
+    speaking:  { core: 0xeaf6ff, particle: 0x9fe8ff, label: 'RESPONDING...',   ring: 2.8,  glow: 1.0,  swirl: 0.05,  expand: 0.3,  drift: 0.4, wave: true },
+    alert:     { core: 0xff6b35, particle: 0xff7a45, label: 'ALERT',           ring: 3.2,  glow: 1.0,  swirl: 0.2,   expand: 0.6,  drift: 0.2, erratic: true },
+    earn:      { core: 0xffd700, particle: 0xffd766, label: 'EARN MODE',       ring: 1.6,  glow: 0.9,  swirl: 0.1,   expand: 0.4,  drift: 0.4, orbit: true }
+  };
+
+  var PARTICLE_COUNT = 1200;
+
+  var ctx = {
+    mounted: false,
+    state: 'idle',
+    target: STATES.idle,
+    // smoothed runtime values
+    cur: { ring: 1.0, glow: 0.55, swirl: 0.04, expand: 0.0, drift: 1.0, r: 0, g: 0.83, b: 1.0 },
+    volume: 0,
+    pulseT: 0,            // decaying one-shot pulse energy
+    time: 0,
+    raf: null,
+    three: null,         // {scene,camera,renderer,points,positions,base,vel,material}
+    els: {}              // dom refs
+  };
+
+  // ─── Soft circular sprite for additive particles ─────────────────────────
+  function makeSprite() {
+    var c = document.createElement('canvas');
+    c.width = c.height = 64;
+    var g = c.getContext('2d');
+    var grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.25, 'rgba(255,255,255,0.85)');
+    grad.addColorStop(0.6, 'rgba(255,255,255,0.25)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    var tex = new THREE.Texture(c);
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  // ─── Layer 3: SVG reticle rings ───────────────────────────────────────────
+  function buildRings(root) {
+    var wrap = document.createElement('div');
+    wrap.className = 'sentinel-orb-rings';
+    wrap.innerHTML = [
+      '<svg viewBox="0 0 400 400" class="orb-ring-svg">',
+      // Ring 1 — 20s CW, dashed, triangle markers
+      '  <g class="orb-ring orb-ring-1">',
+      '    <circle cx="200" cy="200" r="178" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 10" opacity="0.55"/>',
+      '    <polygon points="200,16 195,28 205,28" fill="currentColor"/>',
+      '    <polygon points="200,384 195,372 205,372" fill="currentColor"/>',
+      '    <polygon points="16,200 28,195 28,205" fill="currentColor"/>',
+      '    <polygon points="384,200 372,195 372,205" fill="currentColor"/>',
+      '  </g>',
+      // Ring 2 — 12s CCW, node dots
+      '  <g class="orb-ring orb-ring-2">',
+      '    <circle cx="200" cy="200" r="150" fill="none" stroke="currentColor" stroke-width="1" opacity="0.25"/>',
+      '    <circle class="orb-node" cx="200" cy="50"  r="3" fill="currentColor"/>',
+      '    <circle class="orb-node" cx="350" cy="200" r="3" fill="currentColor"/>',
+      '    <circle class="orb-node" cx="200" cy="350" r="3" fill="currentColor"/>',
+      '    <circle class="orb-node" cx="50"  cy="200" r="3" fill="currentColor"/>',
+      '    <circle class="orb-node" cx="305" cy="95"  r="2.4" fill="currentColor"/>',
+      '    <circle class="orb-node" cx="95"  cy="305" r="2.4" fill="currentColor"/>',
+      '  </g>',
+      // Ring 3 — 35s CW, thin solid
+      '  <g class="orb-ring orb-ring-3">',
+      '    <circle cx="200" cy="200" r="120" fill="none" stroke="currentColor" stroke-width="0.6" opacity="0.4"/>',
+      '  </g>',
+      // Ring 4 — 8s CCW, only visible on active states
+      '  <g class="orb-ring orb-ring-4">',
+      '    <circle cx="200" cy="200" r="96" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="40 18" opacity="0.7"/>',
+      '  </g>',
+      '</svg>'
+    ].join('\n');
+    root.appendChild(wrap);
+    return wrap;
+  }
+
+  // ─── Layer 4 + 5: core glow + status text + waveform ──────────────────────
+  function buildOverlays(root) {
+    var glow = document.createElement('div');
+    glow.className = 'sentinel-orb-core';
+    root.appendChild(glow);
+
+    var label = document.createElement('div');
+    label.className = 'sentinel-orb-label';
+    label.innerHTML = '<span class="orb-label-text">SENTINEL ONLINE</span>' +
+                      '<span class="orb-label-sub"></span>';
+    root.appendChild(label);
+
+    var wave = document.createElement('div');
+    wave.className = 'sentinel-orb-wave';
+    var bars = '';
+    for (var i = 0; i < 28; i++) bars += '<i></i>';
+    wave.innerHTML = bars;
+    root.appendChild(wave);
+
+    return { glow: glow, label: label.querySelector('.orb-label-text'),
+             sub: label.querySelector('.orb-label-sub'), wave: wave,
+             waveBars: wave.querySelectorAll('i') };
+  }
+
+  // ─── Layer 2: Three.js star field ─────────────────────────────────────────
+  function buildThree(root) {
+    if (typeof THREE === 'undefined') {
+      console.warn('[SentinelOrb] THREE not loaded — orb runs without particle layer.');
+      return null;
+    }
+    var w = root.clientWidth || 480;
+    var h = root.clientHeight || 480;
+
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 100);
+    camera.position.z = 14;
+
+    var renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(w, h);
+    renderer.domElement.className = 'sentinel-orb-canvas';
+    root.appendChild(renderer.domElement);
+
+    var positions = new Float32Array(PARTICLE_COUNT * 3);
+    var base = new Float32Array(PARTICLE_COUNT * 3);   // home radius/dir
+    var vel = new Float32Array(PARTICLE_COUNT);        // per-particle phase/speed
+    for (var i = 0; i < PARTICLE_COUNT; i++) {
+      // dense center, sparse edges: bias radius by cubing a uniform
+      var u = Math.random();
+      var r = 1.2 + Math.pow(u, 0.5) * 6.2;            // 1.2 .. 7.4
+      var theta = Math.random() * Math.PI * 2;
+      var phi = Math.acos(2 * Math.random() - 1);
+      var x = r * Math.sin(phi) * Math.cos(theta);
+      var y = r * Math.sin(phi) * Math.sin(theta);
+      var z = r * Math.cos(phi);
+      base[i * 3] = x; base[i * 3 + 1] = y; base[i * 3 + 2] = z;
+      positions[i * 3] = x; positions[i * 3 + 1] = y; positions[i * 3 + 2] = z;
+      vel[i] = 0.4 + Math.random() * 1.2;
+    }
+
+    var geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    var material = new THREE.PointsMaterial({
+      size: 0.18,
+      map: makeSprite(),
+      color: new THREE.Color(STATES.idle.particle),
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      sizeAttenuation: true
+    });
+
+    var points = new THREE.Points(geom, material);
+    scene.add(points);
+
+    return { scene: scene, camera: camera, renderer: renderer, points: points,
+             geom: geom, positions: positions, base: base, vel: vel, material: material };
+  }
+
+  // ─── Per-frame particle behaviour ─────────────────────────────────────────
+  function stepParticles(t3, dt) {
+    var s = ctx.cur;
+    var t = ctx.time;
+    var pos = t3.positions;
+    var base = t3.base;
+    var vel = t3.vel;
+    var expand = s.expand + ctx.volume * 0.6;
+    var swirl = s.swirl;
+    var erratic = ctx.target.erratic ? 1 : 0;
+    var orbit = ctx.target.orbit ? 1 : 0;
+
+    for (var i = 0; i < PARTICLE_COUNT; i++) {
+      var ix = i * 3, iy = ix + 1, iz = ix + 2;
+      var bx = base[ix], by = base[iy], bz = base[iz];
+
+      // swirl around Z (clockwise) — rotate base direction over time
+      var ang = swirl * t * vel[i];
+      var ca = Math.cos(ang), sa = Math.sin(ang);
+      var rx = bx * ca - by * sa;
+      var ry = bx * sa + by * ca;
+      var rz = bz;
+
+      // expansion / contraction breathing
+      var br = 1 + expand * 0.5 + Math.sin(t * 1.6 + vel[i] * 6) * 0.04 * s.drift;
+      var tx = rx * br, ty = ry * br, tz = rz * br;
+
+      // earn: gentle orbital bob like coins
+      if (orbit) { ty += Math.sin(t * 2 + i) * 0.25; }
+      // alert: jitter
+      if (erratic) {
+        tx += (Math.random() - 0.5) * 0.5;
+        ty += (Math.random() - 0.5) * 0.5;
+      }
+
+      // ease current position toward target (idle => slow drift)
+      var k = 0.08 + (1 - s.drift) * 0.12;
+      pos[ix] += (tx - pos[ix]) * k;
+      pos[iy] += (ty - pos[iy]) * k;
+      pos[iz] += (tz - pos[iz]) * k;
+    }
+    t3.geom.attributes.position.needsUpdate = true;
+
+    // overall scale: speaking wave + volume reactive + pulse
+    var waveScale = ctx.target.wave ? (1 + Math.sin(t * 9) * 0.05) : 1;
+    var pulseScale = 1 + ctx.pulseT * 0.35;
+    var volScale = 1 + ctx.volume * 0.18;
+    var sc = waveScale * pulseScale * volScale;
+    t3.points.scale.set(sc, sc, sc);
+    t3.points.rotation.z += dt * 0.05;
+
+    // colour ease
+    t3.material.color.setRGB(s.r, s.g, s.b);
+    t3.material.opacity = 0.78 + s.glow * 0.22;
+  }
+
+  // ─── Main loop ────────────────────────────────────────────────────────────
+  function loop() {
+    ctx.raf = requestAnimationFrame(loop);
+    if (document.hidden) return;
+    var now = performance.now() / 1000;
+    var dt = Math.min(0.05, now - (ctx._last || now));
+    ctx._last = now;
+    ctx.time += dt;
+
+    // ease cur -> target
+    var T = ctx.target;
+    var tc = new THREE.Color ? null : null;
+    ease('ring', T.ring, 0.08);
+    ease('glow', T.glow, 0.08);
+    ease('swirl', T.swirl, 0.05);
+    ease('expand', T.expand, 0.06);
+    ease('drift', T.drift, 0.06);
+    // colour channels
+    var col = ctx._targetCol;
+    ctx.cur.r += (col.r - ctx.cur.r) * 0.07;
+    ctx.cur.g += (col.g - ctx.cur.g) * 0.07;
+    ctx.cur.b += (col.b - ctx.cur.b) * 0.07;
+
+    // decay pulse + volume
+    ctx.pulseT *= 0.92;
+    if (ctx.pulseT < 0.001) ctx.pulseT = 0;
+
+    // drive rings (animation-duration via CSS var ratio)
+    if (ctx.els.rings) {
+      ctx.els.rings.style.setProperty('--orb-ring-speed', (1 / Math.max(0.2, ctx.cur.ring)).toFixed(3));
+    }
+    // core glow color + intensity
+    if (ctx.els.core) {
+      var hex = rgbToCss(ctx.cur);
+      ctx.els.core.style.background =
+        'radial-gradient(circle, ' + hex + ' 0%, ' + rgbaCss(ctx.cur, 0.35) + ' 35%, transparent 70%)';
+      ctx.els.core.style.opacity = (0.4 + ctx.cur.glow * 0.6).toFixed(3);
+    }
+    if (ctx.els.root) {
+      ctx.els.root.style.color = rgbToCss(ctx.cur); // drives SVG currentColor
+    }
+
+    // waveform bars (listening/speaking)
+    if (ctx.els.waveBars) {
+      var active = ctx.state === 'listening' || ctx.state === 'speaking';
+      ctx.els.wave.style.opacity = active ? '1' : '0.15';
+      for (var b = 0; b < ctx.els.waveBars.length; b++) {
+        var base = active ? (0.25 + ctx.volume * 0.7) : 0.12;
+        var hgt = base + Math.abs(Math.sin(ctx.time * 6 + b * 0.5)) * (active ? 0.75 : 0.12);
+        ctx.els.waveBars[b].style.transform = 'scaleY(' + hgt.toFixed(3) + ')';
+      }
+    }
+
+    if (ctx.three) stepParticles(ctx.three, dt);
+    if (ctx.three) ctx.three.renderer.render(ctx.three.scene, ctx.three.camera);
+  }
+
+  function ease(key, target, k) { ctx.cur[key] += (target - ctx.cur[key]) * k; }
+
+  function rgbToCss(c) {
+    return 'rgb(' + (c.r * 255 | 0) + ',' + (c.g * 255 | 0) + ',' + (c.b * 255 | 0) + ')';
+  }
+  function rgbaCss(c, a) {
+    return 'rgba(' + (c.r * 255 | 0) + ',' + (c.g * 255 | 0) + ',' + (c.b * 255 | 0) + ',' + a + ')';
+  }
+  function hexToRgb(hex) {
+    return { r: ((hex >> 16) & 255) / 255, g: ((hex >> 8) & 255) / 255, b: (hex & 255) / 255 };
+  }
+
+  // ─── Public API ───────────────────────────────────────────────────────────
+  function setState(state) {
+    if (!STATES[state]) { console.warn('[SentinelOrb] unknown state', state); return; }
+    ctx.state = state;
+    ctx.target = STATES[state];
+    ctx._targetCol = hexToRgb(ctx.target.particle);
+    if (ctx.els.label) ctx.els.label.textContent = ctx.target.label;
+    if (ctx.els.root) {
+      ctx.els.root.className = ctx.els.root.className
+        .replace(/\borb-[a-z]+\b/g, '').trim() + ' orb-' + state;
+    }
+    if (state !== 'alert' && ctx.els.sub) ctx.els.sub.textContent = '';
+  }
+
+  function pulse() { ctx.pulseT = 1.0; }
+
+  function alertMsg(msg) {
+    setState('alert');
+    if (ctx.els.sub) ctx.els.sub.textContent = msg || '';
+    pulse();
+  }
+
+  function setVolume(v) { ctx.volume = Math.max(0, Math.min(1, v || 0)); }
+
+  function init(containerId) {
+    if (ctx.mounted) return;
+    var root = document.getElementById(containerId || 'orb-root');
+    if (!root) { console.warn('[SentinelOrb] container not found:', containerId || 'orb-root'); return; }
+    root.classList.add('sentinel-orb-root', 'orb-idle');
+
+    ctx.els.root = root;
+    ctx.three = buildThree(root);
+    ctx.els.rings = buildRings(root);
+    var ov = buildOverlays(root);
+    ctx.els.core = ov.glow;
+    ctx.els.label = ov.label;
+    ctx.els.sub = ov.sub;
+    ctx.els.wave = ov.wave;
+    ctx.els.waveBars = ov.waveBars;
+
+    ctx._targetCol = hexToRgb(STATES.idle.particle);
+    ctx.mounted = true;
+
+    window.addEventListener('resize', function () {
+      if (!ctx.three) return;
+      var w = root.clientWidth, h = root.clientHeight;
+      ctx.three.camera.aspect = w / h;
+      ctx.three.camera.updateProjectionMatrix();
+      ctx.three.renderer.setSize(w, h);
+    });
+
+    setState('idle');
+    loop();
+  }
+
+  window.SentinelOrb = {
+    init: init,
+    setState: setState,
+    pulse: pulse,
+    alert: alertMsg,
+    setVolume: setVolume,
+    getState: function () { return ctx.state; }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      if (document.getElementById('orb-root')) init('orb-root');
+    });
+  } else {
+    if (document.getElementById('orb-root')) init('orb-root');
+  }
+})();
 
     function initOrb() {
-      const container = document.getElementById('orb-root');
-      if (!container || _orbRenderer) return;
-
-      const w = container.clientWidth || 400;
-      const h = container.clientHeight || 400;
-
-      // Create canvas inside container
-      const canvas = document.createElement('canvas');
-      canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-      container.style.position = 'relative';
-      container.appendChild(canvas);
-
-      _orbScene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(75, w/h, 0.1, 1000);
-      camera.position.z = 5;
-
-      _orbRenderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: true});
-      _orbRenderer.setSize(w, h);
-      _orbRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      _orbRenderer.setClearColor(0x000000, 1);
-
-      // ── VoiceOrb shader-based layered sphere (adapted from aguscruiz/voiceorb) ──
-
-      // State configs — all blue/cyan/purple, no orange or pink
-      const voiceStates = {
-        idle: {
-          layers: [
-            { color: 0x434FCF, opacity: 0.20, scale: 1.00, rotationSpeed: { x: 0.001, y: 0.002, z: 0 } },
-            { color: 0x434FCF, opacity: 0.20, scale: 0.85, rotationSpeed: { x: -0.002, y: 0.003, z: 0.001 } },
-            { color: 0x434FCF, opacity: 0.40, scale: 0.70, rotationSpeed: { x: 0.003, y: -0.002, z: -0.001 } }
-          ],
-          audioLevel: 0.15, timeSpeed: 0.015, pulsate: false, chromaticAberration: 0.8
-        },
-        thinking: {
-          layers: [
-            { color: 0x8747F7, opacity: 0.20, scale: 0.85, rotationSpeed: { x: 0.003, y: 0.003, z: 0 } },
-            { color: 0x8747F7, opacity: 0.20, scale: 0.72, rotationSpeed: { x: -0.004, y: 0.004, z: 0.002 } },
-            { color: 0x8747F7, opacity: 0.40, scale: 0.60, rotationSpeed: { x: 0.005, y: -0.004, z: -0.002 } }
-          ],
-          audioLevel: 0.45, timeSpeed: 0.02,
-          pulsate: true, pulsateMode: 'thinking', pulsateMin: 0.0, pulsateMax: 0.15,
-          chromaticAberration: 0.8
-        },
-        speaking: {
-          layers: [
-            { color: 0x00aaff, opacity: 0.20, scale: 1.00, rotationSpeed: { x: 0.004, y: 0.005, z: 0 } },
-            { color: 0x0088ff, opacity: 0.20, scale: 0.85, rotationSpeed: { x: -0.005, y: 0.006, z: 0.003 } },
-            { color: 0x00ddff, opacity: 0.40, scale: 0.70, rotationSpeed: { x: 0.006, y: -0.005, z: -0.002 } }
-          ],
-          audioLevel: 0.80, timeSpeed: 0.027,
-          pulsate: true, pulsateMode: 'cadence', pulsateMin: 0.05, pulsateMax: 0.22,
-          chromaticAberration: 1.5
-        }
-      };
-
-      const vertexShader = `
-        varying vec3 vNormal;
-        varying vec3 vPosition;
-        varying vec2 vUv;
-        uniform float time;
-        uniform float audioLevel;
-        uniform float layerOffset;
-        vec3 mod289v3(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
-        vec4 mod289v4(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}
-        vec4 permute(vec4 x){return mod289v4(((x*34.0)+1.0)*x);}
-        vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
-        float snoise(vec3 v){
-          const vec2 C=vec2(1.0/6.0,1.0/3.0);const vec4 D=vec4(0.0,0.5,1.0,2.0);
-          vec3 i=floor(v+dot(v,C.yyy));vec3 x0=v-i+dot(i,C.xxx);
-          vec3 g=step(x0.yzx,x0.xyz);vec3 l=1.0-g;
-          vec3 i1=min(g.xyz,l.zxy);vec3 i2=max(g.xyz,l.zxy);
-          vec3 x1=x0-i1+C.xxx;vec3 x2=x0-i2+C.yyy;vec3 x3=x0-D.yyy;
-          i=mod289v3(i);
-          vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));
-          float n_=0.142857142857;vec3 ns=n_*D.wyz-D.xzx;
-          vec4 j=p-49.0*floor(p*ns.z*ns.z);
-          vec4 x_=floor(j*ns.z);vec4 y_=floor(j-7.0*x_);
-          vec4 x=x_*ns.x+ns.yyyy;vec4 y=y_*ns.x+ns.yyyy;vec4 h=1.0-abs(x)-abs(y);
-          vec4 b0=vec4(x.xy,y.xy);vec4 b1=vec4(x.zw,y.zw);
-          vec4 s0=floor(b0)*2.0+1.0;vec4 s1=floor(b1)*2.0+1.0;vec4 sh=-step(h,vec4(0.0));
-          vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
-          vec3 p0=vec3(a0.xy,h.x);vec3 p1=vec3(a0.zw,h.y);vec3 p2=vec3(a1.xy,h.z);vec3 p3=vec3(a1.zw,h.w);
-          vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
-          p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
-          vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);m=m*m;
-          return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
-        }
-        void main(){
-          vUv=uv;vNormal=normalize(normalMatrix*normal);
-          vec3 pos=position;
-          float wave1=sin(pos.y*2.5+time*1.5+layerOffset)*cos(pos.x*2.0-time*1.2);
-          float wave2=sin(pos.x*3.0-time*1.8+layerOffset)*cos(pos.z*2.5+time*1.5);
-          float wave3=sin(pos.z*2.8+time*1.6+layerOffset)*cos(pos.y*2.3-time*1.3);
-          float noise1=snoise(pos*1.2+time*0.3+layerOffset);
-          float noise2=snoise(pos*2.0-time*0.2+layerOffset*0.5);
-          float distortion=(wave1+wave2+wave3)*0.008;
-          distortion+=(noise1*0.008+noise2*0.007);
-          distortion*=(0.3+audioLevel*0.6);
-          pos=pos+normal*distortion;
-          vPosition=pos;
-          gl_Position=projectionMatrix*modelViewMatrix*vec4(pos,1.0);
-        }
-      `;
-
-      const fragmentShader = `
-        varying vec3 vNormal;
-        varying vec3 vPosition;
-        varying vec2 vUv;
-        uniform vec3 sphereColor;
-        uniform float opacity;
-        uniform float time;
-        uniform float chromaticAberration;
-        vec3 rgb2hsv(vec3 c){
-          vec4 K=vec4(0.0,-1.0/3.0,2.0/3.0,-1.0);
-          vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));
-          vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r));
-          float d=q.x-min(q.w,q.y);float e=1.0e-10;
-          return vec3(abs(q.z+(q.w-q.y)/(6.0*d+e)),d/(q.x+e),q.x);
-        }
-        vec3 hsv2rgb(vec3 c){
-          vec4 K=vec4(1.0,2.0/3.0,1.0/3.0,3.0);
-          vec3 p=abs(fract(c.xxx+K.xyz)*6.0-K.www);
-          return c.z*mix(K.xxx,clamp(p-K.xxx,0.0,1.0),c.y);
-        }
-        void main(){
-          vec3 viewDirection=normalize(cameraPosition-vPosition);
-          float fresnel=pow(1.0-abs(dot(viewDirection,normalize(vNormal))),2.0);
-          vec3 normalWorld=normalize(vNormal);
-          float rainbowShift=normalWorld.x*0.5+normalWorld.y*0.2+normalWorld.z*0.1;
-          rainbowShift+=sin(vPosition.x*5.0+time*0.5)*0.01;
-          rainbowShift+=cos(vPosition.y*4.0-time*0.3)*0.01;
-          rainbowShift=fract(rainbowShift);
-          vec3 rainbow=hsv2rgb(vec3(rainbowShift,0.8,1.0));
-          vec3 hsv=rgb2hsv(sphereColor);
-          float aberrationAmount=chromaticAberration*fresnel;
-          vec3 hsvR=hsv;hsvR.x=fract(hsv.x+aberrationAmount*0.15);vec3 colorR=hsv2rgb(hsvR);
-          vec3 colorG=sphereColor;
-          vec3 hsvB=hsv;hsvB.x=fract(hsv.x-aberrationAmount*0.15);vec3 colorB=hsv2rgb(hsvB);
-          vec3 color=vec3(colorR.r,colorG.g,colorB.b);
-          float holographicIntensity=fresnel*0.6+0.2;
-          color=mix(color,rainbow,holographicIntensity*0.6);
-          color+=fresnel*chromaticAberration*0.15;
-          float brightness=1.0+sin(vPosition.x*3.0+time)*0.1;
-          brightness+=sin(vPosition.y*2.5-time*0.8)*0.1;
-          float shimmer=sin(vPosition.x*8.0+vPosition.y*6.0+time*2.0)*0.04+0.96;
-          brightness*=shimmer;
-          color*=brightness;
-          gl_FragColor=vec4(color,opacity);
-        }
-      `;
-
-      // Build layered spheres
-      const orbLayers = [];
-      voiceStates.idle.layers.forEach((layerCfg, idx) => {
-        const geometry = new THREE.SphereGeometry(1.0, 64, 64);
-        const material = new THREE.ShaderMaterial({
-          vertexShader, fragmentShader,
-          uniforms: {
-            time: { value: 0 },
-            audioLevel: { value: 0 },
-            layerOffset: { value: idx * 2.0 },
-            sphereColor: { value: new THREE.Color(layerCfg.color) },
-            opacity: { value: layerCfg.opacity },
-            chromaticAberration: { value: 0.8 }
-          },
-          transparent: true, side: THREE.DoubleSide,
-          blending: THREE.NormalBlending, depthWrite: false
-        });
-        const sphere = new THREE.Mesh(geometry, material);
-        sphere.userData = { baseScale: layerCfg.scale, rotationSpeed: layerCfg.rotationSpeed };
-        _orbScene.add(sphere);
-        orbLayers.push(sphere);
-      });
-
-      // Lighting
-      _orbScene.add(new THREE.AmbientLight(0xffffff, 0.4));
-      const pl1 = new THREE.PointLight(0x667eea, 0.6, 100);
-      pl1.position.set(5, 5, 5); _orbScene.add(pl1);
-      const pl2 = new THREE.PointLight(0x764ba2, 0.4, 100);
-      pl2.position.set(-5, -5, 5); _orbScene.add(pl2);
-      _orbLights = [pl1, pl2];
-      _orbMesh = orbLayers[0] || null;
-
-      // State machine
-      let _voiceCurrentState = 'idle';
-      let _voiceTargetScale = 1.0, _voiceCurrentScale = 1.0;
-      let _speakingCadence = { intensity: 0.5, nextChange: 0 };
-
-      function voiceSetState(stateName) {
-        const s = voiceStates[stateName];
-        if (!s || _voiceCurrentState === stateName) return;
-        _voiceCurrentState = stateName;
-        orbLayers.forEach((layer, i) => {
-          const lc = s.layers[i];
-          if (!lc) return;
-          layer.material.uniforms.sphereColor.value.setHex(lc.color);
-          layer.material.uniforms.opacity.value = lc.opacity;
-          layer.material.uniforms.chromaticAberration.value = s.chromaticAberration || 0.1;
-          layer.userData.rotationSpeed = lc.rotationSpeed;
-          layer.userData.baseScale = lc.scale;
-        });
-      }
-      _voiceOrbSetState = voiceSetState;
-
-      function updateSpeakingCadence() {
-        const now = Date.now() * 0.001;
-        if (now >= _speakingCadence.nextChange) {
-          const t = Math.random();
-          if (t < 0.3) {
-            _speakingCadence.intensity = 0.7 + Math.random() * 0.3;
-            _speakingCadence.nextChange = now + 0.15 + Math.random() * 0.15;
-          } else if (t < 0.6) {
-            _speakingCadence.intensity = 0.5 + Math.random() * 0.4;
-            _speakingCadence.nextChange = now + 0.3 + Math.random() * 0.3;
-          } else if (t < 0.85) {
-            _speakingCadence.intensity = 0.6 + Math.random() * 0.4;
-            _speakingCadence.nextChange = now + 0.5 + Math.random() * 0.4;
-          } else {
-            _speakingCadence.intensity = 0.1 + Math.random() * 0.2;
-            _speakingCadence.nextChange = now + 0.2 + Math.random() * 0.3;
-          }
-        }
-        return Math.max(0, _speakingCadence.intensity + Math.sin(Date.now() * 0.01) * 0.08);
-      }
-
-      // Animation loop
-      (function loop() {
-        _orbAnimFrame = requestAnimationFrame(loop);
-
-        // Sync with Sentinel's orbState global
-        if (_voiceCurrentState !== orbState && voiceStates[orbState]) {
-          voiceSetState(orbState);
-        }
-
-        const state = voiceStates[_voiceCurrentState];
-
-        if (state.pulsate) {
-          if (state.pulsateMode === 'thinking') {
-            const pulse = (Math.sin(Date.now() * 0.0015) + 1.0) / 2.0;
-            _voiceTargetScale = 1.0 + state.pulsateMin + pulse * (state.pulsateMax - state.pulsateMin);
-          } else if (state.pulsateMode === 'cadence') {
-            const cadence = updateSpeakingCadence();
-            _voiceTargetScale = 1.0 + state.pulsateMin + cadence * (state.pulsateMax - state.pulsateMin);
-          }
-          _voiceCurrentScale += (_voiceTargetScale - _voiceCurrentScale) * 0.15;
-        } else {
-          _voiceCurrentScale += (1.0 - _voiceCurrentScale) * 0.1;
-        }
-
-        orbLayers.forEach((layer) => {
-          layer.material.uniforms.time.value += state.timeSpeed;
-          layer.material.uniforms.audioLevel.value = state.audioLevel;
-          layer.rotation.x += layer.userData.rotationSpeed.x;
-          layer.rotation.y += layer.userData.rotationSpeed.y;
-          layer.rotation.z += layer.userData.rotationSpeed.z;
-          const ls = layer.userData.baseScale * _voiceCurrentScale;
-          layer.scale.set(ls, ls, ls);
-        });
-
-        _orbRenderer.render(_orbScene, camera);
-      })();
-
-      window.addEventListener('resize', () => {
-        const nw = container.clientWidth || 400;
-        const nh = container.clientHeight || 400;
-        camera.aspect = nw / nh;
-        camera.updateProjectionMatrix();
-        _orbRenderer.setSize(nw, nh);
-      });
+      if (window.SentinelOrb) SentinelOrb.init('orb-root');
     }
 
     function renderOrb() {
-      if (_voiceOrbSetState) _voiceOrbSetState(orbState || 'idle');
+      if (window.SentinelOrb) SentinelOrb.setState(orbState || 'idle');
     }
 
     window.addEventListener('DOMContentLoaded', () => { initOrb(); renderOrb(); });
