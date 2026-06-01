@@ -80,3 +80,6 @@ spotipy>=2.24.0
 gcsa>=2.3.0
 # Camera providers
 blinkpy>=0.23.0
+
+xgboost>=2.0.0
+websocket-client>=1.6.0

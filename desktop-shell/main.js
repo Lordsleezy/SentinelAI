@@ -510,7 +510,8 @@ function createWorkerWindow(workerType = 'forge', context = {}) {
     forge: 'forge_window.html',
     earn: 'earn_window.html',
     market: 'market_window.html',
-    guardian: 'guardian_window.html'
+    guardian: 'guardian_window.html',
+    scalp: 'scalp_window.html',
   };
 
   const htmlFile = windowMap[workerType] || windowMap['forge'];
@@ -831,6 +832,11 @@ function buildAppMenu() {
           label: 'Guardian',
           accelerator: 'CmdOrCtrl+4',
           click: () => createWorkerWindow('guardian')
+        },
+        {
+          label: 'Scalp',
+          accelerator: 'CmdOrCtrl+5',
+          click: () => createWorkerWindow('scalp')
         }
       ]
     },

@@ -39,6 +39,15 @@ from scanner import run_scan
 from openclaw_integration import OpenClawCommandRouter
 from workers.forge_worker import run_approved_forge_task
 from workers.licensing.license_manager import get_license_manager
+
+# Register Scalp routes
+try:
+    from workers.scalp.scalp_worker import register_routes as _register_scalp_routes
+    _register_scalp_routes_pending = True
+except Exception as _scalp_import_err:
+    _register_scalp_routes_pending = False
+    import logging as _logging
+    _logging.getLogger(__name__).warning("Scalp worker import failed: %s", _scalp_import_err)
 from notifications import send_notification
 from memory_manager import get_memory_manager
 
@@ -448,6 +457,32 @@ def mobile():
     return render_template('mobile_dashboard.html')
 
 
+@app.route('/api/credentials/check/<worker_name>', methods=['GET'])
+def api_credentials_check(worker_name: str):
+    """Check if a worker's credentials are configured."""
+    from workers.lazy_init import get_lazy_init
+    li = get_lazy_init()
+    missing = li.get_missing(worker_name)
+    if not missing:
+        return jsonify({"configured": True})
+    return jsonify({"configured": False, "missing": missing, "worker": worker_name})
+
+
+@app.route('/api/credentials/save', methods=['POST'])
+def api_credentials_save():
+    """Save a credential to .env and env immediately, then signal retry."""
+    from workers.lazy_init import get_lazy_init
+    data = request.get_json() or {}
+    key = data.get("key", "").strip()
+    value = data.get("value", "").strip()
+    if not key or not value:
+        return jsonify({"status": "error", "error": "key and value required"}), 400
+    ok = get_lazy_init().save(key, value)
+    if ok:
+        return jsonify({"status": "saved", "key": key})
+    return jsonify({"status": "error", "error": "Failed to write .env"}), 500
+
+
 @app.route('/api/status')
 def api_status():
     """Get current system status."""
@@ -475,6 +510,31 @@ def api_status():
     except Exception:
         sentinel_web_status = "offline"
 
+    # Consultation worker status
+    consultation_status = {"available": True, "chatgpt_reachable": False,
+                           "claude_reachable": False, "codex_installed": False}
+    try:
+        from workers.consultation.consultant import get_consultant
+        c = get_consultant()
+        consultation_status["codex_installed"] = c.codex_available
+        consultation_status["chatgpt_reachable"] = c._sentinelweb_available()
+        consultation_status["claude_reachable"] = consultation_status["chatgpt_reachable"]
+    except Exception:
+        pass
+
+    # Scalp worker status
+    scalp_status = {"running": False, "feed_connected": False,
+                    "active_model": "xgboost", "open_positions": 0}
+    try:
+        from workers.scalp.scalp_worker import _feed_running
+        from workers.scalp.data.feed import get_feed
+        from workers.scalp.execution.executor import get_executor
+        scalp_status["running"] = _feed_running
+        scalp_status["feed_connected"] = get_feed().is_connected
+        scalp_status["open_positions"] = len(get_executor().get_open_positions())
+    except Exception:
+        pass
+
     data = {
         "running": backend_state["running"],
         "paused": backend_state["paused"],
@@ -483,6 +543,8 @@ def api_status():
         "total_earnings": backend_state["total_earnings"],
         "last_scan": backend_state["last_scan"],
         "sentinel_web_status": sentinel_web_status,
+        "consultation": consultation_status,
+        "scalp": scalp_status,
     }
     return jsonify({**data, "status": "ok", "data": data, "error": None})
 
@@ -3258,6 +3320,68 @@ def api_chat():
                 response = f"It's {now.strftime('%I:%M %p')} local time."
             return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
 
+        # ── Project planner — complex multi-file builds ───────────────────────────
+        # "build me X", "create a full X", "make me a X", "develop a X",
+        # "i want a X" — only when the request implies multiple components.
+        _project_kw = ['build me ', 'create a full ', 'make me a ', 'develop a ',
+                       'i want a ', 'create a complete ']
+        _is_complex_build = (
+            any(kw in lower for kw in _project_kw)
+            and len(message.split()) > 6  # at least 6 words (not "build me a script")
+        )
+        if _is_complex_build:
+            try:
+                from workers.consultation.project_planner import get_project_planner
+                planner = get_project_planner()
+                plan = planner.plan_project(message)
+                plan_dict = {
+                    "id": plan.id,
+                    "intent": plan.intent,
+                    "stack": plan.stack,
+                    "files": plan.files,
+                    "tasks": [{"id": t.id, "description": t.description,
+                                "depends_on": t.depends_on, "status": t.status}
+                               for t in plan.tasks],
+                    "pitfalls": plan.pitfalls,
+                }
+                resp_text = (
+                    f"📋 Project Plan\n\nStack: {', '.join(plan.stack)}\n"
+                    f"Files: {', '.join(plan.files[:5])}\n"
+                    f"Tasks ({len(plan.tasks)}):\n"
+                    + "\n".join(f"  {t.id}. {t.description}" for t in plan.tasks[:5])
+                    + (f"\n  ...and {len(plan.tasks)-5} more" if len(plan.tasks) > 5 else "")
+                    + "\n\nReply APPROVE to start building, or DENY to cancel."
+                )
+                return jsonify({
+                    "status": "ok", "worker": "consultation",
+                    "response": resp_text,
+                    "plan": plan_dict, "plan_id": plan.id,
+                    "awaiting_approval": True,
+                    "routed": True,
+                })
+            except Exception as _plan_err:
+                logger.debug("Project planner failed (%s) — falling through", _plan_err)
+
+        # ── Architecture/guidance consultation ───────────────────────────────────
+        _guidance_kw = ['what architecture', 'which architecture', 'how should i build',
+                        'what stack', 'which framework', 'best approach for',
+                        'design a system', 'design the', 'how to architect']
+        if any(kw in lower for kw in _guidance_kw):
+            try:
+                from workers.consultation.consultant import get_consultant
+                consultant = get_consultant()
+                result = consultant.consult_for_guidance(message)
+                src_label = {"chatgpt": "ChatGPT", "claude": "Claude",
+                             "ollama_fallback": "Ollama"}.get(result.source, result.source)
+                return jsonify({
+                    "status": "ok", "worker": "consultation",
+                    "response": f"[Source: {src_label}]\n\n{result.answer}",
+                    "consultation_source": result.source,
+                    "routed": True,
+                })
+            except Exception as _cons_err:
+                logger.debug("Consultation guidance failed (%s) — falling through", _cons_err)
+
         # Keyword-based pre-routing runs FIRST — overrides conversational classifier
         # for specific high-confidence patterns. Order: forge > earn > market > home.
         _pre_worker = None
@@ -3730,6 +3854,114 @@ def api_guardian_cve_detail(cve_id):
         return jsonify({"status": "error", "error": str(e)}), 200
 
 
+# ─── Consultation Routes ──────────────────────────────────────────────────────
+
+@app.route('/consultation/project', methods=['POST'])
+def consultation_project():
+    """Create a project plan via Claude + ChatGPT + Ollama merge."""
+    try:
+        from workers.consultation.project_planner import get_project_planner
+        data = request.get_json() or {}
+        intent = data.get("intent", "").strip()
+        if not intent:
+            return jsonify({"status": "error", "error": "intent required"}), 400
+        planner = get_project_planner()
+        plan = planner.plan_project(intent)
+        plan_dict = {
+            "id": plan.id,
+            "intent": plan.intent,
+            "stack": plan.stack,
+            "files": plan.files,
+            "tasks": [{"id": t.id, "description": t.description,
+                        "depends_on": t.depends_on, "status": t.status}
+                       for t in plan.tasks],
+            "pitfalls": plan.pitfalls,
+            "created_at": plan.created_at,
+        }
+        return jsonify({"plan": plan_dict, "plan_id": plan.id,
+                         "status": "awaiting_approval"})
+    except Exception as exc:
+        logger.exception("consultation_project error")
+        return jsonify({"status": "error", "error": str(exc)}), 500
+
+
+@app.route('/consultation/project/<plan_id>/approve', methods=['POST'])
+def consultation_approve(plan_id: str):
+    """Start executing the plan in a background thread."""
+    try:
+        from workers.consultation.project_planner import get_plan, get_project_planner, _plan_status
+        plan = get_plan(plan_id)
+        if not plan:
+            return jsonify({"status": "error", "error": "plan not found"}), 404
+        _plan_status[plan_id]["status"] = "executing"
+
+        def _run():
+            try:
+                get_project_planner().execute_plan(plan)
+            except Exception as exc:
+                logger.exception("Plan execution error")
+                _plan_status[plan_id]["status"] = "failed"
+
+        import threading
+        threading.Thread(target=_run, daemon=True).start()
+        return jsonify({"status": "executing", "plan_id": plan_id})
+    except Exception as exc:
+        logger.exception("consultation_approve error")
+        return jsonify({"status": "error", "error": str(exc)}), 500
+
+
+@app.route('/consultation/project/<plan_id>/status', methods=['GET'])
+def consultation_status(plan_id: str):
+    """Return current execution status of a plan."""
+    try:
+        from workers.consultation.project_planner import _plan_status
+        st = _plan_status.get(plan_id, {"status": "unknown"})
+        return jsonify(st)
+    except Exception as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 500
+
+
+@app.route('/consultation/project/<plan_id>/deny', methods=['POST'])
+def consultation_deny(plan_id: str):
+    """Cancel a plan."""
+    try:
+        from workers.consultation.project_planner import _plans, _plan_status
+        _plans.pop(plan_id, None)
+        _plan_status.pop(plan_id, None)
+        return jsonify({"status": "denied", "plan_id": plan_id})
+    except Exception as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 500
+
+
+@app.route('/consultation/ask', methods=['POST'])
+def consultation_ask():
+    """One-shot consultation question."""
+    try:
+        from workers.consultation.consultant import get_consultant
+        data = request.get_json() or {}
+        question = data.get("question", "").strip()
+        q_type = data.get("type", "guidance")
+        if not question:
+            return jsonify({"status": "error", "error": "question required"}), 400
+        consultant = get_consultant()
+        if q_type == "code":
+            result = consultant.consult_for_code(
+                problem=question,
+                code=data.get("code", ""),
+                error=data.get("error", ""),
+            )
+        else:
+            result = consultant.consult_for_guidance(question)
+        return jsonify({
+            "answer": result.answer,
+            "source": result.source,
+            "success": result.success,
+        })
+    except Exception as exc:
+        logger.exception("consultation_ask error")
+        return jsonify({"status": "error", "error": str(exc)}), 500
+
+
 # ─── Backend Launcher ─────────────────────────────────────────────────────────
 
 def run_flask_app():
@@ -3756,7 +3988,16 @@ def run_flask_app():
 def start_backend():
     """Start the SentinelAI backend."""
     logger.info("Starting SentinelAI backend...")
-    
+
+    # Register Scalp routes (deferred to avoid circular import at module level)
+    if _register_scalp_routes_pending:
+        try:
+            from workers.scalp.scalp_worker import register_routes as _reg
+            _reg(app)
+            logger.info("Scalp worker routes registered")
+        except Exception as e:
+            logger.warning("Scalp route registration failed: %s", e)
+
     # Initialize database
     db.init_db()
 

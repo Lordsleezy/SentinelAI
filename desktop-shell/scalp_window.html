@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sentinel Scalp</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    #header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      background: rgba(0,255,136,0.04);
+      border-bottom: 1px solid rgba(0,255,136,0.12);
+      flex-shrink: 0;
+    }
+    #header h1 {
+      font-size: 18px;
+      color: #00ff88;
+      letter-spacing: 2px;
+      font-weight: 700;
+    }
+    .header-btns { display: flex; gap: 10px; }
+    .btn-start {
+      padding: 7px 18px;
+      background: linear-gradient(135deg, #00aa55, #00ff88);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+    }
+    .btn-stop {
+      padding: 7px 18px;
+      background: rgba(255,60,60,0.15);
+      color: #ff6666;
+      border: 1px solid rgba(255,60,60,0.3);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-backtest {
+      padding: 7px 18px;
+      background: rgba(0,170,255,0.1);
+      color: #00aaff;
+      border: 1px solid rgba(0,170,255,0.25);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    #main { display: flex; flex: 1; overflow: hidden; flex-direction: column; }
+
+    /* Symbol cards */
+    #symbol-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      padding: 14px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .sym-card {
+      background: #111118;
+      border: 1px solid rgba(0,255,136,0.12);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .sym-name { font-size: 12px; color: #888; letter-spacing: 1px; text-transform: uppercase; }
+    .sym-price { font-size: 24px; font-weight: 700; color: #fff; margin: 4px 0; }
+    .sym-signal { font-size: 13px; font-weight: 700; margin-top: 6px; }
+    .sig-buy  { color: #00ff88; }
+    .sig-sell { color: #ff4444; }
+    .sig-hold { color: #888; }
+
+    /* Stats row */
+    #stats-row {
+      display: flex;
+      gap: 16px;
+      padding: 10px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      align-items: center;
+    }
+    .stat { font-size: 12px; color: #666; }
+    .stat span { color: #00ff88; font-weight: 700; }
+    #model-label { font-size: 12px; color: #aaa; margin-right: auto; }
+    #model-label strong { color: #00ff88; }
+
+    /* Credential card */
+    #cred-card {
+      display: none;
+      margin: 10px 20px;
+      background: #0d1a14;
+      border: 1px solid rgba(0,255,136,0.3);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    #cred-card h3 { color: #00ff88; font-size: 13px; margin-bottom: 10px; }
+    #cred-card input {
+      width: 100%;
+      padding: 8px 12px;
+      background: #0a0a0f;
+      border: 1px solid rgba(0,255,136,0.25);
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    #cred-card .hint { font-size: 11px; color: #666; margin-bottom: 10px; }
+    #cred-card button {
+      padding: 7px 16px;
+      background: linear-gradient(135deg,#00aa55,#00ff88);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    /* Positions */
+    #positions-section, #log-section {
+      flex: 1;
+      padding: 10px 20px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .section-title {
+      font-size: 10px;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
+    }
+    .position-row {
+      display: flex;
+      gap: 20px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      font-size: 12px;
+    }
+    .position-row .pos-sym { color: #00ff88; font-weight: 700; width: 80px; }
+    .log-entry {
+      display: grid;
+      grid-template-columns: 70px 80px 60px 80px 1fr;
+      gap: 8px;
+      padding: 5px 0;
+      font-size: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .log-ts { color: #555; }
+    .log-sym { color: #aaa; }
+    .log-buy { color: #00ff88; font-weight: 700; }
+    .log-sell { color: #ff4444; font-weight: 700; }
+    .log-hold { color: #666; }
+    .log-conf { color: #888; }
+    #status-bar {
+      padding: 6px 20px;
+      font-size: 11px;
+      color: #555;
+      border-top: 1px solid rgba(255,255,255,0.04);
+      flex-shrink: 0;
+    }
+    #status-bar.running { color: #00ff88; }
+    #status-bar.error   { color: #ff4444; }
+  </style>
+</head>
+<body>
+
+  <div id="header">
+    <h1>⚡ SENTINEL SCALP</h1>
+    <div class="header-btns">
+      <button class="btn-backtest" onclick="runBacktest()">BACKTEST</button>
+      <button class="btn-stop"  onclick="stopScalp()"  id="btn-stop"  style="display:none;">⏹ STOP</button>
+      <button class="btn-start" onclick="startScalp()" id="btn-start">▶ START</button>
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="symbol-row">
+      <div class="sym-card" id="card-BTCUSDT">
+        <div class="sym-name">BTC / USDT</div>
+        <div class="sym-price" id="price-BTCUSDT">—</div>
+        <div class="sym-signal sig-hold" id="sig-BTCUSDT">— HOLD —</div>
+      </div>
+      <div class="sym-card" id="card-ETHUSDT">
+        <div class="sym-name">ETH / USDT</div>
+        <div class="sym-price" id="price-ETHUSDT">—</div>
+        <div class="sym-signal sig-hold" id="sig-ETHUSDT">— HOLD —</div>
+      </div>
+      <div class="sym-card" id="card-SOLUSDT">
+        <div class="sym-name">SOL / USDT</div>
+        <div class="sym-price" id="price-SOLUSDT">—</div>
+        <div class="sym-signal sig-hold" id="sig-SOLUSDT">— HOLD —</div>
+      </div>
+    </div>
+
+    <div id="stats-row">
+      <div id="model-label">ACTIVE MODEL: <strong id="active-model">XGBoost v1</strong></div>
+      <div class="stat">Win Rate: <span id="stat-winrate">—</span></div>
+      <div class="stat">P&amp;L: <span id="stat-pnl">—</span></div>
+      <div class="stat">Trades: <span id="stat-trades">—</span></div>
+    </div>
+
+    <!-- Credential card for lazy init -->
+    <div id="cred-card">
+      <h3>⚙ SETUP REQUIRED — Binance API</h3>
+      <div class="hint">Paper trading only — read-only key is fine. Get from: binance.com/en/my/settings/api-management</div>
+      <input type="password" id="binance-key-input" placeholder="Binance API Key" />
+      <input type="password" id="binance-secret-input" placeholder="Binance API Secret" />
+      <button onclick="saveBinanceCreds()">Save &amp; Start</button>
+    </div>
+
+    <div id="positions-section">
+      <div class="section-title">Open Positions</div>
+      <div id="positions-body"><div style="color:#444;font-size:12px;">No open positions</div></div>
+    </div>
+
+    <div id="log-section">
+      <div class="section-title">Signal Log</div>
+      <div id="signal-log"></div>
+    </div>
+  </div>
+
+  <div id="status-bar">Paper trading mode — feed stopped</div>
+
+  <script>
+    const BASE = 'http://127.0.0.1:5001';
+    let pollTimer = null;
+
+    async function fetchPrices() {
+      try {
+        const r = await fetch(`${BASE}/market/summary`);
+        const d = await r.json();
+        const q = d.quotes || {};
+        if (q.BTC) document.getElementById('price-BTCUSDT').textContent = `$${q.BTC.price.toLocaleString()}`;
+        if (q.ETH) document.getElementById('price-ETHUSDT').textContent = `$${q.ETH.price.toLocaleString()}`;
+        // SOL from separate call if available
+      } catch(_) {}
+    }
+
+    async function fetchStatus() {
+      try {
+        const r = await fetch(`${BASE}/scalp/status`);
+        const d = await r.json();
+        document.getElementById('active-model').textContent = (d.active_model || 'XGBoost') + ' v1';
+        const pnl = d.daily_pnl || 0;
+        const pnlEl = document.getElementById('stat-pnl');
+        pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+        pnlEl.style.color = pnl >= 0 ? '#00ff88' : '#ff4444';
+
+        const bar = document.getElementById('status-bar');
+        if (d.running) {
+          bar.textContent = `● Live (paper) — feed ${d.feed_connected ? 'connected' : 'connecting...'} | positions: ${d.open_positions}`;
+          bar.className = 'running';
+          document.getElementById('btn-start').style.display = 'none';
+          document.getElementById('btn-stop').style.display = '';
+        } else {
+          bar.textContent = 'Paper trading mode — feed stopped';
+          bar.className = '';
+          document.getElementById('btn-start').style.display = '';
+          document.getElementById('btn-stop').style.display = 'none';
+        }
+      } catch(_) {}
+    }
+
+    async function fetchSignals() {
+      try {
+        const r = await fetch(`${BASE}/scalp/signal`);
+        const d = await r.json();
+        const sigs = d.signals || {};
+        for (const [sym, sig] of Object.entries(sigs)) {
+          const el = document.getElementById('sig-' + sym);
+          if (!el) continue;
+          const conf = ((sig.confidence || 0) * 100).toFixed(0);
+          const arrow = sig.action === 'BUY' ? '▲' : sig.action === 'SELL' ? '▼' : '—';
+          el.textContent = `${arrow} ${sig.action} ${conf}%`;
+          el.className = 'sym-signal ' +
+            (sig.action === 'BUY' ? 'sig-buy' : sig.action === 'SELL' ? 'sig-sell' : 'sig-hold');
+        }
+      } catch(_) {}
+    }
+
+    async function fetchPerformance() {
+      try {
+        const r = await fetch(`${BASE}/scalp/performance`);
+        const d = await r.json();
+        document.getElementById('stat-winrate').textContent = ((d.win_rate || 0) * 100).toFixed(0) + '%';
+        document.getElementById('stat-trades').textContent = d.trade_count || 0;
+      } catch(_) {}
+    }
+
+    async function fetchPositions() {
+      try {
+        const r = await fetch(`${BASE}/scalp/positions`);
+        const d = await r.json();
+        const body = document.getElementById('positions-body');
+        if (!d.positions || d.positions.length === 0) {
+          body.innerHTML = '<div style="color:#444;font-size:12px;">No open positions</div>';
+          return;
+        }
+        body.innerHTML = d.positions.map(p => `
+          <div class="position-row">
+            <span class="pos-sym">${p.symbol}</span>
+            <span>${p.action} ${((p.size_usd||0)).toFixed(2)} USD</span>
+            <span style="color:#888;">entry: ${p.entry ? '$'+p.entry.toFixed(2) : '—'}</span>
+          </div>`).join('');
+      } catch(_) {}
+    }
+
+    async function startScalp() {
+      try {
+        const r = await fetch(`${BASE}/scalp/start`, {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({})
+        });
+        const d = await r.json();
+        if (d.error === 'not_configured' || d.missing) {
+          document.getElementById('cred-card').style.display = 'block';
+          return;
+        }
+        if (d.live_trading_blocked) {
+          alert('Live trading blocked: ' + d.error);
+          return;
+        }
+        setStatus('Starting feed...', 'running');
+      } catch(e) { setStatus('Error: ' + e.message, 'error'); }
+    }
+
+    async function stopScalp() {
+      try {
+        await fetch(`${BASE}/scalp/stop`, {method:'POST'});
+        setStatus('Feed stopped', '');
+      } catch(_) {}
+    }
+
+    async function saveBinanceCreds() {
+      const key = document.getElementById('binance-key-input').value.trim();
+      const secret = document.getElementById('binance-secret-input').value.trim();
+      if (!key || !secret) return;
+      await fetch(`${BASE}/api/credentials/save`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({key: 'BINANCE_API_KEY', value: key})
+      });
+      await fetch(`${BASE}/api/credentials/save`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({key: 'BINANCE_API_SECRET', value: secret})
+      });
+      document.getElementById('cred-card').style.display = 'none';
+      await startScalp();
+    }
+
+    async function runBacktest() {
+      setStatus('Running backtest...', 'running');
+      try {
+        const r = await fetch(`${BASE}/scalp/backtest`, {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({symbol: 'BTC/USDT'})
+        });
+        const d = await r.json();
+        setStatus(
+          `Backtest: return=${(d.total_return*100).toFixed(1)}% sharpe=${d.sharpe_ratio} ` +
+          `drawdown=${(d.max_drawdown*100).toFixed(1)}% win=${(d.win_rate*100).toFixed(0)}% trades=${d.total_trades}`,
+          d.total_return >= 0 ? 'running' : 'error'
+        );
+      } catch(e) { setStatus('Backtest error: ' + e.message, 'error'); }
+    }
+
+    function setStatus(msg, cls) {
+      const b = document.getElementById('status-bar');
+      b.textContent = msg; b.className = cls;
+    }
+
+    function escapeHtml(s) {
+      const d = document.createElement('div'); d.textContent = String(s||''); return d.innerHTML;
+    }
+
+    // Initial load
+    fetchPrices();
+    fetchStatus();
+    fetchSignals();
+    fetchPerformance();
+    fetchPositions();
+
+    // Poll
+    setInterval(() => {
+      fetchStatus();
+      fetchSignals();
+      fetchPerformance();
+      fetchPositions();
+      fetchPrices();
+    }, 5000);
+  </script>
+</body>
+</html>
