@@ -162,22 +162,40 @@
 
     // Run button
     document.getElementById('btn-run').addEventListener('click', async () => {
-      const content = editor.getValue();
+      const task = editor ? editor.getValue() : '';
+      if (!task || task.trim().startsWith('#')) {
+        alert('Please enter a task description in the editor (not just comments).');
+        return;
+      }
+
+      const approved = confirm(`Forge will execute this task:\n\n"${task.substring(0, 200)}${task.length > 200 ? '...' : ''}"\n\nApprove?`);
+      if (!approved) return;
+
       document.getElementById('status-text').textContent = 'Running...';
+      if (terminal) terminal.writeln('\r\n\x1b[33m[Forge]\x1b[0m Submitting task...');
 
       try {
-        const res = await fetch('http://127.0.0.1:5001/forge/run', {
+        const res = await fetch('http://127.0.0.1:5001/api/forge/request', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: content })
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({prompt: task, requires_approval: false})
         });
-
         const data = await res.json();
-        terminal.writeln(`\r\n[Forge] ${data.status}: ${data.message || ''}\r\n`);
-        document.getElementById('status-text').textContent = data.status;
+
+        if (terminal) {
+          terminal.writeln(`\r\n\x1b[32m[Forge]\x1b[0m Task queued — ID: ${data.forge_task_id || data.task_id || 'unknown'}`);
+          terminal.writeln(`\x1b[33m[Forge]\x1b[0m Status: ${data.status || 'pending'}`);
+          if (data.message) terminal.writeln(`\x1b[33m[Forge]\x1b[0m ${data.message}`);
+        }
+        document.getElementById('status-text').textContent = data.status || 'queued';
+
+        if (data.result && data.result.code) {
+          editor.setValue(data.result.code);
+        }
       } catch (e) {
-        terminal.writeln(`\r\n[Error] ${e.message}\r\n`);
+        if (terminal) terminal.writeln(`\r\n\x1b[31m[Error]\x1b[0m ${e.message}`);
         document.getElementById('status-text').textContent = 'Error';
+        console.error('Forge request failed:', e);
       }
     });
 

@@ -123,25 +123,25 @@
   </div>
 
   <div class="tickers" id="tickers">
-    <div class="ticker-card">
+    <div class="ticker-card" id="card-BTC">
       <div class="ticker-symbol">BTC</div>
-      <div class="ticker-price">—</div>
-      <div class="ticker-change">—</div>
+      <div class="ticker-price price">—</div>
+      <div class="ticker-change change">—</div>
     </div>
-    <div class="ticker-card">
+    <div class="ticker-card" id="card-ETH">
       <div class="ticker-symbol">ETH</div>
-      <div class="ticker-price">—</div>
-      <div class="ticker-change">—</div>
+      <div class="ticker-price price">—</div>
+      <div class="ticker-change change">—</div>
     </div>
-    <div class="ticker-card">
+    <div class="ticker-card" id="card-SPY">
       <div class="ticker-symbol">SPY</div>
-      <div class="ticker-price">—</div>
-      <div class="ticker-change">—</div>
+      <div class="ticker-price price">—</div>
+      <div class="ticker-change change">—</div>
     </div>
-    <div class="ticker-card">
+    <div class="ticker-card" id="card-QQQ">
       <div class="ticker-symbol">QQQ</div>
-      <div class="ticker-price">—</div>
-      <div class="ticker-change">—</div>
+      <div class="ticker-price price">—</div>
+      <div class="ticker-change change">—</div>
     </div>
   </div>
 
@@ -158,19 +158,56 @@
       try {
         const res = await fetch('http://127.0.0.1:5001/market/summary');
         const data = await res.json();
-
-        // Update tickers (placeholder - will be populated when backend is wired)
-        console.log('Market data:', data);
-
+        if (data.status === 'ok' && data.quotes) {
+          Object.entries(data.quotes).forEach(([symbol, quote]) => {
+            const card = document.getElementById(`card-${symbol}`);
+            if (!card) return;
+            const price = quote.price
+              ? `$${Number(quote.price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
+              : '—';
+            const change = quote.change_24h != null ? quote.change_24h : quote.change_pct;
+            const changeStr = change != null
+              ? `${change > 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%`
+              : '—';
+            const changeColor = change > 0 ? '#00ff88' : '#ff4444';
+            card.querySelector('.price').textContent = price;
+            const changeEl = card.querySelector('.change');
+            changeEl.textContent = changeStr;
+            changeEl.style.color = changeColor;
+            changeEl.className = `ticker-change change ${change >= 0 ? '' : 'negative'}`;
+          });
+        }
       } catch (e) {
         console.error('Failed to load market data:', e);
       }
     }
 
-    document.getElementById('refresh-btn').addEventListener('click', loadMarketData);
+    async function loadNews() {
+      try {
+        const res = await fetch('http://127.0.0.1:5001/market/news/BTC');
+        const data = await res.json();
+        const newsList = document.getElementById('news-list');
+        if (newsList && data.news && data.news.length > 0) {
+          newsList.innerHTML = data.news.map(h =>
+            `<div class="news-item"><a href="${h.link || '#'}" target="_blank" style="color:#00ccff;text-decoration:none;">• ${h.title}</a></div>`
+          ).join('');
+        } else if (newsList) {
+          newsList.innerHTML = '<div style="color:#666;font-size:12px;">No news available.</div>';
+        }
+      } catch (e) {
+        console.error('News load failed:', e);
+      }
+    }
+
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+      loadMarketData();
+      loadNews();
+    });
 
     loadMarketData();
+    loadNews();
     setInterval(loadMarketData, 60000);
+    setInterval(loadNews, 300000);
   </script>
 </body>
 </html>
