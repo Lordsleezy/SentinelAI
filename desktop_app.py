@@ -433,13 +433,23 @@ def api_status():
     except Exception:
         pass
     
+    # Check SentinelWeb
+    sentinel_web_status = "offline"
+    try:
+        import httpx as _hx
+        _sw = _hx.get("http://localhost:8766/health", timeout=2)
+        sentinel_web_status = "online" if _sw.status_code == 200 else "error"
+    except Exception:
+        sentinel_web_status = "offline"
+
     data = {
         "running": backend_state["running"],
         "paused": backend_state["paused"],
         "ollama_status": backend_state["ollama_status"],
         "active_tasks": len(backend_state["active_tasks"]),
         "total_earnings": backend_state["total_earnings"],
-        "last_scan": backend_state["last_scan"]
+        "last_scan": backend_state["last_scan"],
+        "sentinel_web_status": sentinel_web_status,
     }
     return jsonify({**data, "status": "ok", "data": data, "error": None})
 
@@ -2945,6 +2955,47 @@ def api_chat():
 
         lower = message.lower()
 
+        # ── Purchase intent — find product, stage approval ───────────────────────
+        _buy_kw = ['buy ', 'purchase ', 'order me ', 'i want to buy', 'i want to order',
+                   'add to cart', 'get me a ', 'pick up a ', 'grab me a ']
+        if any(kw in lower for kw in _buy_kw):
+            try:
+                import asyncio as _asyncio
+                from workers.payments.purchase_executor import PurchaseExecutor
+                staged = _asyncio.run(PurchaseExecutor().find_and_stage(message))
+                if staged.get("requires_approval"):
+                    return jsonify({"status": "ok", "worker": "sentinel_web",
+                                    "response": staged["message"], "purchase_approval": staged, "routed": True})
+            except Exception as _buy_err:
+                logger.debug("Purchase staging failed: %s", _buy_err)
+
+        # ── Web/commerce queries — route to SentinelWeb ─────────────────────────
+        _web_kw = ['price of', 'how much is', 'how much does', 'compare prices', 'best deal',
+                   'cheapest', 'in stock', 'available at', 'check stock', 'find me ',
+                   'search for', 'look up', 'is there a deal', 'on amazon', 'on walmart',
+                   'on best buy', 'on target', 'on ebay', 'book a flight', 'book a hotel',
+                   'reserve a ', 'book me a']
+        if any(kw in lower for kw in _web_kw):
+            try:
+                import asyncio as _asyncio
+                from workers.web.sentinel_web_client import query_web, is_available
+                if _asyncio.run(is_available()):
+                    web_result = _asyncio.run(query_web(message))
+                    web_ans = web_result.get("answer") or web_result.get("result")
+                    if web_ans and not web_result.get("error"):
+                        src = web_result.get("source_url", "")
+                        response = web_ans + (f"\n\nSource: {src}" if src else "")
+                        return jsonify({"status": "ok", "worker": "sentinel_web",
+                                        "response": response, "routed": True,
+                                        "source_url": src, "confidence": web_result.get("confidence")})
+                else:
+                    return jsonify({"status": "ok", "worker": "general",
+                                    "response": "SentinelWeb is offline. Start it with: "
+                                                "cd C:\\Users\\pgg12\\Desktop\\SentinelWeb && venv\\Scripts\\python main.py",
+                                    "routed": True})
+            except Exception as _web_err:
+                logger.debug("SentinelWeb routing failed: %s", _web_err)
+
         # ── Identity questions — hardcoded, never goes to Ollama ────────────────
         _identity_kw = [
             'what is your name', "what's your name", 'who are you',
@@ -3190,6 +3241,181 @@ def api_earn_accept():
         })
     except Exception as e:
         logger.exception("earn_accept failed")
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+# ─── SentinelWeb Proxy API ───────────────────────────────────────────────────
+
+@app.route('/web/status', methods=['GET'])
+def api_web_status():
+    try:
+        import asyncio as _aio
+        from workers.web.sentinel_web_client import get_health
+        return jsonify({"status": "ok", **_aio.run(get_health())})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/web/query', methods=['POST'])
+def api_web_query():
+    """Proxy a natural language query to SentinelWeb."""
+    try:
+        import asyncio as _aio
+        from workers.web.sentinel_web_client import query_web
+        data = request.get_json() or {}
+        query = data.get('query', '').strip()
+        if not query:
+            return jsonify({"status": "error", "error": "query required"}), 200
+        result = _aio.run(query_web(query, url=data.get('url'), site_name=data.get('site_name')))
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/web/compare', methods=['POST'])
+def api_web_compare():
+    """Proxy a price comparison to SentinelWeb."""
+    try:
+        import asyncio as _aio
+        from workers.web.sentinel_web_client import compare_prices
+        data = request.get_json() or {}
+        result = _aio.run(compare_prices(data.get('query', ''), data.get('sites')))
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/web/credentials/save', methods=['POST'])
+def api_web_creds_save():
+    try:
+        import asyncio as _aio
+        from workers.web.sentinel_web_client import save_site_credentials
+        data = request.get_json() or {}
+        result = _aio.run(save_site_credentials(data.get('site', ''), data.get('username', ''), data.get('password', '')))
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/web/credentials/list', methods=['GET'])
+def api_web_creds_list():
+    try:
+        import asyncio as _aio
+        from workers.web.sentinel_web_client import list_saved_sites
+        sites = _aio.run(list_saved_sites())
+        return jsonify({"status": "ok", "sites": sites})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/web/buy/find', methods=['POST'])
+def api_web_buy_find():
+    """Find a product's best price and stage an approval for purchase."""
+    try:
+        import asyncio as _aio
+        from workers.payments.purchase_executor import PurchaseExecutor
+        data = request.get_json() or {}
+        query = data.get('query', '').strip()
+        if not query:
+            return jsonify({"status": "error", "error": "query required"}), 200
+        staged = _aio.run(PurchaseExecutor().find_and_stage(query))
+        return jsonify({"status": "ok", **staged})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+# ─── Payment Vault API ────────────────────────────────────────────────────────
+
+_payment_mgr = None
+
+
+def get_payment_mgr():
+    global _payment_mgr
+    if _payment_mgr is None:
+        from workers.payments.payment_manager import PaymentManager
+        _payment_mgr = PaymentManager()
+    return _payment_mgr
+
+
+@app.route('/payments/methods', methods=['GET'])
+def api_payment_methods():
+    try:
+        return jsonify({"status": "ok", "methods": get_payment_mgr().get_payment_methods()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/payments/methods/add', methods=['POST'])
+def api_payment_add():
+    try:
+        data = request.get_json() or {}
+        result = get_payment_mgr().add_payment_method(
+            data.get('type', ''), data.get('nickname', ''), data.get('details', {}))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/payments/methods/<method_id>', methods=['DELETE'])
+def api_payment_delete(method_id):
+    try:
+        return jsonify(get_payment_mgr().remove_payment_method(method_id))
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/payments/methods/<method_id>/default', methods=['POST'])
+def api_payment_set_default(method_id):
+    try:
+        return jsonify(get_payment_mgr().set_default_method(method_id))
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/payments/limits', methods=['GET', 'POST'])
+def api_payment_limits():
+    try:
+        if request.method == 'GET':
+            return jsonify({"status": "ok", "limits": get_payment_mgr().get_limits()})
+        data = request.get_json() or {}
+        result = get_payment_mgr().set_spending_limit(
+            data.get('period', 'per_transaction'),
+            float(data.get('amount', 500)),
+            data.get('category', 'all'))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/payments/execute', methods=['POST'])
+def api_payment_execute():
+    """Execute an approved purchase via SentinelWeb."""
+    try:
+        import asyncio as _aio
+        from workers.payments.purchase_executor import PurchaseExecutor
+        data = request.get_json() or {}
+        result = _aio.run(PurchaseExecutor().execute_purchase(data))
+        return jsonify(result)
+    except Exception as e:
+        logger.error("Payment execution error: %s", e, exc_info=True)
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/payments/history', methods=['GET'])
+def api_payment_history():
+    try:
+        limit = int(request.args.get('limit', 50))
+        return jsonify({"status": "ok", "transactions": get_payment_mgr().get_transaction_history(limit)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/payments/schemas', methods=['GET'])
+def api_payment_schemas():
+    try:
+        from workers.payments.payment_manager import PAYMENT_METHOD_SCHEMAS
+        return jsonify({"status": "ok", "schemas": PAYMENT_METHOD_SCHEMAS})
+    except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 200
 
 

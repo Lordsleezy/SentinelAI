@@ -505,12 +505,18 @@
   </div>
 
   <div id="input-section">
-    <input
-      id="chat-input"
-      type="text"
-      placeholder="Ask Sentinel anything..."
-      autocomplete="off"
-    />
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input
+        id="chat-input"
+        type="text"
+        placeholder="Ask Sentinel anything..."
+        autocomplete="off"
+        style="flex:1;"
+      />
+      <button onclick="showWalletPanel()" title="Payment Methods"
+        style="padding:10px 13px;background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);
+               border-radius:20px;cursor:pointer;font-size:16px;color:#00ff88;line-height:1;">💳</button>
+    </div>
     <div id="status-line"></div>
   </div>
 
@@ -1203,6 +1209,316 @@
     // Load license status on startup
     loadLicenseStatus();
     setInterval(loadLicenseStatus, 30000); // Refresh every 30 seconds
+
+    // ── Purchase approval handler ─────────────────────────────────────────────
+    // When /api/chat returns a purchase_approval object, show the modal.
+    const _origChatHandler = chatInput.onkeydown;
+    chatInput.addEventListener('keydown', async (e) => {
+      // Purchase flow intercepted in sendChat below
+    });
+
+    // Override the existing chat submit to intercept purchase_approval responses
+    const _origSendChat = window._sendChatImpl || null;
+
+    async function sendChatWithPurchase(query) {
+      orbState = 'thinking';
+      renderOrb();
+      try {
+        const res = await fetch('http://127.0.0.1:5001/api/chat', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({message: query})
+        });
+        const data = await res.json();
+        orbState = 'speaking';
+        renderOrb();
+
+        if (data.purchase_approval && data.purchase_approval.requires_approval) {
+          showPurchaseApproval(data.purchase_approval);
+          orbState = 'idle';
+          renderOrb();
+          return;
+        }
+
+        const rawResp = data.response;
+        const displayText = typeof rawResp === 'string' ? rawResp
+          : (rawResp?.response || rawResp?.text || rawResp?.message || (rawResp != null ? JSON.stringify(rawResp) : ''));
+        responseArea.textContent = displayText || 'Processing...';
+        responseArea.classList.add('visible');
+        setTimeout(() => { responseArea.classList.remove('visible'); orbState = 'idle'; renderOrb(); }, 6000);
+      } catch (err) {
+        orbState = 'idle'; renderOrb();
+      }
+    }
+
+    // ── Wallet Panel ─────────────────────────────────────────────────────────
+    window.showWalletPanel = async function() {
+      document.getElementById('wallet-panel')?.remove();
+      let methods = [];
+      try {
+        const r = await fetch('http://127.0.0.1:5001/payments/methods');
+        const d = await r.json();
+        methods = d.methods || [];
+      } catch(_) {}
+
+      const _ICONS = {card:'💳',paypal:'🅿',amazon_pay:'📦',google_pay:'G',apple_pay:'🍎',
+                      venmo:'V',cashapp:'$',crypto_eth:'⟠',crypto_btc:'₿',crypto_usdc:'💵',bank_ach:'🏦'};
+
+      const html = `<div id="wallet-panel" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+        background:rgba(8,8,20,0.98);border:1px solid rgba(0,255,136,0.3);border-radius:12px;
+        padding:24px;min-width:380px;max-height:80vh;overflow-y:auto;z-index:3000;backdrop-filter:blur(10px);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3 style="color:#00ff88;">💳 Payment Methods</h3>
+          <button onclick="document.getElementById('wallet-panel').remove()"
+            style="background:none;border:none;color:#666;cursor:pointer;font-size:18px;">✕</button>
+        </div>
+        ${methods.length === 0
+          ? '<p style="color:#666;text-align:center;padding:20px 0;">No payment methods saved yet.</p>'
+          : methods.map(m => `
+            <div style="display:flex;justify-content:space-between;align-items:center;
+                 padding:12px;border:1px solid rgba(255,255,255,0.08);border-radius:8px;margin-bottom:8px;background:rgba(255,255,255,0.02);">
+              <div>
+                <div style="color:#fff;font-weight:500;">${_ICONS[m.type]||'💳'} ${escapeHtml(m.nickname)}</div>
+                <div style="color:#666;font-size:11px;">${_formatMethodDisplay(m)}</div>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;">
+                ${m.is_default ? '<span style="color:#00ff88;font-size:10px;padding:2px 6px;border:1px solid rgba(0,255,136,0.3);border-radius:3px;">DEFAULT</span>'
+                  : `<button onclick="setPaymentDefault('${m.id}')"
+                       style="background:none;border:1px solid #444;color:#888;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;">Set Default</button>`}
+                <button onclick="removePaymentMethod('${m.id}')"
+                  style="background:none;border:none;color:#555;cursor:pointer;font-size:14px;">🗑</button>
+              </div>
+            </div>`).join('')}
+        <button onclick="showAddPaymentForm()"
+          style="width:100%;padding:12px;margin-top:12px;background:rgba(0,255,136,0.1);
+          border:1px solid rgba(0,255,136,0.3);color:#00ff88;border-radius:8px;cursor:pointer;font-size:13px;">
+          + Add Payment Method</button>
+        <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px;">
+          <div style="color:#888;font-size:11px;margin-bottom:6px;">Per-transaction limit:</div>
+          <div style="display:flex;gap:8px;">
+            <input id="limit-amount" type="number" value="500" min="1" max="10000"
+              style="flex:1;padding:7px;background:#111;border:1px solid #333;color:#fff;border-radius:5px;font-size:12px;">
+            <button onclick="saveSpendingLimit()"
+              style="padding:7px 14px;background:rgba(0,170,255,0.15);border:1px solid rgba(0,170,255,0.3);
+              color:#00aaff;border-radius:5px;cursor:pointer;font-size:12px;">Save Limit</button>
+          </div>
+        </div>
+      </div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    };
+
+    function _formatMethodDisplay(m) {
+      if (!m.display) return m.type;
+      const d = m.display;
+      if (d.last4) return `${d.brand || 'Card'} ****${d.last4} · exp ${d.expiry || ''}`;
+      if (d.email) return d.email;
+      if (d.wallet) return `${d.currency || ''} ${d.wallet}`;
+      if (d.username) return d.username;
+      if (d.cashtag) return d.cashtag;
+      if (d.device) return d.device;
+      return m.type;
+    }
+
+    window.setPaymentDefault = async function(id) {
+      await fetch(`http://127.0.0.1:5001/payments/methods/${id}/default`, {method:'POST'}).catch(()=>{});
+      document.getElementById('wallet-panel')?.remove();
+      showWalletPanel();
+    };
+
+    window.removePaymentMethod = async function(id) {
+      if (!confirm('Remove this payment method?')) return;
+      await fetch(`http://127.0.0.1:5001/payments/methods/${id}`, {method:'DELETE'}).catch(()=>{});
+      document.getElementById('wallet-panel')?.remove();
+      showWalletPanel();
+    };
+
+    window.saveSpendingLimit = async function() {
+      const amt = parseFloat(document.getElementById('limit-amount')?.value || '500');
+      await fetch('http://127.0.0.1:5001/payments/limits', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({period:'per_transaction', amount:amt, category:'all'})
+      }).catch(()=>{});
+      document.getElementById('wallet-panel')?.remove();
+      showWalletPanel();
+    };
+
+    // ── Add Payment Form ──────────────────────────────────────────────────────
+    window.showAddPaymentForm = function() {
+      document.getElementById('wallet-panel')?.remove();
+      document.getElementById('add-payment-form')?.remove();
+      const html = `<div id="add-payment-form" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+        background:rgba(8,8,20,0.98);border:1px solid rgba(0,255,136,0.3);border-radius:12px;
+        padding:24px;min-width:400px;max-height:85vh;overflow-y:auto;z-index:3001;backdrop-filter:blur(10px);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3 style="color:#00ff88;">Add Payment Method</h3>
+          <button onclick="document.getElementById('add-payment-form').remove();showWalletPanel()"
+            style="background:none;border:none;color:#666;cursor:pointer;font-size:18px;">✕</button>
+        </div>
+        <div style="margin-bottom:10px;">
+          <label style="color:#888;font-size:11px;display:block;margin-bottom:5px;">TYPE</label>
+          <select id="pm-type" onchange="updatePMFields()"
+            style="width:100%;padding:10px;background:#111;border:1px solid #333;color:#fff;border-radius:6px;">
+            <option value="card">💳 Credit / Debit Card</option>
+            <option value="paypal">🅿 PayPal</option>
+            <option value="amazon_pay">📦 Amazon Pay</option>
+            <option value="google_pay">G Google Pay</option>
+            <option value="venmo">V Venmo</option>
+            <option value="cashapp">$ Cash App</option>
+            <option value="crypto_eth">⟠ Ethereum Wallet</option>
+            <option value="crypto_usdc">💵 USDC Stablecoin</option>
+            <option value="crypto_btc">₿ Bitcoin Wallet</option>
+            <option value="bank_ach">🏦 Bank Account (ACH)</option>
+          </select>
+        </div>
+        <div style="margin-bottom:10px;">
+          <label style="color:#888;font-size:11px;display:block;margin-bottom:5px;">NICKNAME</label>
+          <input id="pm-nickname" type="text" placeholder="e.g. Chase Visa, PayPal Main"
+            style="width:100%;padding:10px;background:#111;border:1px solid #333;color:#fff;border-radius:6px;box-sizing:border-box;">
+        </div>
+        <div id="pm-fields"></div>
+        <button onclick="savePM()"
+          style="width:100%;padding:12px;margin-top:12px;background:rgba(0,255,136,0.15);
+          border:1px solid rgba(0,255,136,0.4);color:#00ff88;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">
+          🔒 Save Securely</button>
+        <p style="color:#444;font-size:10px;margin-top:10px;text-align:center;">
+          Encrypted on this device only. Never transmitted. Never stored in cloud.</p>
+      </div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+      updatePMFields();
+    };
+
+    window.updatePMFields = function() {
+      const t = document.getElementById('pm-type')?.value;
+      const inp = (id, ph, type='text') => `<input id="${id}" type="${type}" placeholder="${ph}"
+        style="width:100%;padding:9px;background:#111;border:1px solid #333;color:#fff;border-radius:5px;margin-bottom:8px;box-sizing:border-box;">`;
+      const lbl = (txt) => `<label style="color:#888;font-size:10px;display:block;margin-bottom:4px;">${txt}</label>`;
+      const row = (...items) => `<div style="display:flex;gap:8px;">${items.map(i=>`<div style="flex:1;">${i}</div>`).join('')}</div>`;
+      const fields = {
+        card:       lbl('CARD NUMBER') + inp('pm-f1','Card Number','password') + row(lbl('EXPIRY') + inp('pm-f2','MM/YY'), lbl('CVV') + inp('pm-f3','CVV','password')),
+        paypal:     lbl('EMAIL') + inp('pm-f1','PayPal Email','email') + lbl('PASSWORD') + inp('pm-f2','Password','password'),
+        amazon_pay: lbl('EMAIL') + inp('pm-f1','Amazon Email','email') + lbl('PASSWORD') + inp('pm-f2','Password','password'),
+        google_pay: lbl('EMAIL') + inp('pm-f1','Google Email','email') + lbl('TOKEN') + inp('pm-f2','Device Token','password'),
+        venmo:      lbl('USERNAME') + inp('pm-f1','@username') + lbl('PASSWORD') + inp('pm-f2','Password','password'),
+        cashapp:    lbl('CASHTAG') + inp('pm-f1','$cashtag') + lbl('PASSWORD') + inp('pm-f2','Password','password'),
+        crypto_eth: lbl('WALLET ADDRESS') + inp('pm-f1','0x...') + lbl('PRIVATE KEY') + inp('pm-f2','Private Key','password'),
+        crypto_usdc:lbl('WALLET ADDRESS') + inp('pm-f1','0x...') + lbl('PRIVATE KEY') + inp('pm-f2','Private Key','password') + lbl('NETWORK') + `<select id="pm-f3" style="width:100%;padding:9px;background:#111;border:1px solid #333;color:#fff;border-radius:5px;margin-bottom:8px;"><option>ethereum</option><option>polygon</option><option>arbitrum</option></select>`,
+        crypto_btc: lbl('WALLET ADDRESS') + inp('pm-f1','bc1...') + lbl('PRIVATE KEY') + inp('pm-f2','Private Key','password'),
+        bank_ach:   lbl('ROUTING NUMBER') + inp('pm-f1','Routing Number') + lbl('ACCOUNT NUMBER') + inp('pm-f2','Account Number','password'),
+      };
+      const el = document.getElementById('pm-fields');
+      if (el) el.innerHTML = fields[t] || fields.paypal;
+    };
+
+    window.savePM = async function() {
+      const type = document.getElementById('pm-type')?.value;
+      const nickname = document.getElementById('pm-nickname')?.value?.trim();
+      if (!nickname) { alert('Please enter a nickname.'); return; }
+      const f1 = document.getElementById('pm-f1')?.value || '';
+      const f2 = document.getElementById('pm-f2')?.value || '';
+      const f3 = document.getElementById('pm-f3')?.value || '';
+      const detailsMap = {
+        card:       {card_number:f1, expiry:f2, cvv:f3},
+        paypal:     {email:f1, password:f2},
+        amazon_pay: {email:f1, password:f2},
+        google_pay: {email:f1, token:f2},
+        venmo:      {username:f1.replace('@',''), password:f2},
+        cashapp:    {cashtag:f1.replace('$',''), password:f2},
+        crypto_eth: {wallet_address:f1, private_key:f2},
+        crypto_usdc:{wallet_address:f1, private_key:f2, network:f3||'ethereum'},
+        crypto_btc: {wallet_address:f1, private_key:f2},
+        bank_ach:   {routing_number:f1, account_number:f2, account_type:'checking'},
+      };
+      const details = detailsMap[type] || {};
+      const res = await fetch('http://127.0.0.1:5001/payments/methods/add', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({type, nickname, details})
+      }).catch(e=>({ok:false}));
+      const data = res.json ? await res.json() : {};
+      if (data.status === 'ok') { document.getElementById('add-payment-form')?.remove(); showWalletPanel(); }
+      else alert('Error: ' + (data.error || 'Save failed'));
+    };
+
+    // ── Purchase Approval Modal ───────────────────────────────────────────────
+    window.showPurchaseApproval = async function(purchaseData) {
+      document.getElementById('purchase-approval')?.remove();
+      let methods = [];
+      try {
+        const r = await fetch('http://127.0.0.1:5001/payments/methods');
+        methods = (await r.json()).methods || [];
+      } catch(_) {}
+
+      const allPrices = (purchaseData.all_prices || []).filter(p => p.price);
+      const html = `<div id="purchase-approval" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+        background:rgba(8,8,20,0.98);border:1px solid rgba(0,255,136,0.3);border-radius:12px;
+        padding:28px;min-width:420px;z-index:3000;backdrop-filter:blur(10px);">
+        <h3 style="color:#00ff88;margin-bottom:4px;">🛒 Purchase Approval</h3>
+        <p style="color:#666;font-size:12px;margin-bottom:18px;">Sentinel found the best deal — review and approve</p>
+        <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:16px;margin-bottom:14px;border:1px solid rgba(255,255,255,0.07);">
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+            <span style="color:#888;font-size:13px;">Product</span>
+            <span style="color:#fff;font-weight:500;max-width:60%;text-align:right;font-size:13px;">${escapeHtml(purchaseData.product || '')}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+            <span style="color:#888;font-size:13px;">Best Price</span>
+            <span style="color:#00ff88;font-weight:700;font-size:20px;">${escapeHtml(String(purchaseData.price || '—'))}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:${allPrices.length > 1 ? '8' : '0'}px;">
+            <span style="color:#888;font-size:13px;">From</span>
+            <span style="color:#fff;font-size:13px;">${escapeHtml(purchaseData.site || '')}</span>
+          </div>
+          ${allPrices.length > 1 ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.05);">
+            <div style="color:#555;font-size:10px;margin-bottom:5px;">ALL PRICES</div>
+            ${allPrices.map(p=>`<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
+              <span style="color:#666;">${escapeHtml(p.site||'')}</span>
+              <span style="color:#888;">${escapeHtml(p.price||'—')}</span>
+            </div>`).join('')}</div>` : ''}
+        </div>
+        ${methods.length > 0 ? `<div style="margin-bottom:14px;">
+          <label style="color:#888;font-size:11px;display:block;margin-bottom:6px;">PAY WITH</label>
+          <select id="pa-method" style="width:100%;padding:10px;background:#111;border:1px solid #333;color:#fff;border-radius:6px;">
+            ${methods.map(m=>`<option value="${m.id}" ${m.is_default?'selected':''}>${_formatMethodDisplay(m)} — ${escapeHtml(m.nickname)}</option>`).join('')}
+          </select>
+        </div>` : `<p style="color:#888;font-size:12px;margin-bottom:14px;">No payment method saved.
+          <a href="#" onclick="document.getElementById('purchase-approval').remove();showWalletPanel()" style="color:#00ff88;">Add one →</a></p>`}
+        <div style="display:flex;gap:10px;">
+          <button onclick="approvePurchase()" ${methods.length===0?'disabled':''} id="pa-confirm-btn"
+            style="flex:2;padding:14px;background:rgba(0,255,136,0.18);border:1px solid rgba(0,255,136,0.4);
+            color:#00ff88;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;">
+            ✓ Approve Purchase</button>
+          <button onclick="document.getElementById('purchase-approval').remove()"
+            style="flex:1;padding:14px;background:none;border:1px solid #333;color:#666;border-radius:8px;cursor:pointer;">Cancel</button>
+        </div>
+        <p style="color:#444;font-size:10px;margin-top:10px;text-align:center;">
+          SentinelWeb will use saved credentials to complete checkout.</p>
+      </div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+      window._pendingPurchase = purchaseData;
+    };
+
+    window.approvePurchase = async function() {
+      const purchaseData = window._pendingPurchase || {};
+      const methodId = document.getElementById('pa-method')?.value;
+      purchaseData.method_id = methodId;
+      const btn = document.getElementById('pa-confirm-btn');
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Processing...'; }
+      try {
+        const res = await fetch('http://127.0.0.1:5001/payments/execute', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(purchaseData)
+        });
+        const result = await res.json();
+        document.getElementById('purchase-approval')?.remove();
+        orbState = result.status === 'success' ? 'speaking' : 'idle';
+        renderOrb();
+        responseArea.textContent = result.message || (result.status === 'success' ? 'Purchase complete!' : 'Purchase failed.');
+        responseArea.classList.add('visible');
+        setTimeout(() => { responseArea.classList.remove('visible'); orbState = 'idle'; renderOrb(); }, 8000);
+      } catch(e) {
+        document.getElementById('purchase-approval')?.remove();
+        responseArea.textContent = 'Error processing purchase: ' + e.message;
+        responseArea.classList.add('visible');
+      }
+    };
   </script>
 </body>
 </html>

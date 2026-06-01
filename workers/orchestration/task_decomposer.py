@@ -95,7 +95,10 @@ class TaskDecomposer:
             "CAMERA": "home.camera_worker",
             "EARN": "earn",
             "MARKET": "market",
-            "GENERAL": "ollama_general"
+            "COMMERCE": "sentinel_web",
+            "SHOPPING": "sentinel_web",
+            "BOOKING": "sentinel_web",
+            "GENERAL": "ollama_general",
         }
 
         self.valid_types = list(self.route_map.keys())
