@@ -151,7 +151,25 @@ SENTINEL_SYSTEM_PROMPT = """You are Sentinel, an advanced AI assistant and orche
 
 # ─── Real-Time Data Helpers ───────────────────────────────────────────────────
 
-def get_weather_data(lat=37.3382, lon=-121.8863):
+def geocode_city(city: str):
+    """Resolve a city name to (lat, lon, name) via Open-Meteo geocoding API."""
+    try:
+        import requests
+        r = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": city, "count": 1, "language": "en", "format": "json"},
+            timeout=5,
+        )
+        results = r.json().get("results", [])
+        if results:
+            loc = results[0]
+            return loc["latitude"], loc["longitude"], loc.get("name", city)
+    except Exception:
+        pass
+    return None, None, city
+
+
+def get_weather_data(lat=37.3382, lon=-121.8863, city_name="San Jose"):
     try:
         import requests
         r = requests.get(
@@ -183,6 +201,7 @@ def get_weather_data(lat=37.3382, lon=-121.8863):
             "rain_chance": daily["precipitation_probability_max"][0],
             "tomorrow_high": daily["temperature_2m_max"][1],
             "tomorrow_low": daily["temperature_2m_min"][1],
+            "city": city_name,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -3016,9 +3035,18 @@ def api_chat():
 
         # ── Real-time data routing — runs before Ollama ───────────────────────
         if any(w in lower for w in ['weather', 'temperature', 'forecast', 'raining', 'sunny', 'cold outside', 'hot outside', 'how cold', 'how hot']):
-            wx = get_weather_data()
+            # Extract city name from "weather in <city>" pattern
+            import re as _re
+            _city_match = _re.search(r'(?:weather|forecast|temperature)\s+(?:in|for|at)\s+([A-Za-z\s]+?)(?:\?|$|,)', lower)
+            _lat, _lon, _city = 37.3382, -121.8863, "San Jose"
+            if _city_match:
+                _queried_city = _city_match.group(1).strip()
+                _glat, _glon, _gname = geocode_city(_queried_city)
+                if _glat:
+                    _lat, _lon, _city = _glat, _glon, _gname
+            wx = get_weather_data(_lat, _lon, _city)
             if 'error' not in wx:
-                response = (f"Current weather in San Jose: {wx['temp']}°F (feels like {wx['feels_like']}°F), "
+                response = (f"Current weather in {_city}: {wx['temp']}°F (feels like {wx['feels_like']}°F), "
                             f"{wx['condition']}. Wind {wx['wind']} mph, humidity {wx['humidity']}%. "
                             f"Today: high {wx['today_high']}°F / low {wx['today_low']}°F, {wx['rain_chance']}% chance of rain. "
                             f"Tomorrow: {wx['tomorrow_high']}°F / {wx['tomorrow_low']}°F.")
