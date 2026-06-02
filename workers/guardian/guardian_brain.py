@@ -328,6 +328,10 @@ Be specific and reference actual data from the output above."""
         domains = re.findall(dom_pat, user_message)
         skip_exts = {".py", ".js", ".txt", ".md", ".json", ".html", ".css", ".yml", ".yaml"}
         targets = ips + [d for d in domains if not any(d.endswith(e) for e in skip_exts)]
+        # Explicitly capture bare 'localhost' keyword (no dots, won't match domain pattern)
+        for bare in ("localhost", "127.0.0.1", "::1"):
+            if bare in user_message.lower() and bare not in targets:
+                targets.append(bare)
 
         always_safe = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
         external = [t for t in targets if t not in always_safe]
@@ -345,9 +349,12 @@ Be specific and reference actual data from the output above."""
                 "mode": self.mode,
             }
 
-        # ── Scan request on already-authorized target → execute directly ──────
-        if is_scan and external and all(self.is_authorized(t) for t in external):
-            target = external[0]
+        # ── Scan request on already-authorized or always-safe target → execute directly ──
+        always_safe_targets = [t for t in targets if t in always_safe]
+        authorized_external = [t for t in external if self.is_authorized(t)]
+        direct_targets = always_safe_targets + authorized_external
+        if is_scan and direct_targets:
+            target = direct_targets[0]
             resp = (f"Starting security assessment of {target}. "
                     f"Results will appear here as each tool completes. "
                     f"Check the Guardian Log for real-time progress.")
