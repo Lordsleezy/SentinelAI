@@ -86,7 +86,7 @@ def _emit_task(event: str, task: Dict) -> None:
     try:
         from desktop_app import socketio
         if socketio:
-            socketio.emit(event, _public(task), broadcast=True)
+            socketio.emit(event, _public(task))
     except Exception as e:
         logger.debug("[TASK] Emit '%s' failed: %s", event, e)
 

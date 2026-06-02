@@ -64,7 +64,7 @@ def _emit(event: str, payload: Dict) -> None:
     try:
         from desktop_app import socketio
         if socketio:
-            socketio.emit(event, payload, broadcast=True)
+            socketio.emit(event, payload)
     except Exception:
         pass
 

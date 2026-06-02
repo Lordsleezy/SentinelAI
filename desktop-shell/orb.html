@@ -3276,17 +3276,29 @@
         const chatgptDot = document.getElementById('chatgpt-status-dot');
         const claudeBtn = document.getElementById('claude-connect-btn');
         const chatgptBtn = document.getElementById('chatgpt-connect-btn');
-        if (claudeDot) claudeDot.style.background = data.claude_connected ? '#0f0' : '#555';
-        if (claudeBtn) {
-          claudeBtn.textContent = data.claude_connected ? 'Connected ✓' : 'Connect';
-          claudeBtn.style.borderColor = data.claude_connected ? '#0f0' : '#0047FF';
-          claudeBtn.style.color = data.claude_connected ? '#0f0' : '#0088FF';
+        // claude_connected = live session validated; claude_creds_saved = creds on disk only
+        const claudeActive  = data.claude_connected;   // true session
+        const claudeHasCreds = data.claude_creds_saved; // creds saved but not yet connected
+        const chatgptActive  = data.chatgpt_connected;
+        const chatgptHasCreds = data.chatgpt_creds_saved;
+
+        if (claudeDot) {
+          claudeDot.style.background = claudeActive ? '#0f0' : (claudeHasCreds ? '#fa0' : '#555');
+          claudeDot.title = claudeActive ? 'Session active' : (claudeHasCreds ? 'Credentials saved — not connected' : 'Not configured');
         }
-        if (chatgptDot) chatgptDot.style.background = data.chatgpt_connected ? '#0f0' : '#555';
+        if (claudeBtn) {
+          claudeBtn.textContent = claudeActive ? 'Connected ✓' : (claudeHasCreds ? 'Credentials Saved — Connect' : 'Connect');
+          claudeBtn.style.borderColor = claudeActive ? '#0f0' : (claudeHasCreds ? '#fa0' : '#0047FF');
+          claudeBtn.style.color       = claudeActive ? '#0f0' : (claudeHasCreds ? '#fa0' : '#0088FF');
+        }
+        if (chatgptDot) {
+          chatgptDot.style.background = chatgptActive ? '#0f0' : (chatgptHasCreds ? '#fa0' : '#555');
+          chatgptDot.title = chatgptActive ? 'Session active' : (chatgptHasCreds ? 'Credentials saved — not connected' : 'Not configured');
+        }
         if (chatgptBtn) {
-          chatgptBtn.textContent = data.chatgpt_connected ? 'Connected ✓' : 'Connect';
-          chatgptBtn.style.borderColor = data.chatgpt_connected ? '#0f0' : '#0047FF';
-          chatgptBtn.style.color = data.chatgpt_connected ? '#0f0' : '#0088FF';
+          chatgptBtn.textContent = chatgptActive ? 'Connected ✓' : (chatgptHasCreds ? 'Credentials Saved — Connect' : 'Connect');
+          chatgptBtn.style.borderColor = chatgptActive ? '#0f0' : (chatgptHasCreds ? '#fa0' : '#0047FF');
+          chatgptBtn.style.color       = chatgptActive ? '#0f0' : (chatgptHasCreds ? '#fa0' : '#0088FF');
         }
       } catch(e) {}
     }

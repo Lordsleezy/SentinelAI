@@ -574,16 +574,27 @@ def api_login_status():
     except Exception:
         pass
 
+    # Connected = credentials exist AND session has been validated by browser automation.
+    # Do NOT infer Connected from credentials alone — that would be a false positive.
+    _claude_session_active  = bool(browser_sessions and getattr(browser_sessions, 'claude_logged_in',  False))
+    _chatgpt_session_active = bool(browser_sessions and getattr(browser_sessions, 'chatgpt_logged_in', False))
+    _claude_creds_saved     = bool(creds.get("claude_email"))
+    _chatgpt_creds_saved    = bool(creds.get("chatgpt_email"))
+
     return jsonify({
-        "configured": configured,
-        "user_name": user_name,
-        "claude_connected": bool(creds.get("claude_email")),
-        "chatgpt_connected": bool(creds.get("chatgpt_email")),
-        "claude_2fa_method": creds.get("claude_2fa_method", "none"),
-        "chatgpt_2fa_method": creds.get("chatgpt_2fa_method", "none"),
-        "gmail_configured": gmail_configured,
-        "adb_available": adb_available,
-        "stealth_active": stealth_active,
+        "configured":        configured,
+        "user_name":         user_name,
+        # True only when a live, validated browser session exists
+        "claude_connected":  _claude_session_active,
+        "chatgpt_connected": _chatgpt_session_active,
+        # Separate flags so the UI can show "credentials saved, not yet connected"
+        "claude_creds_saved":    _claude_creds_saved,
+        "chatgpt_creds_saved":   _chatgpt_creds_saved,
+        "claude_2fa_method":     creds.get("claude_2fa_method", "none"),
+        "chatgpt_2fa_method":    creds.get("chatgpt_2fa_method", "none"),
+        "gmail_configured":      gmail_configured,
+        "adb_available":         adb_available,
+        "stealth_active":        stealth_active,
     })
 
 
@@ -4409,7 +4420,7 @@ def api_chat():
                                         'error': getattr(result, 'error', ''),
                                         'task_id': ctx.task_id,
                                         'artifact_id': art.get('id'),
-                                    }, broadcast=True)
+                                    })
                                 log(f"Build complete: {_desc[:60]}", 'info', 'aider')
                             except Exception as _be:
                                 ctx.fail(str(_be))

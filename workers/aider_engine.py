@@ -423,8 +423,6 @@ class AiderEngine:
         Emits explicit stage progress events with [EARN] prefix — NO SILENT FAILURES.
         Hard timeout: 120 seconds total.
         """
-        import concurrent.futures
-
         _emit(self.socketio, f"[EARN] ENTER analyze_bounty: {title}", "info", "earn")
 
         # ── Task Manager integration ─────────────────────────────────────────
@@ -487,36 +485,47 @@ class AiderEngine:
             result = AiderResult(success=False, output="", error=f"Analysis failed: {_de}")
             return result
 
-        # ── Stage 3: AI analysis via Aider (120s timeout) ───────────────────────
-        _emit(self.socketio, f"[EARN] Stage 3/4: Running AI analysis (max 120s)...", "info", "earn")
+        # ── Stage 3: AI analysis via Aider ──────────────────────────────────────
+        # Root cause of prior timeout: 14b model too slow on local hardware.
+        # Fix: use the faster 7b model for earn analysis. The model can be
+        # overridden with AIDER_EARN_MODEL env var.  Aider's own watchdog
+        # (MAX_RUNTIME=180s, STUCK_TIMEOUT=30s) handles kill — no extra executor needed.
+        _earn_model = os.getenv("AIDER_EARN_MODEL",
+                                os.getenv("AIDER_MODEL", "ollama/qwen2.5-coder:7b"))
+        _emit(self.socketio,
+              f"[EARN] Stage 3/4: Running AI analysis | model={_earn_model} | "
+              f"scope_tokens~{len(scope_str.split())} | file={findings_file.name}",
+              "info", "earn")
         _earn_progress(50, "AI analysis in progress")
+        _t3_start = time.time()
+
+        # Concise prompt — avoid "be thorough" which generates huge responses on slow hardware
         prompt = (
-            f"You are a professional bug bounty hunter. Analyze this program and complete "
-            f"the security analysis document.\n\n"
+            f"You are a bug bounty researcher. Edit the document to add BRIEF but SPECIFIC content.\n\n"
             f"Program: {title}\nURL: {url}\nScope: {scope_str}\n\n"
-            f"Fill in the Attack Surface Analysis, Recommended Attack Vectors, and Recon Plan "
-            f"sections with specific, actionable security research steps. Be technical and thorough."
+            f"Fill in these sections with 3-5 bullet points each (keep it concise):\n"
+            f"## Attack Surface Analysis\n"
+            f"## Recommended Attack Vectors\n"
+            f"## Recon Plan\n\n"
+            f"Be specific to this scope. Do not add extra sections."
         )
 
+        # Temporarily switch model for earn analysis
+        _original_model = self.model
+        self.model = _earn_model
         result: Optional[AiderResult] = None
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(
-                    self._run_aider,
-                    prompt,
-                    [str(findings_file)],
-                    str(vault_dir),
-                    ["--no-git"],
-                )
-                try:
-                    result = future.result(timeout=120)
-                except concurrent.futures.TimeoutError:
-                    _emit(self.socketio, "[EARN] Analysis timed out after 120 seconds. Aborting.", "error", "earn")
-                    self.stop()
-                    result = AiderResult(success=False, output="", error="Analysis timed out after 120 seconds.")
+            result = self._run_aider(prompt, [str(findings_file)], str(vault_dir), ["--no-git"])
         except Exception as _ae:
             _emit(self.socketio, f"[EARN] Stage 3 error (AI analysis): {_ae}", "error", "earn")
             result = AiderResult(success=False, output="", error=f"Analysis failed: {_ae}")
+        finally:
+            self.model = _original_model
+            _t3_elapsed = round(time.time() - _t3_start, 1)
+            _emit(self.socketio,
+                  f"[EARN] Stage 3 complete | elapsed={_t3_elapsed}s | "
+                  f"success={result.success if result else False}",
+                  "info", "earn")
 
         # ── Stage 4: Recommendations and result ─────────────────────────────────
         try:

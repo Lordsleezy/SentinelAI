@@ -65,7 +65,7 @@ class NucleiTool:
             return self._bin
         for candidate in _NUCLEI_PATHS:
             found = shutil.which(candidate) or (
-                candidate if candidate.startswith(r"C:\") and __import__("os").path.isfile(candidate) else None
+                candidate if candidate.startswith("C:\\") and __import__("os").path.isfile(candidate) else None
             )
             if found:
                 self._bin = found
