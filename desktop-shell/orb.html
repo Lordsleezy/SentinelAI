@@ -2065,6 +2065,25 @@
           <span style="color:#0ff;font-size:13px;font-weight:700;">◈ SENTINEL MEMORY</span>
           <button class="panel-btn" style="padding:4px 12px;font-size:11px;" onclick="memorySyncNow()">SYNC NOW</button>
         </div>
+        <!-- AI CONNECTIONS section -->
+        <div id="memory-connections" style="border-bottom:1px solid rgba(0,255,255,0.12);padding-bottom:12px;margin-bottom:12px;">
+          <div style="color:#0ff;font-size:11px;font-family:monospace;margin-bottom:8px;letter-spacing:1px;">AI CONNECTIONS</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <div style="font-family:monospace;font-size:12px;">
+              <span id="claude-status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555;margin-right:6px;"></span>
+              <span style="color:#ccc;">Claude.ai</span>
+            </div>
+            <button id="claude-connect-btn" onclick="connectClaude()" style="background:#0a0a20;border:1px solid #0047FF;color:#0088FF;padding:3px 10px;cursor:pointer;font-family:monospace;font-size:11px;border-radius:3px;">Connect</button>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div style="font-family:monospace;font-size:12px;">
+              <span id="chatgpt-status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555;margin-right:6px;"></span>
+              <span style="color:#ccc;">ChatGPT</span>
+            </div>
+            <button id="chatgpt-connect-btn" onclick="connectChatGPT()" style="background:#0a0a20;border:1px solid #0047FF;color:#0088FF;padding:3px 10px;cursor:pointer;font-family:monospace;font-size:11px;border-radius:3px;">Connect</button>
+          </div>
+          <div id="connection-message" style="color:#888;font-size:11px;font-family:monospace;display:none;padding:6px;background:#0a0a1a;border-radius:3px;margin-top:4px;"></div>
+        </div>
         <div style="display:flex;gap:6px;margin-bottom:10px;">
           <input id="memory-search" style="flex:1;padding:7px 10px;background:#0a0a0f;border:1px solid rgba(0,255,255,0.15);border-radius:5px;color:#e0e0e0;font-size:12px;outline:none;" placeholder="Search memories..." oninput="memorySearch(this.value)"/>
         </div>
@@ -2081,7 +2100,79 @@
         <div id="memory-sessions" style="font-size:12px;color:#555;">Loading sessions...</div>`;
       memoryLoad();
       memoryLoadSessions();
+      loadMemoryConnectionStatus();
     }
+
+    async function loadMemoryConnectionStatus() {
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/login/status');
+        const data = await r.json();
+        const claudeDot = document.getElementById('claude-status-dot');
+        const chatgptDot = document.getElementById('chatgpt-status-dot');
+        const claudeBtn = document.getElementById('claude-connect-btn');
+        const chatgptBtn = document.getElementById('chatgpt-connect-btn');
+        if (claudeDot) claudeDot.style.background = data.claude_connected ? '#0f0' : '#555';
+        if (claudeBtn) {
+          claudeBtn.textContent = data.claude_connected ? 'Connected ✓' : 'Connect';
+          claudeBtn.style.borderColor = data.claude_connected ? '#0f0' : '#0047FF';
+          claudeBtn.style.color = data.claude_connected ? '#0f0' : '#0088FF';
+        }
+        if (chatgptDot) chatgptDot.style.background = data.chatgpt_connected ? '#0f0' : '#555';
+        if (chatgptBtn) {
+          chatgptBtn.textContent = data.chatgpt_connected ? 'Connected ✓' : 'Connect';
+          chatgptBtn.style.borderColor = data.chatgpt_connected ? '#0f0' : '#0047FF';
+          chatgptBtn.style.color = data.chatgpt_connected ? '#0f0' : '#0088FF';
+        }
+      } catch(e) {}
+    }
+
+    window.connectClaude = async function() {
+      const btn = document.getElementById('claude-connect-btn');
+      const msg = document.getElementById('connection-message');
+      if (btn) { btn.textContent = 'Connecting...'; btn.disabled = true; }
+      if (msg) { msg.style.display = 'block'; msg.style.color = '#888'; msg.textContent = 'Opening Claude.ai login...'; }
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/login/connect/claude', { method: 'POST' });
+        const data = await r.json();
+        if (data.status === 'connecting') {
+          if (msg) msg.textContent = '✓ Login attempt started. Check the Log for progress.';
+          setTimeout(loadMemoryConnectionStatus, 3000);
+        } else if (data.status === 'needs_credentials') {
+          if (msg) { msg.textContent = 'Claude credentials not set. Go to Settings to add them.'; msg.style.color = '#fa0'; }
+        } else {
+          if (msg) { msg.textContent = data.message || 'Connection failed. Check your credentials in Settings.'; msg.style.color = '#f44'; }
+        }
+      } catch(e) {
+        if (msg) { msg.textContent = 'Connection error: ' + e.message; msg.style.color = '#f44'; }
+      } finally {
+        if (btn) btn.disabled = false;
+        setTimeout(loadMemoryConnectionStatus, 1500);
+      }
+    };
+
+    window.connectChatGPT = async function() {
+      const btn = document.getElementById('chatgpt-connect-btn');
+      const msg = document.getElementById('connection-message');
+      if (btn) { btn.textContent = 'Connecting...'; btn.disabled = true; }
+      if (msg) { msg.style.display = 'block'; msg.style.color = '#888'; msg.textContent = 'Opening ChatGPT login...'; }
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/login/connect/chatgpt', { method: 'POST' });
+        const data = await r.json();
+        if (data.status === 'connecting') {
+          if (msg) msg.textContent = '✓ Login attempt started. Check the Log for progress.';
+          setTimeout(loadMemoryConnectionStatus, 3000);
+        } else if (data.status === 'needs_credentials') {
+          if (msg) { msg.textContent = 'ChatGPT credentials not set. Go to Settings to add them.'; msg.style.color = '#fa0'; }
+        } else {
+          if (msg) { msg.textContent = data.message || 'Connection failed. Check your credentials.'; msg.style.color = '#f44'; }
+        }
+      } catch(e) {
+        if (msg) { msg.textContent = 'Connection error: ' + e.message; msg.style.color = '#f44'; }
+      } finally {
+        if (btn) btn.disabled = false;
+        setTimeout(loadMemoryConnectionStatus, 1500);
+      }
+    };
 
     async function memoryLoad(filter='all', query='') {
       try {

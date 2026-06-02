@@ -638,6 +638,62 @@ def api_login_clear():
     return jsonify({"status": "cleared"})
 
 
+@app.route('/api/login/connect/claude', methods=['POST'])
+def api_login_connect_claude():
+    """Trigger Claude.ai browser login."""
+    try:
+        if not identity_manager.has_credentials():
+            return jsonify({
+                'status': 'needs_credentials',
+                'message': 'No credentials saved. Complete the login setup first.'
+            })
+
+        def do_login():
+            try:
+                sessions = app.config.get('BROWSER_SESSIONS') or browser_sessions
+                if sessions and hasattr(sessions, 'login_claude'):
+                    result = sessions.login_claude()
+                    app.config['CLAUDE_CONNECTED'] = result
+                    log(f"Claude login {'successful' if result else 'failed'}", 'success' if result else 'error', 'identity')
+                else:
+                    log("Claude login: no browser session available", 'warning', 'identity')
+            except Exception as e:
+                log(f"Claude login error: {e}", 'error', 'identity')
+
+        threading.Thread(target=do_login, daemon=True).start()
+        return jsonify({'status': 'connecting', 'message': 'Login attempt started. Check the Log for progress.'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/login/connect/chatgpt', methods=['POST'])
+def api_login_connect_chatgpt():
+    """Trigger ChatGPT browser login."""
+    try:
+        if not identity_manager.has_credentials():
+            return jsonify({
+                'status': 'needs_credentials',
+                'message': 'No credentials saved. Complete the login setup first.'
+            })
+
+        def do_login():
+            try:
+                sessions = app.config.get('BROWSER_SESSIONS') or browser_sessions
+                if sessions and hasattr(sessions, 'login_chatgpt'):
+                    result = sessions.login_chatgpt()
+                    app.config['CHATGPT_CONNECTED'] = result
+                    log(f"ChatGPT login {'successful' if result else 'failed'}", 'success' if result else 'error', 'identity')
+                else:
+                    log("ChatGPT login: no browser session available", 'warning', 'identity')
+            except Exception as e:
+                log(f"ChatGPT login error: {e}", 'error', 'identity')
+
+        threading.Thread(target=do_login, daemon=True).start()
+        return jsonify({'status': 'connecting', 'message': 'Login attempt started. Check the Log for progress.'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 # ── Sync Routes ───────────────────────────────────────────────────────────────
 
 @app.route('/sync/status')
