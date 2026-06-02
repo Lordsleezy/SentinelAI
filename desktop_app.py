@@ -652,7 +652,7 @@ def memory_from_source(source):
     if memory_v2 is None:
         return jsonify({"error": "Memory V2 not initialized"}), 503
     results = memory_v2.recall_from_source(source)
-    return jsonify({"results": [r.to_dict() for r in results], "source": source})
+    return jsonify({"results": [r.to_dict() for r in results], "source": source, "count": len(results)})
 
 
 @app.route('/memory/clear/hot', methods=['DELETE'])

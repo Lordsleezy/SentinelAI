@@ -38,11 +38,9 @@ class CodebaseRAG:
 
         if CHROMADB_AVAILABLE and SENTENCE_TRANSFORMERS_AVAILABLE:
             try:
-                self.client = chromadb.Client(Settings(
-                    chroma_db_impl="duckdb+parquet",
-                    persist_directory=self.db_path,
-                    anonymized_telemetry=False
-                ))
+                import os as _os
+                _os.makedirs(self.db_path, exist_ok=True)
+                self.client = chromadb.PersistentClient(path=self.db_path)
                 self.model = SentenceTransformer('all-MiniLM-L6-v2')
             except Exception as e:
                 logger.error(f"Failed to initialize ChromaDB: {e}")
