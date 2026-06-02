@@ -1875,14 +1875,22 @@
     }
 
     function renderEarnTable(programs) {
-      const rows = programs.slice(0, 20).map(p => `
-        <tr>
+      const rows = programs.slice(0, 20).map((p, i) => {
+        // Base64-encode the JSON so no special chars can break the attribute
+        let encoded = '';
+        try { encoded = btoa(unescape(encodeURIComponent(JSON.stringify(p)))); } catch(_) {}
+        return `
+        <tr id="earn-row-${i}">
           <td>${escapeHtml(p.name || p.program || '')}</td>
-          <td><span style="font-size:10px;color:#888;">${escapeHtml(p.type || '')}</span></td>
-          <td style="color:#00ff88;">${escapeHtml(String(p.max_bounty || p.reward || p.bounty || '—'))}</td>
-          <td><button class="panel-btn" style="padding:4px 8px;font-size:10px;white-space:nowrap;"
-              onclick="earnAcceptWork('${escapeHtml(JSON.stringify(p).replace(/'/g,"&apos;"))}', this)">Accept & Work</button></td>
-        </tr>`).join('');
+          <td><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(p.type || '')}</span></td>
+          <td style="color:#10a37f;">${escapeHtml(String(p.max_bounty || p.reward || p.bounty || '—'))}</td>
+          <td>
+            <button class="panel-btn earn-accept-btn" style="padding:4px 10px;font-size:11px;white-space:nowrap;"
+                data-prog="${encoded}" data-idx="${i}" onclick="earnAcceptWork(null,this)">Accept &amp; Work</button>
+            <div id="earn-status-${i}" style="font-size:10px;color:var(--text-muted);margin-top:3px;"></div>
+          </td>
+        </tr>`;
+      }).join('');
       return `<table class="panel-table"><thead><tr><th>Program</th><th>Type</th><th>Reward</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
 
@@ -1901,52 +1909,59 @@
       } finally { if (btn) { btn.disabled = false; btn.textContent = '🔍 SCAN NOW'; } }
     };
 
-    window.earnAcceptWork = async function(programJson, btnEl) {
-      let p; try { p = JSON.parse(programJson); } catch(_) { return; }
-      const btn = btnEl || event && event.target;
-      const originalText = btn ? btn.textContent : 'Accept & Work';
-      if (btn) { btn.textContent = 'Working...'; btn.disabled = true; }
+    window.earnAcceptWork = async function(programJsonOrNull, btnEl) {
+      const btn = btnEl || (event && event.target);
+      const idx = btn ? btn.dataset.idx : null;
+      const statusEl = idx != null ? document.getElementById(`earn-status-${idx}`) : null;
 
-      // Show immediate feedback
-      showEarnNotification(`Accepting ${p.name || p.title || 'program'}...`, 'info');
+      // Decode program data: prefer data-prog (base64) over raw JSON arg
+      let p = null;
+      try {
+        const encoded = btn && btn.dataset.prog;
+        if (encoded) {
+          p = JSON.parse(decodeURIComponent(escape(atob(encoded))));
+        } else if (programJsonOrNull) {
+          p = JSON.parse(programJsonOrNull);
+        }
+      } catch(parseErr) {
+        if (statusEl) statusEl.textContent = '✗ Failed to read program data';
+        return;
+      }
+      if (!p) { if (statusEl) statusEl.textContent = '✗ No program data'; return; }
+
+      const originalText = btn ? btn.textContent : 'Accept & Work';
+      if (btn) { btn.textContent = '⏳ Sending...'; btn.disabled = true; }
+      if (statusEl) statusEl.textContent = `Queuing ${p.name || p.title || 'program'}…`;
 
       try {
         const r = await fetch('http://127.0.0.1:5001/earn/accept', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
-            title: p.title || p.name || p.program || 'Unknown',
-            source: p.source || p.type || 'unknown',
-            url: p.url || p.program_url || '',
-            scope: p.scope || [],
-            offers_bounties: p.offers_bounties || (p.type||'').toLowerCase().includes('bounty'),
-            reward: p.reward || p.max_bounty || p.bounty || 'Varies'
+            title:   p.title || p.name || p.program || 'Unknown',
+            source:  p.source || p.type || 'unknown',
+            url:     p.url || p.program_url || '',
+            scope:   p.scope || [],
+            reward:  p.reward || p.max_bounty || p.bounty || 'Varies'
           })
         });
 
-        if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-        const ct = r.headers.get('content-type');
-        if (!ct || !ct.includes('application/json')) {
-          const text = await r.text();
-          throw new Error(`Non-JSON response: ${text.substring(0, 100)}`);
-        }
-
-        const d = await r.json();
-        if (d.status === 'accepted' || d.job_id) {
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && (d.status === 'accepted' || d.job_id)) {
           _telemetryTrack('earn_accepted', { source: p.source || p.type || 'unknown' });
-          showEarnNotification(`✓ ${p.name || p.title || 'Program'} accepted. Sentinel is analyzing the target.`, 'success');
           if (btn) {
             btn.textContent = '✓ Accepted';
-            btn.style.background = 'rgba(0,255,136,0.1)';
-            btn.style.borderColor = 'rgba(0,255,136,0.6)';
-            btn.style.color = '#00ff88';
+            btn.style.background = 'rgba(16,163,127,0.15)';
+            btn.style.borderColor = 'rgba(16,163,127,0.5)';
+            btn.style.color = '#10a37f';
           }
+          if (statusEl) statusEl.innerHTML = '<span style="color:#10a37f;">✓ Queued — check Log tab for live analysis</span>';
         } else {
-          throw new Error(d.error || d.message || 'Unknown error from server');
+          throw new Error(d.error || d.message || `HTTP ${r.status}`);
         }
       } catch(e) {
-        showEarnNotification(`✗ Error: ${e.message}`, 'error');
         if (btn) { btn.textContent = originalText; btn.disabled = false; }
+        if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">✗ ${escapeHtml(e.message)}</span>`;
       }
     };
 
@@ -2496,20 +2511,21 @@
       }
     };
 
-    // Wire guardian_response socket events into the chat panel
+    // Wire guardian_response socket events into the chat panel (incremental steps)
     function _attachGuardianSocketListener() {
       if (!window._sharedSocket) return;
       window._sharedSocket.off('guardian_response');
       window._sharedSocket.on('guardian_response', (data) => {
         const msgs = document.getElementById('guardian-chat-messages');
+        const resp = data.response || '';
+        if (!resp) return;
         if (!msgs) {
-          // Panel not open — queue it
           if (!panelState.guardian.pendingResponses) panelState.guardian.pendingResponses = [];
           panelState.guardian.pendingResponses.push(data);
           return;
         }
-        const resp = data.response || '';
-        if (resp) _appendGuardianChatMsg('sentinel', `**Assessment complete for ${data.target || 'target'}:**\n\n${resp}`);
+        // Show each step with appropriate label
+        _appendGuardianChatMsg('sentinel', resp);
       });
     }
     // Attach once socket is ready (may be called again on panel open)

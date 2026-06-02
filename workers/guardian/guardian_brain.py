@@ -240,11 +240,24 @@ Provide a technical analysis:
 Be specific and reference actual data from the output above."""
         return self._call_ollama(prompt, tier="reasoning")
 
+    def _emit_guardian_response(self, message: str, target: str, step: str = '') -> None:
+        """Emit a guardian_response socket event with a partial or final result."""
+        try:
+            from desktop_app import socketio
+            if socketio:
+                socketio.emit('guardian_response', {
+                    'response': message,
+                    'target': target,
+                    'step': step,
+                })
+        except Exception as e:
+            logger.error("[Guardian] Failed to emit guardian_response: %s", e)
+
     def _run_full_assessment(self, target: str) -> None:
         """
         Run a full security assessment in a background thread.
-        Executes tools DIRECTLY, then feeds combined output to Ollama for analysis.
-        Emits guardian_response socket event with the final analysis.
+        Emits incremental guardian_response events after each tool so the
+        user sees results as they arrive instead of waiting for Ollama.
         """
         import threading
 
@@ -253,20 +266,32 @@ Be specific and reference actual data from the output above."""
 
             self._guardian_log(f"Starting security assessment: {target}", 'info')
 
-            # 1. HTTP headers (always available)
-            self._guardian_log("Running HTTP header check...", 'info')
+            # 1. HTTP headers (always available — emit immediately)
+            self._guardian_log("Step 1/4: HTTP header check...", 'info')
             results['headers'] = self._run_curl_check(target)
+            self._emit_guardian_response(
+                f"**Step 1 — HTTP Headers for {target}:**\n```\n{results['headers'][:1500]}\n```",
+                target, step='headers'
+            )
 
             # 2. Port scan
-            self._guardian_log("Running port scan...", 'info')
+            self._guardian_log("Step 2/4: Port scan (nmap)...", 'info')
             results['ports'] = self._run_nmap(target)
+            self._emit_guardian_response(
+                f"**Step 2 — Port Scan:**\n```\n{results['ports'][:1500]}\n```",
+                target, step='ports'
+            )
 
             # 3. Vulnerability scan
-            self._guardian_log("Running vulnerability scan...", 'info')
+            self._guardian_log("Step 3/4: Vulnerability scan (nuclei)...", 'info')
             results['vulns'] = self._run_nuclei(target)
+            self._emit_guardian_response(
+                f"**Step 3 — Vulnerability Scan:**\n```\n{results['vulns'][:1500]}\n```",
+                target, step='vulns'
+            )
 
-            # 4. Analyze all results with Ollama
-            self._guardian_log("Analyzing findings with Ollama...", 'info')
+            # 4. Final AI analysis
+            self._guardian_log("Step 4/4: AI analysis of findings...", 'info')
             combined = (
                 f"HTTP Headers:\n{results['headers']}\n\n"
                 f"Port Scan:\n{results['ports']}\n\n"
@@ -275,18 +300,10 @@ Be specific and reference actual data from the output above."""
             analysis = self._analyze_with_ollama('security assessment', target, combined)
 
             self._guardian_log("Assessment complete", 'success')
-
-            # Emit result via Socket.IO
-            try:
-                from desktop_app import socketio
-                if socketio:
-                    socketio.emit('guardian_response', {
-                        'response': analysis,
-                        'raw_results': {k: v[:1000] for k, v in results.items()},
-                        'target': target
-                    })
-            except Exception as e:
-                logger.error("[Guardian] Failed to emit guardian_response: %s", e)
+            self._emit_guardian_response(
+                f"**Assessment complete for {target}:**\n\n{analysis}",
+                target, step='final'
+            )
 
         threading.Thread(target=_assess, daemon=True).start()
 
