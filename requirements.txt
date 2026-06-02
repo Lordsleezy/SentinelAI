@@ -85,3 +85,10 @@ blinkpy>=0.23.0
 
 xgboost>=2.0.0
 websocket-client>=1.6.0
+
+# Browser stealth + 2FA
+playwright-stealth
+fake-useragent
+pyotp
+google-auth-oauthlib
+google-api-python-client
