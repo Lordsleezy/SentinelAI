@@ -4911,8 +4911,8 @@
       try {
         const res = await fetch('http://127.0.0.1:5001/api/builder/runtime/godot/install', { method: 'POST' });
         const d = await res.json();
-        if (!d.ok) {
-          if (st) st.textContent = d.error || 'Install failed';
+        if (!d.ok && d.status !== 'ok') {
+          if (st) st.textContent = d.error || d.message || 'Install failed';
           return;
         }
         if (st) st.textContent = 'Installed. Launching…';

@@ -399,10 +399,7 @@ async function doChat(message) {
     const res  = await fetch(`${BASE}/guardian/chat`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message}) });
     const data = await res.json();
     removeThinking();
-    if (data.requires_confirmation) {
-      addMsg(`Authorization required for: ${data.target}`, 'auth-req');
-      showAuth(data.target, message);
-    } else if (data.response) {
+    if (data.response) {
       addMsg(data.response, 'guardian', { tools: data.tool_calls||[], tier: data.tier });
     } else {
       addMsg(data.error || 'No response.', 'err');
@@ -535,13 +532,8 @@ document.getElementById('run-btn').addEventListener('click', async () => {
   document.getElementById('tool-out').textContent = `$ wsl ${activeTool} ${args}\n\n`;
   try {
     const data = await (await fetch(`${BASE}/guardian/tool/run`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({tool:activeTool, args, target}) })).json();
-    if (data.requires_confirmation) {
-      document.getElementById('tool-out').textContent = `Authorization required for: ${data.target}`;
-      showAuth(data.target, null);
-    } else {
-      document.getElementById('tool-out').textContent = data.output || 'No output.';
-      saveReport(`${activeTool}: ${target}`, (data.output||'').substring(0,200));
-    }
+    document.getElementById('tool-out').textContent = data.output || data.message || 'No output.';
+    saveReport(`${activeTool}: ${target}`, (data.output||'').substring(0,200));
   } catch(e) { document.getElementById('tool-out').textContent=`Error: ${e.message}`; }
   btn.disabled = false; btn.textContent = '▶ Run';
 });

@@ -171,11 +171,18 @@
 <body>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
     <h1 style="margin:0;">💰 Sentinel Earn</h1>
-    <button id="scan-now-btn" onclick="loadJobs(true)"
-      style="padding:8px 20px;background:linear-gradient(135deg,#00aa55,#00ff88);color:#000;border:none;
-             border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px;">
-      ⟳ Scan Now
-    </button>
+    <div style="display:flex;gap:8px;">
+      <button id="scan-now-btn" onclick="loadJobs(true, false)"
+        style="padding:8px 20px;background:linear-gradient(135deg,#00aa55,#00ff88);color:#000;border:none;
+               border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px;">
+        ⟳ Scan Now
+      </button>
+      <button onclick="loadJobs(true, true)"
+        style="padding:8px 16px;background:#1a1400;color:#ffb000;border:1px solid rgba(255,176,0,0.4);
+               border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">
+        ⚡ Force
+      </button>
+    </div>
   </div>
 
   <div class="stats" id="stats-container">
@@ -190,6 +197,7 @@
   </div>
 
   <div id="status-msg"></div>
+  <div id="earn-diag" style="font-size:11px;font-family:monospace;color:#888;margin-bottom:12px;padding:10px;background:#0a0a0f;border-radius:6px;border:1px solid rgba(0,255,136,0.15);"></div>
   <!-- Analysis progress panel — hidden until a job is accepted -->
   <div id="analysis-panel" style="display:none;margin-bottom:16px;background:#0d1a14;border:1px solid rgba(0,255,136,0.25);border-radius:8px;padding:14px;">
     <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#00ff88;margin-bottom:10px;">
@@ -217,13 +225,29 @@
   <script>
     const BASE = 'http://127.0.0.1:5001';
 
-    async function loadJobs(manual = false) {
+    async function loadEarnDiag() {
+      try {
+        const r = await fetch(`${BASE}/api/earn/diagnostics`);
+        const d = await r.json();
+        const el = document.getElementById('earn-diag');
+        if (!el) return;
+        el.innerHTML = `Source: <b>${(d.program_source||'?').toUpperCase()}</b> · Last refresh: ${d.last_refresh||'never'} · Cache: ${d.cache_age_minutes != null ? d.cache_age_minutes+' min' : '—'} · API: ${d.api_status||'—'} · ${d.program_count||0} cached · ${d.discovered_total||'?'} discovered · ${d.last_duration_ms||'—'} ms`;
+      } catch (_) {}
+    }
+
+    async function loadJobs(manual = false, force = false) {
       const btn = document.getElementById('scan-now-btn');
       if (manual && btn) { btn.disabled = true; btn.textContent = '⟳ Scanning...'; }
+      const qs = force ? '?refresh=1&force=1&limit=50' : (manual ? '?refresh=1&limit=50' : '?limit=50');
       try {
-        const res = await fetch(`${BASE}/earn/jobs`);
+        const res = await fetch(`${BASE}/earn/jobs${qs}`);
         const data = await res.json();
         if (manual && btn) { btn.disabled = false; btn.textContent = '⟳ Scan Now'; }
+        await loadEarnDiag();
+        if (manual && data.discovery) {
+          const sm = document.getElementById('status-msg');
+          if (sm) sm.innerHTML = `<div class="status-msg">Refreshed — source ${data.discovery.source}, ${data.discovery.discovered_total} programs (${data.discovery.duration_ms} ms)</div>`;
+        }
 
         if (!data || !data.jobs) return;
 
