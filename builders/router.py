@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
+from typing import List
 
 from builders.common.logging_util import log_builder
 
@@ -59,8 +60,45 @@ def classify_build(description: str) -> BuildType:
     return BuildType.UNKNOWN
 
 
+def engine_for_route(build_type: BuildType) -> str:
+    """Canonical engine name for logs and planner alignment."""
+    return {
+        BuildType.GAME: "Godot",
+        BuildType.ANDROID: "Android/Gradle",
+        BuildType.WEB: "Next.js",
+        BuildType.DESKTOP: "Electron",
+        BuildType.PYTHON: "Python/Aider",
+        BuildType.UNKNOWN: "Python/Aider",
+    }.get(build_type, "Python/Aider")
+
+
+def stack_for_route(build_type: BuildType) -> List[str]:
+    """Stack labels shown in plans — must match the builder that will run."""
+    return {
+        BuildType.GAME: ["Godot 4", "GDScript"],
+        BuildType.ANDROID: ["Kotlin", "Jetpack Compose", "Gradle"],
+        BuildType.WEB: ["Next.js", "React", "Tailwind CSS"],
+        BuildType.DESKTOP: ["Electron", "Node.js"],
+        BuildType.PYTHON: ["Python 3"],
+        BuildType.UNKNOWN: ["Python 3"],
+    }.get(build_type, ["Python 3"])
+
+
+def normalize_plan_stack(stack: List[str], build_type: BuildType) -> List[str]:
+    """Replace mismatched LLM stacks (e.g. Unity for a Godot GAME route)."""
+    canonical = stack_for_route(build_type)
+    joined = " ".join(stack).lower()
+    if build_type == BuildType.GAME:
+        if "unity" in joined or "c#" in joined or "unreal" in joined:
+            return list(canonical)
+        if not any("godot" in s.lower() or "gdscript" in s.lower() for s in stack):
+            return list(canonical)
+    return stack if stack else list(canonical)
+
+
 def route_build(description: str, socketio=None) -> BuildType:
     """Classify and log the routing decision."""
     build_type = classify_build(description)
     log_builder(f"Route: {build_type.value}", "info", socketio)
+    log_builder(f"Engine: {engine_for_route(build_type)}", "info", socketio)
     return build_type

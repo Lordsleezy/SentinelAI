@@ -65,15 +65,11 @@ class GameBuilder:
         return str(path)
 
     def _find_godot(self) -> Optional[str]:
-        import shutil
-        for c in ("godot", "godot.exe"):
-            f = shutil.which(c)
-            if f:
-                return f
-        for p in (r"C:\Program Files\Godot\Godot.exe", r"C:\Tools\Godot.exe"):
-            if Path(p).is_file():
-                return p
-        return None
+        try:
+            from builders.runtime.godot_runtime import find_godot
+            return find_godot()
+        except Exception:
+            return None
 
 
 _PROJECT_GODOT = """\

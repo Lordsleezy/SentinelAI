@@ -11,13 +11,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import shutil
 import subprocess
 import sys
 import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -73,27 +75,209 @@ def _now() -> str:
     return datetime.now().isoformat()
 
 
-def _derive_launch_command(entry_point: str, output_dir: str) -> str:
-    """Derive a sensible launch command based on the entry_point file type."""
+def _launch_log(message: str, level: str = "info") -> None:
+    """Stream launch events to LOG panel (forge filter)."""
+    if not message.startswith("[LAUNCH]"):
+        message = f"[LAUNCH] {message}"
+    logger.info(message)
+    try:
+        from desktop_app import socketio, log as _app_log
+        _app_log(message, level, "forge")
+        if socketio:
+            socketio.emit("log_event", {
+                "type": "forge",
+                "level": level,
+                "message": message,
+                "timestamp": datetime.now().isoformat(),
+            })
+    except Exception:
+        pass
+
+
+def _find_godot() -> Optional[str]:
+    try:
+        from builders.runtime.godot_runtime import find_godot
+        return find_godot()
+    except Exception:
+        for candidate in (
+            "godot",
+            "godot.exe",
+            r"C:\Program Files\Godot\Godot.exe",
+            r"C:\Tools\Godot.exe",
+        ):
+            found = shutil.which(candidate)
+            if found:
+                return found
+            if candidate.startswith("C:") and Path(candidate).is_file():
+                return candidate
+        return None
+
+
+def _parse_godot_launch(cmd: str) -> Tuple[Optional[str], Optional[str]]:
+    """Return (godot_executable, project_dir) from a launch command."""
+    m = re.match(r'^"([^"]+)"\s+--path\s+"([^"]+)"', cmd.strip(), re.I)
+    if m:
+        exe, proj = m.group(1), m.group(2)
+        if Path(exe).is_file():
+            return exe, proj
+    m = re.search(r'--path\s+"([^"]+)"', cmd, re.I) or re.search(r"--path\s+(\S+)", cmd, re.I)
+    proj = m.group(1) if m else None
+    exe = _find_godot()
+    return exe, proj
+
+
+def _artifact_path_for(entry_point: str, output_dir: str) -> str:
+    """Primary project directory for launch cwd and validation."""
+    if output_dir:
+        return str(Path(output_dir).expanduser().resolve())
+    if entry_point:
+        return str(Path(entry_point).expanduser().resolve().parent)
+    return ""
+
+
+def _derive_launch_command(
+    entry_point: str,
+    output_dir: str,
+    project_type: str = "",
+    builder_used: str = "",
+) -> str:
+    """Derive launch command from project type / entry point."""
+    ptype = (project_type or "").upper()
+    odir = _artifact_path_for(entry_point, output_dir)
+
+    if ptype == "GAME" or (entry_point and Path(entry_point).name == "project.godot"):
+        return f'godot --path "{odir}"' if odir else ""
+    if ptype == "WEB":
+        return f'cd /d "{odir}" && npm install && npm run dev' if odir else ""
+    if ptype == "DESKTOP":
+        return f'cd /d "{odir}" && npm install && npm start' if odir else ""
+    if ptype == "ANDROID":
+        return f'cd /d "{odir}" && gradlew installDebug' if odir else ""
+    if ptype == "PYTHON":
+        if entry_point and entry_point.endswith(".py"):
+            return f'python "{entry_point}"'
+        return ""
+
     if not entry_point:
         return ""
     p = Path(entry_point)
     ext = p.suffix.lower()
     if p.name == "project.godot" or ext == ".godot":
-        return f'godot --path "{output_dir or p.parent}"'
+        return f'godot --path "{odir or p.parent}"'
     if ext == ".py":
-        return f"python \"{entry_point}\""
+        return f'python "{entry_point}"'
     if ext in (".exe", ".bat", ".cmd"):
-        return f"\"{entry_point}\""
+        return f'"{entry_point}"'
     if ext in (".html", ".htm"):
-        return f"start \"\" \"{entry_point}\""
+        return f'start "" "{entry_point}"'
     if ext == ".js" and p.name == "main.js" and (p.parent / "package.json").exists():
         return f'cd /d "{p.parent}" && npm start'
     if ext == ".js":
-        return f"node \"{entry_point}\""
+        return f'node "{entry_point}"'
     if ext == ".sh":
-        return f"bash \"{entry_point}\""
-    return f"\"{entry_point}\""
+        return f'bash "{entry_point}"'
+    return f'"{entry_point}"'
+
+
+def _resolve_launch_command(artifact: Dict) -> str:
+    cmd = (artifact.get("launch_command") or "").strip()
+    if cmd:
+        return cmd
+    return _derive_launch_command(
+        artifact.get("entry_point", ""),
+        artifact.get("output_dir", "") or artifact.get("artifact_path", ""),
+        artifact.get("project_type", ""),
+        artifact.get("builder_used", ""),
+    )
+
+
+def _validate_launch_deps(artifact: Dict, cmd: str) -> Optional[str]:
+    """Return error message if required binary is missing."""
+    ptype = (artifact.get("project_type") or "").upper()
+    odir = artifact.get("artifact_path") or artifact.get("output_dir") or ""
+
+    if ptype == "GAME" or "godot" in cmd.lower():
+        godot_exe, project_dir = _parse_godot_launch(cmd)
+        if not godot_exe:
+            return "godot_missing"
+        check_dir = project_dir or odir
+        if check_dir and not (Path(check_dir) / "project.godot").exists():
+            return f"Godot project missing project.godot in {check_dir}"
+
+    if ptype in ("WEB", "DESKTOP") or "npm" in cmd.lower():
+        if not shutil.which("npm"):
+            return "npm not found on PATH. Install Node.js from https://nodejs.org"
+        if odir and not (Path(odir) / "package.json").exists():
+            return f"package.json not found in {odir}"
+
+    if ptype == "ANDROID" or "gradlew" in cmd.lower():
+        if odir:
+            gw = Path(odir) / "gradlew.bat"
+            if not gw.exists():
+                return f"gradlew.bat not found in {odir}"
+
+    if ptype == "PYTHON" or cmd.strip().lower().startswith("python"):
+        entry = artifact.get("entry_point", "")
+        if entry and not Path(entry).exists():
+            return f"Python entry not found: {entry}"
+
+    return None
+
+
+def _win_console_flags() -> int:
+    if sys.platform == "win32":
+        return subprocess.CREATE_NEW_CONSOLE
+    return 0
+
+
+def _execute_launch(artifact: Dict, cmd: str) -> Tuple[bool, str]:
+    """
+    Execute launch_command. Returns (success, user_message).
+    """
+    odir = artifact.get("artifact_path") or artifact.get("output_dir") or ""
+    cwd = odir if odir and Path(odir).is_dir() else None
+    ptype = (artifact.get("project_type") or "").upper()
+
+    # ── Godot: explicit argv (no shell) ───────────────────────────────────────
+    if ptype == "GAME" or ("godot" in cmd.lower() and "--path" in cmd.lower()):
+        godot, project_dir = _parse_godot_launch(cmd)
+        if not godot:
+            return False, "Godot not found on PATH"
+        if not project_dir:
+            project_dir = odir
+        if not project_dir or not Path(project_dir).exists():
+            return False, f"Project directory not found: {project_dir}"
+        _launch_log(f"Executing: {godot} --path {project_dir}")
+        subprocess.Popen(
+            [godot, "--path", project_dir],
+            cwd=project_dir,
+            creationflags=_win_console_flags(),
+        )
+        return True, f"Godot opened project at {project_dir}"
+
+    # ── HTML: browser ─────────────────────────────────────────────────────────
+    entry = artifact.get("entry_point", "")
+    if entry and Path(entry).suffix.lower() in (".html", ".htm") and Path(entry).exists():
+        import webbrowser
+        webbrowser.open(Path(entry).as_uri())
+        return True, f"Opened in browser: {entry}"
+
+    # ── Shell workflows: npm, gradlew, cd /d ... ─────────────────────────────
+    _launch_log(f"Executing shell: {cmd}")
+    if sys.platform == "win32":
+        subprocess.Popen(
+            ["cmd.exe", "/c", cmd],
+            cwd=cwd,
+            creationflags=_win_console_flags(),
+        )
+    else:
+        subprocess.Popen(
+            cmd,
+            shell=True,
+            cwd=cwd,
+            start_new_session=True,
+        )
+    return True, f"Launch started: {cmd}"
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -112,31 +296,19 @@ def register_artifact(
     verification_status: str = "",
     build_logs: str = "",
 ) -> Dict:
-    """
-    Register a newly created artifact.
-
-    Args:
-        task:           Human-readable label, e.g. "Calculator"
-        entry_point:    Main file path (absolute or relative).
-        output_dir:     Root directory of the artifact.
-        files:          List of files produced.
-        launch_command: Command to run the artifact.  Auto-derived if blank.
-        task_id:        ID of the parent Task (if any).
-        project_id:     ID of the parent Project (if any).
-        artifact_type:  "app", "script", "report", "analysis", "export".
-
-    Returns:
-        Artifact dict.
-    """
     _ensure_loaded()
-    if not launch_command and entry_point:
-        launch_command = _derive_launch_command(entry_point, output_dir)
+    artifact_path = _artifact_path_for(entry_point, output_dir)
+    if not launch_command:
+        launch_command = _derive_launch_command(
+            entry_point, output_dir, project_type, builder_used,
+        )
     artifact_id = "art_" + uuid.uuid4().hex[:10]
     artifact: Dict = {
         "id":                  artifact_id,
         "task":                task,
         "entry_point":         entry_point,
         "output_dir":          output_dir,
+        "artifact_path":       artifact_path,
         "files":               files or ([entry_point] if entry_point else []),
         "launch_command":      launch_command,
         "artifact_type":       artifact_type,
@@ -151,7 +323,10 @@ def register_artifact(
     with _LOCK:
         _registry[artifact_id] = artifact
         _persist()
-    logger.info("[ARTIFACTS] Registered: %s  entry=%s", artifact_id, entry_point)
+    logger.info(
+        "[ARTIFACTS] Registered: %s path=%s launch=%s",
+        artifact_id, artifact_path, launch_command[:80] if launch_command else "",
+    )
     _emit("artifact_created", artifact)
     return dict(artifact)
 
@@ -161,7 +336,6 @@ def list_artifacts(
     project_id: Optional[str] = None,
     task_id: Optional[str] = None,
 ) -> List[Dict]:
-    """Return artifacts, most recent first."""
     _ensure_loaded()
     items = sorted(_registry.values(), key=lambda x: x.get("timestamp", ""), reverse=True)
     if project_id:
@@ -183,7 +357,6 @@ def get_latest_artifact() -> Optional[Dict]:
 
 
 def get_artifact_by_task(task_hint: str) -> Optional[Dict]:
-    """Find the most recent artifact whose task name contains task_hint."""
     _ensure_loaded()
     hint = task_hint.lower()
     candidates = sorted(
@@ -196,55 +369,79 @@ def get_artifact_by_task(task_hint: str) -> Optional[Dict]:
 
 def launch_artifact(artifact: Dict) -> Dict:
     """
-    Launch an artifact by running its stored launch_command.
+    Launch an artifact using its stored launch_command.
 
     Returns:
-        {"ok": True, "message": ...} or {"ok": False, "error": ...}
+        {"ok": True, "message": ..., "command": ...} or {"ok": False, "error": ...}
     """
-    cmd = artifact.get("launch_command", "")
-    entry = artifact.get("entry_point", "")
+    artifact = dict(artifact)
+    # Backfill artifact_path for older registry entries
+    if not artifact.get("artifact_path"):
+        artifact["artifact_path"] = _artifact_path_for(
+            artifact.get("entry_point", ""),
+            artifact.get("output_dir", ""),
+        )
 
+    _launch_log(f"Artifact found: {artifact.get('id', '?')} — {artifact.get('task', '')[:60]}")
+    _launch_log(f"Builder: {artifact.get('builder_used') or 'unknown'}")
+    _launch_log(f"Project type: {artifact.get('project_type') or 'unknown'}")
+    _launch_log(f"Artifact path: {artifact.get('artifact_path') or '—'}")
+
+    cmd = _resolve_launch_command(artifact)
     if not cmd:
-        return {"ok": False, "error": "No launch command stored for this artifact."}
+        err = "No launch command stored for this artifact."
+        _launch_log(err, "error")
+        return {"ok": False, "error": err}
 
-    # Safety: check the entry point exists (if it points to a file)
-    if entry and not Path(entry).exists():
-        return {
-            "ok": False,
-            "error": f"Entry point not found: {entry}",
-        }
+    _launch_log(f"Command: {cmd}")
+    _launch_log("Checking dependencies")
+
+    dep_err = _validate_launch_deps(artifact, cmd)
+    if dep_err:
+        if dep_err == "godot_missing":
+            _launch_log("Godot missing", "error")
+            _launch_log("Install required", "warning")
+            try:
+                from builders.runtime.godot_runtime import launch_dependency_error
+                extra = launch_dependency_error()
+            except Exception:
+                extra = {
+                    "needs_install": True,
+                    "dependency": "godot",
+                    "prompt_title": "Godot required. Install now?",
+                }
+            _emit("launch_dependency_prompt", {
+                **extra,
+                "artifact_id": artifact.get("id"),
+                "project_type": artifact.get("project_type"),
+            })
+            return {
+                "ok": False,
+                "error": "Godot required. Install now?",
+                "dependency": "godot",
+                "needs_install": True,
+                "prompt_title": extra.get("prompt_title", "Godot required. Install now?"),
+                "prompt_actions": extra.get("prompt_actions", ["install", "browse", "cancel"]),
+                "command": cmd,
+            }
+        _launch_log(dep_err, "error")
+        return {"ok": False, "error": dep_err}
 
     try:
-        ext = Path(entry).suffix.lower() if entry else ""
-        if ext == ".html":
-            import webbrowser
-            webbrowser.open(Path(entry).as_uri())
-            return {"ok": True, "message": f"Opened {entry} in browser."}
-
-        if entry and Path(entry).name == "project.godot":
-            import shutil
-            godot = shutil.which("godot") or shutil.which("godot.exe")
-            if godot:
-                cmd = f'"{godot}" --path "{artifact.get("output_dir", Path(entry).parent)}"'
-            else:
-                cmd = artifact.get("launch_command") or cmd
-
-        # Detach so the launched process doesn't block Sentinel
-        kwargs: Dict = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            kwargs["start_new_session"] = True
-
-        subprocess.Popen(
-            cmd,
-            shell=True,
-            cwd=artifact.get("output_dir") or None,
-            **kwargs,
-        )
-        return {"ok": True, "message": f"Launched: {cmd}"}
+        ok, msg = _execute_launch(artifact, cmd)
+        if ok:
+            _launch_log("Launch successful", "success")
+            return {"ok": True, "message": msg, "command": cmd}
+        _launch_log(msg or "Launch failed", "error")
+        return {"ok": False, "error": msg or "Launch failed", "command": cmd}
+    except FileNotFoundError as e:
+        err = f"Executable not found: {e}"
+        _launch_log(err, "error")
+        return {"ok": False, "error": err, "command": cmd}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        err = str(e)
+        _launch_log(f"Launch failed: {err}", "error")
+        return {"ok": False, "error": err, "command": cmd}
 
 
 def launch_latest() -> Dict:

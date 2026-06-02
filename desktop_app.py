@@ -887,6 +887,9 @@ def api_artifact_launch():
             return jsonify({"status": "error", "message": "No builds found. Build something first."})
 
         result = launch_artifact(artifact)
+        if not result.get('ok') and result.get('dependency') == 'godot':
+            global _pending_godot_install
+            _pending_godot_install = True
         msg = result.get('message', result.get('error', ''))
         log(f"[ARTIFACT] {msg}", 'success' if result.get('ok') else 'error', 'forge')
         return jsonify(result)
@@ -1675,6 +1678,7 @@ _chat_session_lock = threading.Lock()
 import uuid as _uuid_mod
 _pending_tasks: dict = {}
 _pending_latest_id: str = ''
+_pending_godot_install: bool = False
 
 def _store_pending_task(task_data: dict) -> str:
     global _pending_latest_id
@@ -3702,8 +3706,8 @@ def _run_forge_build(description: str, output_dir=None, sentinel_task_id: str = 
     """
     Execute build via ForgeBuildEngine (builder router + verification + artifact).
 
-    Emits forge_complete only after generation, verification, artifact registration,
-    and launch metadata are saved. No work runs after Build Complete.
+    Emits forge_complete only after verification, launch verified, and artifact saved.
+    Files alone are not success — the app must be runnable.
     """
     from builders.build_tracker import begin_build, finish_build, mark_launch_ready, update_build
     from builders.common.logging_util import log_builder
@@ -3776,11 +3780,74 @@ def _run_forge_build(description: str, output_dir=None, sentinel_task_id: str = 
                 'error': err,
                 'task_id': sentinel_task_id,
                 'verification_status': 'failed',
+                'build_complete': False,
             })
         return result, {}
 
-    # ── Stage 5/5: Register artifact + launch metadata ───────────────────────
-    log_builder("Stage 5/5 Registering artifact", "info", socketio)
+    # ── Stage 7–8: Launch + verify runnable ───────────────────────────────────
+    log_builder("Stage 7/9 Launch", "info", socketio)
+    update_build(current_stage="Launch", progress_percent=85)
+    if sentinel_task_id:
+        try:
+            from workers.task_manager import update_task, RUNNING
+            update_task(sentinel_task_id, status=RUNNING, progress=85, current_stage="Launch")
+        except Exception:
+            pass
+
+    from builders.launch_verifier import verify_launch
+    from builders.router import BuildType as _BT
+
+    launch_ok, launch_msg, launch_details = verify_launch(result, build_type, socketio=socketio)
+
+    if not launch_ok and launch_details.get("needs_install") and launch_details.get("dependency") == "godot":
+        log_builder("Installing Godot…", "info", socketio)
+        global _pending_godot_install
+        _pending_godot_install = True
+        try:
+            from builders.runtime.godot_runtime import install_godot
+            inst = install_godot(log_fn=lambda m, lvl="info": log_builder(m, lvl, socketio))
+            if inst.get("ok"):
+                from builders.runtime.godot_runtime import find_godot
+                gpath = find_godot() or inst.get("path")
+                if gpath and result.output_dir:
+                    result.launch_command = f'"{gpath}" --path "{result.output_dir}"'
+                launch_ok, launch_msg, launch_details = verify_launch(result, build_type, socketio=socketio)
+            else:
+                launch_msg = inst.get("error", "Godot install failed")
+        except Exception as _gi:
+            launch_msg = str(_gi)
+        _pending_godot_install = False
+
+    if not launch_ok:
+        log_builder(f"Launch failed: {launch_msg}", "error", socketio)
+        finish_build(False, launch_msg)
+        set_worker("forge", "error", current_task=None, activity=launch_msg)
+        if socketio:
+            socketio.emit('forge_complete', {
+                'success': False,
+                'files_modified': result.files,
+                'entry_point': result.entry_point,
+                'output_dir': result.output_dir,
+                'error': launch_msg,
+                'task_id': sentinel_task_id,
+                'verification_status': 'verified',
+                'launch_verified': False,
+                'build_complete': False,
+            })
+        if launch_details.get("needs_install"):
+            global _pending_godot_install
+            if launch_details.get("dependency") == "godot":
+                _pending_godot_install = True
+            if socketio:
+                socketio.emit("launch_dependency_prompt", launch_details)
+        return result, {}
+
+    result.launch_verified = True
+    result.launch_message = launch_msg
+    result.success = True
+
+    # ── Stage 9/9: Register artifact ───────────────────────────────────────────
+    log_builder("Stage 9/9 Registering artifact", "info", socketio)
     update_build(current_stage="Registering artifact", progress_percent=92)
     if sentinel_task_id:
         try:
@@ -3805,17 +3872,17 @@ def _run_forge_build(description: str, output_dir=None, sentinel_task_id: str = 
         build_logs=result.build_logs,
     )
     mark_launch_ready(art.get("id", ""))
-    log_builder("Launch Ready", "success", socketio)
-    update_build(current_stage="Launch Ready", progress_percent=100)
-
-    finish_build(True)
-    set_worker("forge", "idle", current_task=None, activity="Build complete")
+    log_builder(f"Build Complete — {launch_msg}", "success", socketio)
+    update_build(current_stage="Build Complete", progress_percent=100)
 
     log(
         f"[FORGE] {result.builder} ({result.project_type}) — {ver_status} — {result.output_dir}",
         'success',
         'forge',
     )
+    finish_build(True)
+    set_worker("forge", "idle", current_task=None, activity="Build complete")
+
     if socketio:
         socketio.emit('forge_complete', {
             'success': True,
@@ -3829,6 +3896,8 @@ def _run_forge_build(description: str, output_dir=None, sentinel_task_id: str = 
             'project_type': result.project_type,
             'verification_status': ver_status,
             'launch_command': result.launch_command,
+            'launch_verified': True,
+            'launch_message': launch_msg,
             'build_complete': True,
         })
     return result, art
@@ -4695,8 +4764,35 @@ def api_chat():
         if not message:
             return jsonify({"error": "message required"}), 400
 
-        # ── APPROVE / DENY pending task — check FIRST before any routing ─────────
+        # ── Godot install confirmation (chat "yes" after launch prompt) ───────────
         _msg_lower = message.lower().strip()
+        _godot_confirm = _pending_godot_install and any(
+            w in _msg_lower for w in ('yes', 'y', 'install', 'install godot', 'ok', 'okay', 'sure', 'go ahead')
+        )
+        if _godot_confirm:
+            global _pending_godot_install
+            try:
+                from builders.runtime.godot_runtime import install_godot
+                from workers.artifacts.artifact_registry import launch_latest
+                log("Installing Godot (chat confirmation)…", "info", "forge")
+                inst = install_godot(log_fn=lambda m, lvl="info": log(m, lvl, "forge"))
+                _pending_godot_install = False
+                if not inst.get("ok"):
+                    _resp = f"✗ Godot install failed: {inst.get('error', 'unknown')}"
+                    _save_chat_exchange(message, _resp)
+                    return jsonify({"status": "ok", "worker": "forge", "response": _resp, "routed": True})
+                launch = launch_latest()
+                if launch.get("ok"):
+                    _resp = f"✓ Godot installed. {launch.get('message', 'Launch successful')}"
+                else:
+                    _resp = f"Godot installed but launch failed: {launch.get('error', '?')}"
+                _save_chat_exchange(message, _resp)
+                return jsonify({"status": "ok", "worker": "forge", "response": _resp, "routed": True})
+            except Exception as _godot_chat_err:
+                _pending_godot_install = False
+                logger.exception("Godot chat install failed: %s", _godot_chat_err)
+
+        # ── APPROVE / DENY pending task — check FIRST before any routing ─────────
         _pending = _get_pending_task()
         if _pending:
             if any(w in _msg_lower for w in _APPROVE_WORDS):
@@ -5106,7 +5202,7 @@ def api_chat():
                 f"Route: **{_bt.value}**\n"
                 f"Engine: **{engine_for_route(_bt)}**\n"
                 f"Stack: {_stack}\n\n"
-                f"Stages: Planning → Generating → Testing → Verifying → Register → Launch Ready\n\n"
+                f"Stages: Planning → Dependencies → Generate → Build → Verify → Launch → Complete\n\n"
                 f"Reply APPROVE to start building, or DENY to cancel."
             )
             _task_id = _store_pending_task({
@@ -5496,6 +5592,18 @@ def api_build_status():
         return jsonify({"status": "ok", "active": False, "build": None})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/capabilities/status', methods=['GET'])
+def api_capabilities_status():
+    """Capability registry status for Builder Status Center."""
+    try:
+        from core.capabilities.capability_manager import get_capability_manager
+        panels = get_capability_manager(socketio).builder_status_panels()
+        return jsonify({"status": "ok", "panels": panels})
+    except Exception as e:
+        logger.error("Capabilities status error: %s", e, exc_info=True)
+        return jsonify({"status": "error", "error": str(e), "panels": []}), 200
 
 
 @app.route('/api/builder/status', methods=['GET'])
@@ -6247,6 +6355,19 @@ def start_backend():
             logger.warning("Godot runtime bootstrap failed: %s", e)
 
     threading.Thread(target=_godot_bootstrap_thread, daemon=True, name="godot-bootstrap").start()
+
+    def _capability_bootstrap_thread():
+        import time as _ct
+        _ct.sleep(5)
+        try:
+            from core.capabilities.capability_manager import get_capability_manager
+            get_capability_manager(socketio).bootstrap_tier2(
+                log_fn=lambda msg, lvl="info": log(msg, lvl, "system"),
+            )
+        except Exception as e:
+            logger.warning("Capability tier-2 bootstrap failed: %s", e)
+
+    threading.Thread(target=_capability_bootstrap_thread, daemon=True, name="capability-bootstrap").start()
 
     # Initialize Memory V2 (3-layer hot/warm/cold)
     global memory_v2

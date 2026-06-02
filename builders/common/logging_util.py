@@ -9,7 +9,7 @@ logger = logging.getLogger("sentinel.builders")
 
 
 def log_builder(message: str, level: str = "info", socketio: Any = None,
-                log_type: str = "forge") -> None:
+                log_type: str = "builder") -> None:
     if not message.startswith("[BUILDER]"):
         message = f"[BUILDER] {message}"
     logger.log(

@@ -1,0 +1,30 @@
+{
+  "overview": {
+    "programs_available": 230,
+    "active_programs": 230,
+    "web_targets": 226,
+    "mobile_targets": 123,
+    "api_targets": 98,
+    "highest_bounty_usd": 10000,
+    "highest_bounty_display": "$10,000",
+    "average_bounty_usd": 10000,
+    "average_bounty_display": "$10,000",
+    "source": "api",
+    "last_refresh": "2026-06-02T21:20:33.939443+00:00",
+    "cache_age_minutes": 9.0,
+    "api_status": "ok",
+    "duration_ms": 0.0,
+    "discovered_total": 457,
+    "upstream": "bounty-targets-data",
+    "error": null,
+    "discovery_duration_s": 0.0
+  },
+  "metrics": {
+    "programs_analyzed": 3,
+    "reports_generated": 8,
+    "programs_discovered": 457,
+    "potential_reward_pool_usd": 2260000,
+    "potential_reward_pool_display": "$2,260,000"
+  },
+  "program_count": 1
+}

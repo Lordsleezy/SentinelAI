@@ -113,6 +113,14 @@ class ProjectPlanner:
         claude_resp = self.consultant.ask_claude(arch_prompt) or ""
 
         plan = self.merge_plans(claude_resp, gpt_resp, user_intent)
+        try:
+            from builders.router import classify_build, normalize_plan_stack, stack_for_route
+            _bt = classify_build(user_intent)
+            plan.stack = normalize_plan_stack(plan.stack, _bt)
+            if not plan.stack:
+                plan.stack = stack_for_route(_bt)
+        except Exception:
+            pass
         _plans[plan.id] = plan
         _plan_status[plan.id] = {
             "status": "awaiting_approval",
@@ -123,10 +131,18 @@ class ProjectPlanner:
         return plan
 
     def merge_plans(self, claude_response: str, gpt_response: str, intent: str) -> ProjectPlan:
+        try:
+            from builders.router import classify_build, stack_for_route
+            _canonical = stack_for_route(classify_build(intent))
+            _stack_hint = ", ".join(_canonical)
+        except Exception:
+            _stack_hint = "Python 3"
+
         merge_prompt = (
             f"You received two architecture proposals for: {intent}\n\n"
             f"Proposal A (Claude): {claude_response or 'N/A'}\n\n"
             f"Proposal B (GPT): {gpt_response or 'N/A'}\n\n"
+            f"REQUIRED stack (do not substitute other engines): {_stack_hint}\n"
             "Merge the best ideas from both into a single clear plan. "
             "Output ONLY valid JSON:\n"
             '{"stack": ["..."], "files": ["..."], '
@@ -149,9 +165,15 @@ class ProjectPlanner:
                     )
                     for i, t in enumerate(data.get("tasks", []))
                 ]
+                stack = data.get("stack", [])
+                try:
+                    from builders.router import classify_build, normalize_plan_stack
+                    stack = normalize_plan_stack(stack, classify_build(intent))
+                except Exception:
+                    pass
                 return ProjectPlan(
                     intent=intent,
-                    stack=data.get("stack", []),
+                    stack=stack,
                     files=data.get("files", []),
                     tasks=tasks,
                     pitfalls=data.get("pitfalls", []),
@@ -167,13 +189,18 @@ class ProjectPlanner:
 
     def _fallback_plan(self, intent: str, hint: str) -> ProjectPlan:
         """Minimal plan when merge parsing fails."""
+        try:
+            from builders.router import classify_build, stack_for_route
+            stack = stack_for_route(classify_build(intent))
+        except Exception:
+            stack = ["Python 3"]
         tasks = [
             Task(id=1, description=f"Implement: {intent}", depends_on=[]),
             Task(id=2, description="Add error handling and tests", depends_on=[1]),
         ]
         return ProjectPlan(
             intent=intent,
-            stack=["Python"],
+            stack=stack,
             files=["main.py"],
             tasks=tasks,
             pitfalls=["Verify dependencies before running"],

@@ -1,0 +1,364 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>Earn Discovery Dashboard</title>
+<style>
+body { background:#000; color:#e0e0e0; font-family:Segoe UI,sans-serif; padding:16px; margin:0; }
+.earn-dash-overview { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+.earn-dash-card { background:#0a0a0f; border:1px solid rgba(0,255,136,0.12); border-radius:6px; padding:8px 10px; }
+.earn-dash-card .label { font-size:9px; color:#555; text-transform:uppercase; }
+.earn-dash-card .value { font-size:13px; color:#00ff88; font-weight:600; }
+.earn-dash-metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:10px; }
+.earn-dash-layout { display:flex; gap:10px; }
+.earn-dash-table-wrap { flex:1; border:1px solid rgba(255,255,255,0.06); border-radius:6px; }
+.earn-dash-table-header,.earn-dash-row { display:grid; grid-template-columns:1.4fr 0.7fr 0.9fr 0.45fr 0.35fr 0.35fr 0.35fr 0.7fr 0.5fr; gap:4px; padding:6px 8px; font-size:10px; }
+.earn-dash-table-header { background:#0d0d12; color:#666; text-transform:uppercase; }
+.earn-dash-row { height:36px; align-items:center; border-bottom:1px solid rgba(255,255,255,0.03); }
+.earn-dash-row.selected { background:rgba(0,207,255,0.1); border-left:2px solid #00cfff; }
+.earn-dash-detail { width:240px; background:#0a0a0f; border:1px solid rgba(0,207,255,0.15); border-radius:6px; padding:10px; font-size:10px; }
+h1 { color:#00ff88; font-size:14px; letter-spacing:1px; }
+</style></head><body>
+<h1>EARN DISCOVERY DASHBOARD</h1>
+<div class="earn-dash-overview">
+  <div class="earn-dash-card"><div class="label">Programs Available</div><div class="value">230</div></div>
+  <div class="earn-dash-card"><div class="label">Active Programs</div><div class="value">230</div></div>
+  <div class="earn-dash-card"><div class="label">Web / Mobile / API</div><div class="value">226 / 123 / 98</div></div>
+  <div class="earn-dash-card"><div class="label">Highest / Avg</div><div class="value">$10,000 / $10,000</div></div>
+</div>
+<div class="earn-dash-metrics">
+  <div class="earn-dash-card"><div class="label">Discovered</div><div class="value">457</div></div>
+  <div class="earn-dash-card"><div class="label">Analyzed</div><div class="value">3</div></div>
+  <div class="earn-dash-card"><div class="label">Reports</div><div class="value">8</div></div>
+  <div class="earn-dash-card"><div class="label">Reward Pool</div><div class="value">$2,260,000</div></div>
+</div>
+<div class="earn-dash-layout">
+  <div class="earn-dash-table-wrap">
+    <div class="earn-dash-table-header"><span>Program</span><span>Platform</span><span>Bounty</span><span>Assets</span><span>Web</span><span>Mob</span><span>API</span><span>Updated</span><span>Src</span></div>
+    <div class="earn-dash-row">
+          <span>1Password - CTF</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>1</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>1Password - Enterprise Passw</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>4</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>1win</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>6</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>23andMe Bug Bounty</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>18</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>3CX</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>7</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>8x8</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>31</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Acronis</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>21</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Adobe</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>47</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Affirm</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>3</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Airbnb</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>27</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Airtable</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>5</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>ALSCO</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>2</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Amazon Vulnerability Researc</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>96</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Amazon Vulnerability Researc</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>32</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Anduril Industries</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>6</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Anthropic</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>14</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Arkose Labs</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>8</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>AT&T</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>1</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Audible</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>4</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Automattic</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>31</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Banco Plata</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>4</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Basecamp</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>13</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>BitMEX</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>8</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Blend Labs</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>1</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Booking.com</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>49</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Boozt Fashion AB</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>7</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Brave Software</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>5</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Braze, Inc.</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>3</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Bumba</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>1</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Bumble</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>50</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Bybit Fintech Ltd</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>9</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Bykea</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>16</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Capital One Bug Bounty</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>10</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Chainlink</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>6</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Chaturbate</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>9</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Chia Network</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>9</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Circle BBP</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>29</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>CLEAR</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>17</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✗</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Cloud Software Group</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>16</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div><div class="earn-dash-row">
+          <span>Cloudflare Public Bug Bounty</span><span>HackerOne</span>
+          <span>Up to $10,000+</span>
+          <span>53</span>
+          <span class="chk">✓</span>
+          <span class="chk">✗</span>
+          <span class="chk">✓</span>
+          <span>2026-06-02</span><span>hacker</span>
+        </div>
+  </div>
+  <div class="earn-dash-detail">
+    <h4>Twilio</h4>
+    <p>Platform: HackerOne</p>
+    <p>Bounty: Up to $10,000+</p>
+    <p>Assets: 24 · Web/Mob/API: ✓ / ✓ / ✓</p>
+    <p style="color:#888;margin-top:8px;">Detail panel + top 5 recommendations load live in orb Earn tab.</p>
+  </div>
+</div>
+</body></html>

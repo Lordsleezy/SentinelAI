@@ -19,7 +19,13 @@ def verify_build(result: BuildResult, build_type: BuildType,
     log_builder(f"Verifying {build_type.value} build at {result.output_dir}", "info", socketio)
 
     if build_type == BuildType.GAME:
-        return _verify_godot(result, socketio)
+        v = _verify_godot(result, socketio)
+        log_builder(
+            f"Verification: {'PASSED' if v.verified else 'FAILED'}",
+            "success" if v.verified else "warning",
+            socketio,
+        )
+        return v
     if build_type == BuildType.WEB:
         return _verify_web(result, socketio)
     if build_type == BuildType.DESKTOP:
@@ -52,7 +58,10 @@ def _verify_godot(result: BuildResult, socketio: Any) -> VerificationResult:
             return VerificationResult(False, "Godot load timed out")
         except Exception as e:
             return VerificationResult(False, str(e))
-    return VerificationResult(True, "Godot project structure valid (Godot binary not in PATH)")
+    return VerificationResult(
+        False,
+        "Godot Engine not installed — Sentinel will install automatically before launch",
+    )
 
 
 def _verify_web(result: BuildResult, socketio: Any) -> VerificationResult:
@@ -104,15 +113,8 @@ def _verify_python(result: BuildResult, socketio: Any) -> VerificationResult:
 
 
 def _find_godot() -> Optional[str]:
-    import shutil
-    for name in ("godot", "godot.exe", "Godot_v4.2-stable_win64.exe"):
-        found = shutil.which(name)
-        if found:
-            return found
-    for p in (
-        r"C:\Program Files\Godot\Godot.exe",
-        r"C:\Tools\Godot.exe",
-    ):
-        if Path(p).is_file():
-            return p
-    return None
+    try:
+        from builders.runtime.godot_runtime import find_godot
+        return find_godot()
+    except Exception:
+        return None

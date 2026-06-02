@@ -48,6 +48,7 @@ class AiderResult:
     entry_point: Optional[str] = None   # main file to launch (absolute path)
     output_dir: Optional[str] = None    # directory where files were saved
     error: Optional[str] = None
+    diagnostics: dict = field(default_factory=dict)  # exit_code, kill_reason, runtime, model, …
 
 
 def _detect_entry_point(files_modified: List[str]) -> Optional[str]:
@@ -171,6 +172,8 @@ class AiderEngine:
             r'^Created\s+(.+?)$',
         ]
 
+        proc: Optional[subprocess.Popen] = None
+        runtime_seconds = 0.0
         try:
             env = {**os.environ, "AIDER_NO_PRETTY": "1", "NO_COLOR": "1"}
             with self._lock:
@@ -197,14 +200,18 @@ class AiderEngine:
                     now = time.time()
                     if now - start_time > MAX_RUNTIME:
                         kill_reason.append("timeout")
-                        _emit(self.socketio, "Aider killed — exceeded 3 minute hard timeout", "error", "aider")
+                        _emit(self.socketio,
+                              f"Aider killed — timeout after {int(MAX_RUNTIME)}s (no completion)",
+                              "error", "aider")
                         _emit(self.socketio, "Task incomplete. Check what was built and retry if needed.", "warning", "aider")
                         try: proc.kill()
                         except Exception: pass
                         return
                     if now - last_output_time > STUCK_TIMEOUT:
                         kill_reason.append("stuck")
-                        _emit(self.socketio, "Aider stuck — no output for 30 seconds, killed", "error", "aider")
+                        _emit(self.socketio,
+                              f"Aider killed — no output for {STUCK_TIMEOUT}s (watchdog)",
+                              "error", "aider")
                         _emit(self.socketio, "Partial work may exist — check the Log and output directory.", "warning", "aider")
                         try: proc.kill()
                         except Exception: pass
@@ -268,26 +275,53 @@ class AiderEngine:
                 proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 proc.kill()
+            runtime_seconds = round(time.time() - start_time, 2)
             success = (proc.returncode == 0) and not kill_reason
             if kill_reason:
-                error_text = f"Killed: {kill_reason[0]}"
+                kr = kill_reason[0]
+                if kr == "timeout":
+                    error_text = f"Timeout after {int(MAX_RUNTIME)}s"
+                elif kr == "stuck":
+                    error_text = f"Watchdog kill: no output for {STUCK_TIMEOUT}s"
+                elif kr == "loop":
+                    error_text = "Loop detected in aider output"
+                else:
+                    error_text = f"Process killed: {kr}"
         except Exception as e:
             error_text = f"Aider execution failed: {e}"
             _emit(self.socketio, error_text, "error", "aider")
             success = False
+            try:
+                runtime_seconds = round(time.time() - start_time, 2)
+            except Exception:
+                runtime_seconds = 0.0
         finally:
             with self._lock:
                 self.running = False
                 self.current_process = None
 
         entry_point = _detect_entry_point(files_modified)
+        raw_output = "\n".join(output_lines)
+        diagnostics = {
+            "model": self.model,
+            "prompt_size_bytes": len((message or "").encode("utf-8")),
+            "exit_code": proc.returncode if proc else None,
+            "kill_reason": kill_reason[0] if kill_reason else None,
+            "runtime_seconds": runtime_seconds,
+            "max_runtime": MAX_RUNTIME,
+            "stuck_timeout": STUCK_TIMEOUT,
+            "output_lines": len(output_lines),
+            "ollama_response_length": len(raw_output),
+            "exception_text": error_text,
+        }
         return AiderResult(
             success=success,
-            output="\n".join(output_lines),
+            output=raw_output,
             files_modified=files_modified,
             entry_point=entry_point,
             output_dir=work_dir,
             error=error_text,
+            diagnostics=diagnostics,
         )
 
     # ── Complexity management ───────────────────────────────────────────────────
@@ -416,14 +450,21 @@ class AiderEngine:
         _emit(self.socketio, f"Fixing error in {file_path}", "info", "aider")
         return self._run_aider(prompt, files=[file_path], cwd=str(Path(file_path).parent))
 
-    def analyze_bounty(self, title: str, url: str, scope: List[str]) -> AiderResult:
+    def analyze_bounty(
+        self,
+        title: str,
+        url: str,
+        scope: List[str],
+        program_data: Optional[dict] = None,
+    ) -> AiderResult:
         """
-        Analyzes a bug bounty target.
-        Writes findings to memory/vault/bounties/{title}.md
-        Emits explicit stage progress events with [EARN] prefix — NO SILENT FAILURES.
-        Hard timeout: 120 seconds total.
+        Program-specific bug bounty analysis (HackerOne scope parsing + structured report).
+
+        Writes memory/vault/bounties/{title}.md and {title}_intel.json
         """
-        _emit(self.socketio, f"[EARN] ENTER analyze_bounty: {title}", "info", "earn")
+        from workers.earn.earn_diagnostics import earn_log
+
+        earn_log(self.socketio, f"ENTER analyze_bounty: {title}")
 
         # ── Task Manager integration ─────────────────────────────────────────
         _task_id: str = ''
@@ -441,7 +482,8 @@ class AiderEngine:
             try:
                 from workers.task_manager import update_task, RUNNING
                 update_task(_task_id, status=RUNNING, progress=pct,
-                            result_summary=summary or None)
+                            result_summary=summary or None,
+                            current_stage=summary or None)
             except Exception:
                 pass
 
@@ -451,112 +493,145 @@ class AiderEngine:
         safe_title = "".join(c if c.isalnum() or c in "-_ " else "_" for c in title)[:50]
         findings_file = vault_dir / f"{safe_title}.md"
 
-        # ── Stage 1: Scope extraction ────────────────────────────────────────────
-        try:
-            _emit(self.socketio, f"[EARN] Stage 1/4: Extracting scope for {title}...", "info", "earn")
-            _earn_progress(10, "Scope extraction")
-            scope_str = ", ".join(scope[:5]) if scope else "Not specified"
-            _emit(self.socketio, f"[EARN] Scope extracted: {scope_str[:120]}", "info", "earn")
-            _earn_progress(20, f"Scope: {scope_str[:60]}")
-        except Exception as _se:
-            scope_str = "Not specified"
-            _emit(self.socketio, f"[EARN] Stage 1 error (scope extraction): {_se}", "error", "earn")
+        import json as _json
+        from workers.earn.hackerone_intel import fetch_program_page_notes, resolve_program_intel
+        from workers.earn.program_report import build_program_report
+        from workers.earn.earn_diagnostics import persist_earn_log
 
-        # ── Stage 2: Create analysis document stub ───────────────────────────────
+        intel = None
+        recommendations = []
+        result: Optional[AiderResult] = None
+
+        # ── Stage 1: Parse HackerOne program page / dataset ─────────────────────
         try:
-            _emit(self.socketio, f"[EARN] Stage 2/4: Creating analysis document...", "info", "earn")
-            _earn_progress(30, "Creating analysis document")
-            findings_file.write_text(
-                f"# Bug Bounty Analysis: {title}\n\n"
-                f"URL: {url}\n\n"
-                f"## In-Scope Targets\n\n"
-                + "\n".join(f"- {s}" for s in scope[:10])
-                + "\n\n## Attack Surface Analysis\n\n## Recommended Attack Vectors\n\n## Recon Plan\n"
+            earn_log(self.socketio, "Stage 1/4: Parsing HackerOne program scope")
+            _earn_progress(10, "Parsing program")
+            intel = resolve_program_intel(title, url, scope, program_data)
+            page_notes = fetch_program_page_notes(intel.handle)
+            intel.authentication_notes.extend(page_notes)
+            earn_log(
+                self.socketio,
+                f"Parsed {intel.name} — {len(intel.in_scope)} in-scope, "
+                f"{len(intel.out_of_scope)} out-of-scope, {len(intel.mobile_targets)} mobile",
             )
-            _emit(self.socketio, f"[EARN] Stage 2/4: Document stub created at {findings_file.name}", "info", "earn")
+            _earn_progress(25, f"{len(intel.in_scope)} assets mapped")
+        except Exception as _se:
+            earn_log(self.socketio, f"Stage 1 error: {_se}", "error")
+            return AiderResult(success=False, output="", error=f"Program parse failed: {_se}")
+
+        intel_path = vault_dir / f"{safe_title}_intel.json"
+        try:
+            intel_path.write_text(_json.dumps(intel.to_dict(), indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+        # ── Stage 2: Build attack surface map ───────────────────────────────────
+        try:
+            earn_log(self.socketio, "Stage 2/4: Building attack surface map")
+            _earn_progress(40, "Attack surface map")
+            report_md, recommendations, surface_map = build_program_report(intel)
+            earn_log(
+                self.socketio,
+                f"Attack surface: {len(surface_map)} categories, "
+                f"{len(recommendations)} program-specific recommendations",
+            )
         except Exception as _de:
-            _emit(self.socketio, f"[EARN] Stage 2 error (document creation): {_de}", "error", "earn")
+            earn_log(self.socketio, f"Stage 2 error: {_de}", "error")
             if _task_id:
                 try:
                     from workers.task_manager import update_task, FAILED
                     update_task(_task_id, status=FAILED, error=str(_de))
                 except Exception:
                     pass
-            result = AiderResult(success=False, output="", error=f"Analysis failed: {_de}")
-            return result
+            return AiderResult(success=False, output="", error=f"Report build failed: {_de}")
 
-        # ── Stage 3: AI analysis via Aider ──────────────────────────────────────
-        # Root cause of prior timeout: 14b model too slow on local hardware.
-        # Fix: use the faster 7b model for earn analysis. The model can be
-        # overridden with AIDER_EARN_MODEL env var.  Aider's own watchdog
-        # (MAX_RUNTIME=180s, STUCK_TIMEOUT=30s) handles kill — no extra executor needed.
-        _earn_model = os.getenv("AIDER_EARN_MODEL",
-                                os.getenv("AIDER_MODEL", "ollama/qwen2.5-coder:7b"))
-        _emit(self.socketio,
-              f"[EARN] Stage 3/4: Running AI analysis | model={_earn_model} | "
-              f"scope_tokens~{len(scope_str.split())} | file={findings_file.name}",
-              "info", "earn")
-        _earn_progress(50, "AI analysis in progress")
-        _t3_start = time.time()
-
-        # Concise prompt — avoid "be thorough" which generates huge responses on slow hardware
-        prompt = (
-            f"You are a bug bounty researcher. Edit the document to add BRIEF but SPECIFIC content.\n\n"
-            f"Program: {title}\nURL: {url}\nScope: {scope_str}\n\n"
-            f"Fill in these sections with 3-5 bullet points each (keep it concise):\n"
-            f"## Attack Surface Analysis\n"
-            f"## Recommended Attack Vectors\n"
-            f"## Recon Plan\n\n"
-            f"Be specific to this scope. Do not add extra sections."
-        )
-
-        # Temporarily switch model for earn analysis
-        _original_model = self.model
-        self.model = _earn_model
-        result: Optional[AiderResult] = None
+        # ── Stage 3: Write program-specific report ──────────────────────────────
         try:
-            result = self._run_aider(prompt, [str(findings_file)], str(vault_dir), ["--no-git"])
-        except Exception as _ae:
-            _emit(self.socketio, f"[EARN] Stage 3 error (AI analysis): {_ae}", "error", "earn")
-            result = AiderResult(success=False, output="", error=f"Analysis failed: {_ae}")
-        finally:
-            self.model = _original_model
-            _t3_elapsed = round(time.time() - _t3_start, 1)
-            _emit(self.socketio,
-                  f"[EARN] Stage 3 complete | elapsed={_t3_elapsed}s | "
-                  f"success={result.success if result else False}",
-                  "info", "earn")
+            earn_log(self.socketio, "Stage 3/4: Writing program-specific report")
+            _earn_progress(65, "Writing report")
+            findings_file.write_text(report_md, encoding="utf-8")
+            earn_log(self.socketio, f"Report written: {findings_file.name} ({len(report_md)} chars)")
+            eligible = sum(1 for a in intel.in_scope if a.eligible_for_bounty)
+            min_recs = min(3, max(1, eligible))
+            ok = len(recommendations) >= min_recs
+            result = AiderResult(
+                success=ok,
+                output=report_md[:4000],
+                files_modified=[str(findings_file)],
+                entry_point=str(findings_file),
+                output_dir=str(vault_dir),
+                error=None if ok else "Insufficient asset-specific recommendations",
+                diagnostics={
+                    "recommendation_count": len(recommendations),
+                    "in_scope_count": len(intel.in_scope),
+                    "program_handle": intel.handle,
+                },
+            )
+        except Exception as _we:
+            earn_log(self.socketio, f"Stage 3 error: {_we}", "error")
+            return AiderResult(success=False, output="", error=f"Write failed: {_we}")
 
-        # ── Stage 4: Recommendations and result ─────────────────────────────────
+        # Optional LLM polish (must not replace asset-specific content)
+        if os.getenv("EARN_LLM_POLISH", "").lower() in ("1", "true", "yes"):
+            earn_log(self.socketio, "Optional LLM polish enabled (EARN_LLM_POLISH)")
+            _earn_progress(75, "LLM polish")
+            polish_prompt = (
+                "Review the markdown bug bounty report. Add at most 2 sentences of context "
+                "under 'Researcher Notes' only. Do NOT remove or replace asset names. "
+                "Do NOT add generic SQLi/XSS/buffer overflow checklist items."
+            )
+            try:
+                polish = self._run_aider(polish_prompt, [str(findings_file)], str(vault_dir), ["--no-git"])
+                if not polish.success:
+                    earn_log(self.socketio, f"LLM polish skipped: {polish.error}", "warning")
+            except Exception as _pe:
+                earn_log(self.socketio, f"LLM polish error: {_pe}", "warning")
+
+        persist_earn_log(self.work_dir, title, {
+            "title": title,
+            "url": url,
+            "intel": intel.to_dict(),
+            "recommendations": [r.to_dict() for r in recommendations[:25]],
+            "raw_output": report_md,
+            "success": result.success,
+        })
+
+        # ── Stage 4: Compile summary ────────────────────────────────────────────
         try:
-            _emit(self.socketio, f"[EARN] Stage 4/4: Compiling recommendations...", "info", "earn")
-            _earn_progress(85, "Compiling recommendations")
+            earn_log(self.socketio, "Stage 4/4: Compiling recommendations")
+            _earn_progress(90, "Summary")
             if result and result.success:
-                doc_text = findings_file.read_text(encoding="utf-8", errors="replace") if findings_file.exists() else ""
-                rec_lines = [ln.strip() for ln in doc_text.splitlines() if ln.strip() and not ln.startswith('#')][:10]
-                rec_preview = "\n".join(rec_lines) if rec_lines else "(see full document)"
-                _emit(self.socketio, f"[EARN] SUCCESS Analysis complete for {title}. Recommendations:\n{rec_preview}", "success", "earn")
-                _emit(self.socketio, f"[EARN] Analysis saved to {findings_file}", "success", "earn")
+                preview_lines = [
+                    f"- {r.title} (confidence {r.confidence:.0%}, target `{r.target}`)"
+                    for r in recommendations[:6]
+                ]
+                earn_log(
+                    self.socketio,
+                    f"SUCCESS Program-specific analysis for {intel.name}:\n" + "\n".join(preview_lines),
+                    "success",
+                )
+                earn_log(self.socketio, f"Saved: {findings_file} + {intel_path.name}", "success")
                 if _task_id:
                     try:
                         from workers.task_manager import update_task, COMPLETED
-                        update_task(_task_id, status=COMPLETED, progress=100,
-                                    result_summary=f"Analysis complete for {title[:50]}")
+                        update_task(
+                            _task_id, status=COMPLETED, progress=100,
+                            result_summary=f"{len(recommendations)} recs | {len(intel.in_scope)} assets",
+                        )
                     except Exception:
                         pass
             else:
-                err_msg = (result.error if result else "Unknown error")
-                _emit(self.socketio, f"[EARN] FAIL Analysis failed: {err_msg}", "error", "earn")
+                earn_log(self.socketio, f"FAIL: {result.error or 'Report incomplete'}", "error")
                 if _task_id:
                     try:
                         from workers.task_manager import update_task, FAILED
-                        update_task(_task_id, status=FAILED, error=err_msg)
+                        update_task(_task_id, status=FAILED, error=result.error or "incomplete")
                     except Exception:
                         pass
         except Exception as _re:
-            _emit(self.socketio, f"[EARN] Stage 4 error (recommendations): {_re}", "error", "earn")
+            earn_log(self.socketio, f"Stage 4 error: {_re}", "error")
 
-        _emit(self.socketio, f"[EARN] EXIT analyze_bounty: {'SUCCESS' if (result and result.success) else 'FAIL'}", "info", "earn")
+        earn_log(self.socketio, f"EXIT analyze_bounty: {'SUCCESS' if (result and result.success) else 'FAIL'}")
         return result if result else AiderResult(success=False, output="", error="Unknown analysis failure")
 
     def stop(self) -> None:

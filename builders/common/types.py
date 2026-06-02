@@ -25,7 +25,14 @@ class BuildResult:
     verification: Optional[VerificationResult] = None
     error: Optional[str] = None
     artifact_type: str = "app"
+    launch_verified: bool = False
+    launch_message: str = ""
 
     @property
     def verified(self) -> bool:
         return bool(self.verification and self.verification.verified)
+
+    @property
+    def build_complete(self) -> bool:
+        """True only when structure verified AND launch verified."""
+        return self.verified and self.launch_verified

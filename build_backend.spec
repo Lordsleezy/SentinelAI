@@ -54,6 +54,13 @@ a = Analysis(
         ('static', 'static'),
         ('.env.example', '.'),
         ('capability_registry.json', '.'),
+        ('installer_assets/guardian_core', 'installer_assets/guardian_core'),
+        ('tools/httpx', 'tools/httpx'),
+        ('tools/subfinder', 'tools/subfinder'),
+        ('tools/katana', 'tools/katana'),
+        ('tools/nuclei', 'tools/nuclei'),
+        ('tools/godot', 'tools/godot'),
+        ('installer_assets/godot_runtime', 'installer_assets/godot_runtime'),
     ] + data_chromadb + data_sentence_transformers,
     hiddenimports=[
         # Orchestration pipeline
@@ -145,6 +152,11 @@ a = Analysis(
         'scanner',
         'openclaw_integration',
         'workers.forge_worker',
+        'workers.guardian.bundled_toolchain',
+        'workers.guardian.guardian_bootstrap',
+        'builders.runtime.godot_runtime',
+        'builders.builder_status',
+        'workers.guardian.tools.tool_registry',
         'notifications',
 
         # Flask & web

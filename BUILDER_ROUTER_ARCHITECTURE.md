@@ -41,9 +41,15 @@ Launch: godot --path <project>
 - `/orchestration/chat` build shortcut — same engine
 - Launch intents (`launch it`) — unchanged; reads artifact `launch_command`
 
-## Task Stages (Tasks panel)
+## Task Stages (Tasks panel + `[BUILDER]` log)
 
-Planning → Generating → Testing → Verifying → Launching → Completed
+Stage 1/5 Planning → 2/5 Generating → 3/5 Testing → 4/5 Verifying → 5/5 Registering artifact → Launch Ready
+
+`Build complete` is emitted only after verification, artifact registration, and launch metadata are saved.
+
+Log filter: **BUILDER** (also matches `[BUILDER]` lines under forge).
+
+Status queries (`status`, `progress`, `any updates`) report active build before Guardian/Earn.
 
 ## Files
 
