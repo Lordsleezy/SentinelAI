@@ -1,5 +1,11 @@
 'use strict';
 
+// Suppress EPIPE errors — these are non-fatal pipe closure events
+process.on('uncaughtException', (err) => {
+  if (err.code === 'EPIPE') return;
+  console.error('Uncaught:', err);
+});
+
 const { app, BrowserWindow, ipcMain, Menu, MenuItem, Notification, globalShortcut } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -247,41 +253,49 @@ function launchBackend() {
     dbg(`[Backend] PID ${backendProcess.pid}`);
 
     backendProcess.stdout.on('data', (data) => {
-      const lines = data.toString().split('\n').filter(l => l.trim());
-      lines.forEach(line => {
-        backendLogBuffer.push({
-          type: 'system',
-          level: 'info',
-          message: line,
-          timestamp: new Date().toISOString()
+      try {
+        const lines = data.toString().split('\n').filter(l => l.trim());
+        lines.forEach(line => {
+          try {
+            backendLogBuffer.push({
+              type: 'system',
+              level: 'info',
+              message: line,
+              timestamp: new Date().toISOString()
+            });
+            // Forward to orb if it's already open
+            if (orbWindow && !orbWindow.isDestroyed()) {
+              orbWindow.webContents.send('backend-log', {
+                type: 'system', level: 'info', message: line,
+                timestamp: new Date().toISOString()
+              });
+            }
+          } catch (_) {}
         });
-        // Forward to orb if it's already open
-        if (orbWindow && !orbWindow.isDestroyed()) {
-          orbWindow.webContents.send('backend-log', {
-            type: 'system', level: 'info', message: line,
-            timestamp: new Date().toISOString()
-          });
-        }
-      });
+      } catch (_) {}
     });
 
     backendProcess.stderr.on('data', (data) => {
-      const lines = data.toString().split('\n').filter(l => l.trim());
-      lines.forEach(line => {
-        const level = line.toLowerCase().includes('error') ? 'error' : 'info';
-        backendLogBuffer.push({
-          type: 'system',
-          level,
-          message: line,
-          timestamp: new Date().toISOString()
+      try {
+        const lines = data.toString().split('\n').filter(l => l.trim());
+        lines.forEach(line => {
+          try {
+            const level = line.toLowerCase().includes('error') ? 'error' : 'info';
+            backendLogBuffer.push({
+              type: 'system',
+              level,
+              message: line,
+              timestamp: new Date().toISOString()
+            });
+            if (orbWindow && !orbWindow.isDestroyed()) {
+              orbWindow.webContents.send('backend-log', {
+                type: 'system', level, message: line,
+                timestamp: new Date().toISOString()
+              });
+            }
+          } catch (_) {}
         });
-        if (orbWindow && !orbWindow.isDestroyed()) {
-          orbWindow.webContents.send('backend-log', {
-            type: 'system', level, message: line,
-            timestamp: new Date().toISOString()
-          });
-        }
-      });
+      } catch (_) {}
     });
 
     backendProcess.on('exit', (code, signal) => {
