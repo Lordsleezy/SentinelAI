@@ -1001,6 +1001,10 @@ def api_forge_request():
                     'success' if result.success else 'error',
                     'forge',
                 )
+                fail_msg = None
+                if not result.success and result.error:
+                    partial = f"Partial files: {', '.join(result.files_modified)}" if result.files_modified else "No files created."
+                    fail_msg = f"Build stopped: {result.error}. {partial} Check the Log tab for details."
                 emit_event('forge_complete', {
                     'success': result.success,
                     'output': result.output[:2000],
@@ -1008,10 +1012,11 @@ def api_forge_request():
                     'entry_point': result.entry_point,
                     'output_dir': result.output_dir,
                     'error': result.error,
+                    'message': fail_msg,
                 })
             except Exception as exc:
                 log(f'Forge engine error: {exc}', 'error', 'forge')
-                emit_event('forge_complete', {'success': False, 'output': str(exc), 'files_modified': [], 'entry_point': None, 'output_dir': None, 'error': str(exc)})
+                emit_event('forge_complete', {'success': False, 'output': str(exc), 'files_modified': [], 'entry_point': None, 'output_dir': None, 'error': str(exc), 'message': f'Forge engine error: {exc}'})
 
         t = threading.Thread(target=run, daemon=True)
         t.start()

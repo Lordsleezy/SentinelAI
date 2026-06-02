@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -135,6 +136,19 @@ class AiderEngine:
         files_modified: List[str] = []
         error_text: Optional[str] = None
 
+        # Loop / timeout / stuck detection constants
+        LOOP_WINDOW = 10          # lines to inspect for repetition
+        MAX_RUNTIME = 180         # 3-minute hard kill
+        STUCK_TIMEOUT = 30        # kill if no output for 30s
+
+        _file_patterns = [
+            r'^Wrote\s+(.+?)$',
+            r'Applied edit to\s+(.+?)$',
+            r'^New file\s+(.+?)$',
+            r'^Modified\s+(.+?)$',
+            r'^Created\s+(.+?)$',
+        ]
+
         try:
             env = {**os.environ, "AIDER_NO_PRETTY": "1", "NO_COLOR": "1"}
             with self._lock:
@@ -151,23 +165,42 @@ class AiderEngine:
                 )
                 self.current_process = proc
 
+            start_time = time.time()
+            last_output_time = time.time()
+            kill_reason: List[str] = []  # mutable for closure
+
+            def _watchdog():
+                while proc.poll() is None:
+                    time.sleep(2)
+                    now = time.time()
+                    if now - start_time > MAX_RUNTIME:
+                        kill_reason.append("timeout")
+                        _emit(self.socketio, "Aider killed — exceeded 3 minute hard timeout", "error", "aider")
+                        _emit(self.socketio, "Task incomplete. Check what was built and retry if needed.", "warning", "aider")
+                        try: proc.kill()
+                        except Exception: pass
+                        return
+                    if now - last_output_time > STUCK_TIMEOUT:
+                        kill_reason.append("stuck")
+                        _emit(self.socketio, "Aider stuck — no output for 30 seconds, killed", "error", "aider")
+                        _emit(self.socketio, "Partial work may exist — check the Log and output directory.", "warning", "aider")
+                        try: proc.kill()
+                        except Exception: pass
+                        return
+
+            watchdog_thread = threading.Thread(target=_watchdog, daemon=True)
+            watchdog_thread.start()
+
+            recent_lines: List[str] = []
+
             for raw_line in iter(proc.stdout.readline, ""):
                 line = raw_line.rstrip()
+                last_output_time = time.time()
                 if not line:
                     continue
                 output_lines.append(line)
 
-                # Detect file modifications from aider output
-                # Aider 0.x: "Wrote path/to/file.py"
-                # Aider 1.x: "Applied edit to path/to/file.py"
-                # Aider 2.x: "New file path/to/file.py"
-                _file_patterns = [
-                    r'^Wrote\s+(.+?)$',
-                    r'Applied edit to\s+(.+?)$',
-                    r'^New file\s+(.+?)$',
-                    r'^Modified\s+(.+?)$',
-                    r'^Created\s+(.+?)$',
-                ]
+                # File modification detection
                 for pat in _file_patterns:
                     m = re.search(pat, line.strip(), re.IGNORECASE)
                     if m:
@@ -190,15 +223,32 @@ class AiderEngine:
 
                 _emit(self.socketio, line, level, "aider")
 
+                # Loop detection — check if last N non-empty lines are all identical
+                stripped = line.strip()
+                if stripped:
+                    recent_lines.append(stripped)
+                    if len(recent_lines) > LOOP_WINDOW:
+                        recent_lines.pop(0)
+                    if len(recent_lines) >= LOOP_WINDOW:
+                        unique = set(recent_lines)
+                        if len(unique) <= 2:
+                            sample = list(unique)[0][:80]
+                            _emit(self.socketio, f"Aider loop detected — repeating: '{sample}'", "error", "aider")
+                            _emit(self.socketio, "Killed Aider. Partial work may exist — check modified files.", "warning", "aider")
+                            _emit(self.socketio, "Tip: Try rephrasing the task or breaking it into smaller steps.", "info", "aider")
+                            kill_reason.append("loop")
+                            try: proc.kill()
+                            except Exception: pass
+                            break
+
             proc.stdout.close()
-            proc.wait(timeout=300)
-            success = proc.returncode == 0
-        except subprocess.TimeoutExpired:
-            error_text = "Aider timed out after 5 minutes"
-            _emit(self.socketio, error_text, "error", "aider")
-            if proc:
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
                 proc.kill()
-            success = False
+            success = (proc.returncode == 0) and not kill_reason
+            if kill_reason:
+                error_text = f"Killed: {kill_reason[0]}"
         except Exception as e:
             error_text = f"Aider execution failed: {e}"
             _emit(self.socketio, error_text, "error", "aider")
