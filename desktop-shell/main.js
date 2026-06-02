@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Menu, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, MenuItem, Notification } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -1115,6 +1115,25 @@ app.whenReady().then(() => {
   setupIPC();
   buildAppMenu();
   startupSequence();
+
+  // Right-click context menu — cut/copy/paste/select-all on all windows
+  app.on('web-contents-created', (event, contents) => {
+    contents.on('context-menu', (ev, params) => {
+      const menu = new Menu();
+      if (params.isEditable) {
+        menu.append(new MenuItem({ label: 'Cut',        role: 'cut',       enabled: params.selectionText.length > 0 }));
+        menu.append(new MenuItem({ label: 'Copy',       role: 'copy',      enabled: params.selectionText.length > 0 }));
+        menu.append(new MenuItem({ label: 'Paste',      role: 'paste' }));
+        menu.append(new MenuItem({ type: 'separator' }));
+        menu.append(new MenuItem({ label: 'Select All', role: 'selectAll' }));
+      } else if (params.selectionText.length > 0) {
+        menu.append(new MenuItem({ label: 'Copy', role: 'copy' }));
+      }
+      if (menu.items.length > 0) {
+        menu.popup({ window: BrowserWindow.getFocusedWindow() });
+      }
+    });
+  });
 
   app.on('activate', () => {
     // macOS: re-show window when dock icon clicked
