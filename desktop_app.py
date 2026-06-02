@@ -3654,6 +3654,36 @@ def api_telemetry_event():
         return jsonify({'error': str(e)}), 500
 
 
+# ─── Kill Switch API ──────────────────────────────────────────────────────────
+
+from workers.licensing.killswitch_checker import get_killswitch_checker as _get_ksc
+
+_killswitch = _get_ksc(
+    is_owner=OWNER_MODE,
+    is_pro_fn=lambda: license_manager.is_pro(),
+)
+
+
+@app.route('/api/killswitch/check', methods=['GET'])
+def api_killswitch_check():
+    """Return current kill-switch status for the frontend."""
+    try:
+        status = _killswitch.get_status()
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'active': False, 'error': str(e)}), 500
+
+
+@app.route('/api/killswitch/refresh', methods=['POST'])
+def api_killswitch_refresh():
+    """Force an immediate kill-switch check (owner use only)."""
+    try:
+        status = _killswitch.check_now()
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'active': False, 'error': str(e)}), 500
+
+
 # ─── Licensing & Tier API ────────────────────────────────────────────────────
 
 @app.route('/license/status', methods=['GET'])
@@ -5181,6 +5211,16 @@ def start_backend():
             logger.debug('[Telemetry] Startup error: %s', exc)
 
     threading.Thread(target=_start_telemetry, daemon=True).start()
+
+    # Kill switch — start background checker
+    def _start_killswitch():
+        try:
+            _killswitch.start()
+            logger.info('[Killswitch] Checker started')
+        except Exception as exc:
+            logger.debug('[Killswitch] Startup error: %s', exc)
+
+    threading.Thread(target=_start_killswitch, daemon=True).start()
 
 
 def approval_watch_loop():

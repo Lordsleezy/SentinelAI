@@ -3671,6 +3671,54 @@
     updateTrialBadge();
     setInterval(updateTrialBadge, 60000);
 
+    // ── Kill switch ───────────────────────────────────────────────────────────
+    function showKillswitchOverlay(reason) {
+      if (document.getElementById('killswitch-overlay')) return;
+      const el = document.createElement('div');
+      el.id = 'killswitch-overlay';
+      el.style.cssText = `
+        position:fixed;inset:0;background:rgba(0,0,0,0.97);
+        display:flex;align-items:center;justify-content:center;
+        z-index:99999;font-family:'Inter',sans-serif;
+      `;
+      el.innerHTML = `
+        <div style="max-width:440px;width:90%;text-align:center;padding:40px 32px;
+                    background:#1a1a1a;border:1px solid rgba(255,255,255,0.12);
+                    border-radius:16px;">
+          <div style="font-size:40px;margin-bottom:20px;">&#x1F6A7;</div>
+          <h2 style="color:#ececec;font-size:20px;font-weight:600;margin-bottom:12px;">
+            Service Temporarily Unavailable
+          </h2>
+          <p style="color:#888;font-size:14px;line-height:1.6;margin-bottom:28px;">
+            ${reason || 'SentinelAI is currently paused. Please check back soon.'}
+          </p>
+          <div style="font-size:11px;color:#555;">
+            Retrying automatically every 30 minutes.
+          </div>
+        </div>`;
+      document.body.appendChild(el);
+    }
+
+    function hideKillswitchOverlay() {
+      const el = document.getElementById('killswitch-overlay');
+      if (el) el.remove();
+    }
+
+    async function checkKillswitch() {
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/killswitch/check');
+        const d = await r.json();
+        if (d.active) {
+          showKillswitchOverlay(d.reason);
+        } else {
+          hideKillswitchOverlay();
+        }
+      } catch (_) {}
+    }
+
+    checkKillswitch();
+    setInterval(checkKillswitch, 30 * 60 * 1000);
+
     // ── Paywall overlay ───────────────────────────────────────────────────────
     window.showPaywall = function() {
       if (document.getElementById('paywall-overlay')) return;
