@@ -244,6 +244,62 @@ class MemoryManagerV2:
         self.remember(content, source=data.get("source", "system"),
                       topic=data.get("title", ""), project=data.get("project", ""))
 
+    def purge_by_source(self, source: str) -> int:
+        """Delete all memories with the given source from all layers."""
+        count = 0
+        # Hot layer
+        try:
+            with sqlite3.connect(str(_DB_PATH)) as conn:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM hot_memory WHERE source = ?", (source,))
+                count += cur.rowcount
+                # Keep FTS in sync
+                cur.execute("DELETE FROM hot_fts WHERE source = ?", (source,))
+                conn.commit()
+        except Exception as e:
+            logger.warning("[MemV2] purge_by_source hot failed: %s", e)
+
+        # Cold vault — delete markdown files with matching source frontmatter
+        import glob as _glob
+        vault_pattern = str(_VAULT_PATH / "**" / "*.md")
+        try:
+            for f in _glob.glob(vault_pattern, recursive=True):
+                try:
+                    with open(f, 'r', encoding='utf-8', errors='ignore') as fp:
+                        content = fp.read()
+                    if f'source: {source}' in content:
+                        os.remove(f)
+                        count += 1
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning("[MemV2] purge_by_source cold failed: %s", e)
+
+        # Warm layer (ChromaDB) — delete by source metadata
+        try:
+            chroma = self._get_chroma()
+            if chroma:
+                self._warm_collection.delete(where={"source": source})
+        except Exception as e:
+            logger.debug("[MemV2] purge_by_source warm failed: %s", e)
+
+        logger.info("[MemV2] Purged %d entries for source: %s", count, source)
+        return count
+
+    def purge_all(self) -> int:
+        """Wipe all memories from all layers."""
+        count = 0
+        try:
+            with sqlite3.connect(str(_DB_PATH)) as conn:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM hot_memory")
+                count = cur.rowcount
+                cur.execute("DELETE FROM hot_fts")
+                conn.commit()
+        except Exception as e:
+            logger.warning("[MemV2] purge_all failed: %s", e)
+        return count
+
     def write_forge_log(self, data: dict):
         content = f"Forge: {data.get('task', '')} -> {data.get('result', '')}"
         self.remember(content, source="forge", topic="forge", importance=4)

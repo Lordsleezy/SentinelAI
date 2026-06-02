@@ -729,6 +729,23 @@ def memory_clear_hot():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/memory/purge/source/<source>', methods=['DELETE'])
+def memory_purge_source(source: str):
+    """Delete all memories from a specific source. Use 'all' to wipe everything."""
+    if memory_v2 is None:
+        return jsonify({"error": "Memory V2 not initialized"}), 503
+    try:
+        if source == 'all':
+            count = memory_v2.purge_all()
+        else:
+            count = memory_v2.purge_by_source(source)
+        log(f"Purged {count} memories from source: {source}", 'warning', 'memory')
+        return jsonify({"purged": count, "source": source})
+    except Exception as e:
+        log(f"Purge error: {e}", 'error', 'memory')
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/launch', methods=['POST'])
 def api_launch():
     """Launch a built file (Python script, exe, bat, html) by absolute path."""
@@ -3507,6 +3524,66 @@ def api_market_summary():
     except Exception as e:
         logger.error("market/summary error: %s", e, exc_info=True)
         return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/market/prediction', methods=['GET'])
+def api_market_prediction():
+    """Fetch top markets from Polymarket and Kalshi — no API key needed."""
+    import requests as _req
+    results: dict = {'polymarket': [], 'kalshi': []}
+
+    # Polymarket — free REST API
+    try:
+        resp = _req.get(
+            'https://gamma-api.polymarket.com/markets?closed=false&limit=20&order=volume&ascending=false',
+            timeout=10,
+            headers={'User-Agent': 'SentinelAI/1.0'},
+        )
+        if resp.status_code == 200:
+            import json as _json
+            for m in resp.json()[:10]:
+                raw_prices = m.get('outcomePrices', [])
+                # outcomePrices may arrive as a JSON-encoded string e.g. '["0.95","0.05"]'
+                if isinstance(raw_prices, str):
+                    try:
+                        raw_prices = _json.loads(raw_prices)
+                    except Exception:
+                        raw_prices = []
+                try:
+                    yes_p = f"{float(raw_prices[0]):.2f}" if raw_prices else '?'
+                    no_p = f"{float(raw_prices[1]):.2f}" if len(raw_prices) > 1 else '?'
+                except (ValueError, IndexError):
+                    yes_p, no_p = '?', '?'
+                results['polymarket'].append({
+                    'question': m.get('question', ''),
+                    'yes_price': yes_p,
+                    'no_price': no_p,
+                    'volume': m.get('volume', 0),
+                    'url': f"https://polymarket.com/event/{m.get('slug', '')}",
+                })
+    except Exception as e:
+        results['polymarket_error'] = str(e)
+
+    # Kalshi — free public read API
+    try:
+        resp = _req.get(
+            'https://trading-api.kalshi.com/trade-api/v2/markets?limit=10&status=open',
+            headers={'accept': 'application/json', 'User-Agent': 'SentinelAI/1.0'},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            for m in resp.json().get('markets', [])[:10]:
+                results['kalshi'].append({
+                    'title': m.get('title', ''),
+                    'yes_price': m.get('yes_bid', '?'),
+                    'no_price': m.get('no_bid', '?'),
+                    'volume': m.get('volume', 0),
+                    'close_time': m.get('close_time', ''),
+                })
+    except Exception as e:
+        results['kalshi_error'] = str(e)
+
+    return jsonify(results)
 
 
 @app.route('/market/news/<ticker>')
