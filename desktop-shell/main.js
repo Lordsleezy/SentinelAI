@@ -5,6 +5,10 @@ process.on('uncaughtException', (err) => {
   if (err.code === 'EPIPE') return;
   console.error('Uncaught:', err);
 });
+process.on('unhandledRejection', (err) => {
+  if (err && err.code === 'EPIPE') return;
+  console.error('Unhandled:', err);
+});
 
 const { app, BrowserWindow, ipcMain, Menu, MenuItem, Notification, globalShortcut } = require('electron');
 const { spawn } = require('child_process');
@@ -299,14 +303,18 @@ function launchBackend() {
     });
 
     backendProcess.on('exit', (code, signal) => {
-      console.log(`[Backend] Exited — code=${code}, signal=${signal}`);
-      clearPID();
+      try { console.error(`[Backend] Exited — code=${code}, signal=${signal}`); } catch (_) {}
+      try { clearPID(); } catch (_) {}
       backendProcess = null;
       backendReady = false;
 
       // Only trigger crash handler if this was an unexpected exit
-      if (!isQuitting && !isRestarting && code !== 0 && code !== null) {
-        handleBackendCrash(code, signal);
+      try {
+        if (!isQuitting && !isRestarting && code !== 0 && code !== null) {
+          handleBackendCrash(code, signal);
+        }
+      } catch (e) {
+        if (e.code !== 'EPIPE') console.error('[Backend] exit handler error:', e);
       }
     });
 
@@ -373,20 +381,26 @@ async function restartBackend() {
 }
 
 function handleBackendCrash(code, signal) {
-  if (isQuitting) return;
-  console.error(`[Backend] Crash — code=${code}, signal=${signal}`);
-  broadcastBackendStatus({ status: 'crashed', message: `Backend crashed (exit code ${code})` });
+  try {
+    if (isQuitting) return;
+    try { console.error(`[Backend] Crash — code=${code}, signal=${signal}`); } catch (_) {}
+    try { broadcastBackendStatus({ status: 'crashed', message: `Backend crashed (exit code ${code})` }); } catch (_) {}
 
-  if (canRestart()) {
-    console.log('[Backend] Scheduling auto-restart in 2 s...');
-    setTimeout(() => restartBackend(), 2000);
-  } else {
-    const { dialog } = require('electron');
-    dialog.showErrorBox(
-      'SentinelAI Backend Crashed',
-      `The backend crashed and cannot auto-recover.\n\nExit code: ${code}\n\nPlease restart the application.`
-    );
-    app.quit();
+    if (canRestart()) {
+      try { console.log('[Backend] Scheduling auto-restart in 2 s...'); } catch (_) {}
+      setTimeout(() => restartBackend(), 2000);
+    } else {
+      try {
+        const { dialog } = require('electron');
+        dialog.showErrorBox(
+          'SentinelAI Backend Crashed',
+          `The backend crashed and cannot auto-recover.\n\nExit code: ${code}\n\nPlease restart the application.`
+        );
+      } catch (_) {}
+      app.quit();
+    }
+  } catch (e) {
+    if (e.code !== 'EPIPE') console.error('[handleBackendCrash] error:', e);
   }
 }
 
