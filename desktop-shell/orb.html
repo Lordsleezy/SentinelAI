@@ -687,7 +687,13 @@
     .mode-btn-p.active-forensics { background: rgba(170,102,255,.15); color: #aa66ff; border-color: rgba(170,102,255,.4); }
     #guardian-chat-messages { min-height: 200px; max-height: 300px; overflow-y: auto; margin-bottom: 10px; background: #0a0a0f; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 10px; font-size: 12px; line-height: 1.5; }
     .g-msg-user { color: #ccc; margin-bottom: 8px; }
-    .g-msg-ai { color: #00ff88; margin-bottom: 8px; padding-left: 10px; border-left: 2px solid rgba(0,255,136,0.3); }
+    .g-msg-ai { color: #00ff88; margin-bottom: 10px; padding: 6px 10px; border-left: 2px solid rgba(0,255,136,0.4); background: rgba(0,255,136,0.03); border-radius: 0 4px 4px 0; }
+    .g-msg-ai .g-content p { margin: 4px 0; }
+    .g-msg-ai .g-content ul, .g-msg-ai .g-content ol { padding-left: 16px; margin: 4px 0; }
+    .g-msg-ai .g-content code { background: rgba(0,0,0,0.4); padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+    .g-msg-ai .g-content pre { background: #000; padding: 6px; border-radius: 4px; overflow-x: auto; }
+    .g-msg-ai .g-content h1, .g-msg-ai .g-content h2, .g-msg-ai .g-content h3 { color: #00ff88; margin: 6px 0 3px; }
+    .g-time { font-size: 10px; color: #444; margin-right: 6px; }
     #guardian-input-row { display: flex; gap: 8px; }
     #guardian-input { flex: 1; padding: 8px 10px; background: #0a0a0f; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; color: #e0e0e0; font-size: 12px; outline: none; }
 
@@ -1589,6 +1595,12 @@
         savedState.logEntries.forEach(e => appendGuardianLogEntry(e));
       }
       guardianLoadTools();
+      // Load marked.js for markdown rendering in guardian chat
+      if (!window.marked) {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js';
+        document.head.appendChild(s);
+      }
       // Re-attach Socket.IO listener for guardian log
       if (window._sharedSocket) {
         if (window._guardianLogHandler) {
@@ -1652,12 +1664,43 @@
       } catch(_) { el.innerHTML = '<span style="font-size:11px;color:#444;">Tool check unavailable</span>'; }
     }
 
+    function _appendGuardianChatMsg(role, content) {
+      const msgs = document.getElementById('guardian-chat-messages');
+      if (!msgs) return;
+      const time = new Date().toLocaleTimeString();
+      const div = document.createElement('div');
+      if (role === 'user') {
+        div.className = 'g-msg-user';
+        div.innerHTML = `<span class="g-time">${escapeHtml(time)}</span><span class="g-content"><b>You:</b> ${escapeHtml(content)}</span>`;
+      } else if (role === 'error') {
+        div.className = 'g-msg-error';
+        div.style.cssText = 'color:#ff4444;font-size:12px;padding:4px 0;';
+        div.innerHTML = `<span class="g-time">${escapeHtml(time)}</span> ${escapeHtml(content)}`;
+      } else {
+        div.className = 'g-msg-ai';
+        // Render markdown if marked is available
+        let html = escapeHtml(content);
+        if (window.marked) {
+          try { html = window.marked.parse(content); } catch(_) {}
+        }
+        div.innerHTML = `<span class="g-time">${escapeHtml(time)}</span><div class="g-content"><b>Guardian:</b><br>${html}</div>`;
+      }
+      msgs.appendChild(div);
+      msgs.scrollTop = msgs.scrollHeight;
+      // Save to panelState
+      if (panelState.guardian) {
+        if (!panelState.guardian.messages) panelState.guardian.messages = [];
+        panelState.guardian.messages.push({role, content, time});
+        // Keep messagesHTML updated for restore
+        panelState.guardian.messagesHTML = msgs.innerHTML;
+      }
+    }
+
     window.guardianSend = async function() {
       const inp = document.getElementById('guardian-input');
       if (!inp || !inp.value.trim()) return;
       const q = inp.value.trim(); inp.value = '';
-      const msgs = document.getElementById('guardian-chat-messages');
-      if (msgs) { msgs.innerHTML += `<div class="g-msg-user"><b>You:</b> ${escapeHtml(q)}</div>`; msgs.scrollTop = msgs.scrollHeight; }
+      _appendGuardianChatMsg('user', q);
       try {
         const r = await fetch('http://127.0.0.1:5001/guardian/chat', {
           method:'POST', headers:{'Content-Type':'application/json'},
@@ -1665,12 +1708,9 @@
         });
         const d = await r.json();
         const resp = d.response || d.message || d.result || '';
-        if (msgs) {
-          msgs.innerHTML += `<div class="g-msg-ai"><b>Guardian:</b> ${escapeHtml(resp)}</div>`;
-          msgs.scrollTop = msgs.scrollHeight;
-        }
+        _appendGuardianChatMsg('sentinel', resp);
       } catch(e) {
-        if (msgs) { msgs.innerHTML += `<div style="color:#ff4444;font-size:12px;">Error: ${e.message}</div>`; }
+        _appendGuardianChatMsg('error', `Error: ${e.message}`);
       }
     };
 
