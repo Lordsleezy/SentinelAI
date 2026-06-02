@@ -1005,6 +1005,21 @@ def api_forge_request():
                 if not result.success and result.error:
                     partial = f"Partial files: {', '.join(result.files_modified)}" if result.files_modified else "No files created."
                     fail_msg = f"Build stopped: {result.error}. {partial} Check the Log tab for details."
+                # Save build result to long-term memory with HIGH importance
+                if memory_v2 is not None:
+                    try:
+                        mem_content = (
+                            f"Sentinel built: {task}. "
+                            f"Entry point: {result.entry_point}. "
+                            f"All files: {', '.join(result.files_modified)}. "
+                            f"Output dir: {result.output_dir}. "
+                            f"Built at: {datetime.now().isoformat()}. "
+                            f"Success: {result.success}."
+                        )
+                        memory_v2.remember(mem_content, source='sentinel',
+                                           topic='build_completion', importance=9)
+                    except Exception:
+                        pass
                 emit_event('forge_complete', {
                     'success': result.success,
                     'output': result.output[:2000],
@@ -3456,6 +3471,26 @@ def api_capability_list():
 
 # ─── Chat Routing API ─────────────────────────────────────────────────────────
 
+def _save_chat_exchange(user_msg: str, sentinel_response: str) -> None:
+    """Save a complete chat exchange to memory and chat session buffer."""
+    # Save to chat session (for UI history)
+    with _chat_session_lock:
+        _chat_session.append({'role': 'sentinel', 'content': sentinel_response, 'timestamp': datetime.now().isoformat()})
+        if len(_chat_session) > 200:
+            del _chat_session[:-200]
+    # Save to long-term memory with moderate importance
+    if memory_v2 is not None:
+        try:
+            memory_v2.remember(
+                content=f"User asked: {user_msg}\nSentinel responded: {sentinel_response[:500]}",
+                source='user',
+                topic=user_msg[:80],
+                importance=5
+            )
+        except Exception as _e:
+            logger.debug("Memory save failed: %s", _e)
+
+
 def _chat_quick_response(message: str) -> str:
     """Generate a quick response via Ollama, falling back to Claude API, then canned text."""
     try:
@@ -3542,15 +3577,23 @@ def api_chat():
         if not message:
             return jsonify({"error": "message required"}), 400
 
-        # Enrich message with relevant memory context
+        # Enrich message with relevant memory context then save to chat session
+        _enriched_message = message
         if memory_v2 is not None:
             try:
                 mem_context = memory_v2.get_context_for_prompt(message, max_tokens=1500)
                 if mem_context:
-                    # Store it for downstream use; also save this user msg to memory
-                    memory_v2.remember(message, source="user", topic=message[:80])
+                    _enriched_message = f"[Memory context]\n{mem_context}\n\n[User message]\n{message}"
+                    log(f"Memory context attached: {mem_context[:100]}...", 'info', 'memory')
+                # Save user message to hot memory every time
+                memory_v2.remember(message, source="user", topic=message[:80])
             except Exception as _mem_err:
                 logger.debug("Memory context lookup failed: %s", _mem_err)
+        # Save to in-memory chat session
+        with _chat_session_lock:
+            _chat_session.append({'role': 'user', 'content': message, 'timestamp': datetime.now().isoformat()})
+            if len(_chat_session) > 200:
+                del _chat_session[:-200]
 
         from workers.orchestration.task_decomposer import get_decomposer, is_conversational_input
 
@@ -3815,7 +3858,9 @@ def api_chat():
 
         # Conversational inputs (no keyword match) → general worker with AI response
         if is_conversational_input(message):
-            response_text = _chat_quick_response(message) or _canned_response(message)
+            response_text = _chat_quick_response(_enriched_message) or _canned_response(message)
+            # Save response to memory and chat session
+            _save_chat_exchange(message, response_text)
             return jsonify({
                 "status": "ok",
                 "worker": "general",
@@ -3848,7 +3893,8 @@ def api_chat():
         if worker == "forge" and is_conversational_input(message):
             worker = "general"
 
-        response_text = _chat_quick_response(message) or _WORKER_RESPONSES.get(worker, f"Routing to {worker} worker...")
+        response_text = _chat_quick_response(_enriched_message) or _WORKER_RESPONSES.get(worker, f"Routing to {worker} worker...")
+        _save_chat_exchange(message, response_text)
         return jsonify({
             "status": "ok",
             "worker": worker,
