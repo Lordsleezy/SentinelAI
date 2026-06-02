@@ -1737,6 +1737,13 @@
       if (savedState && savedState.logEntries && savedState.logEntries.length) {
         savedState.logEntries.forEach(e => appendGuardianLogEntry(e));
       }
+      // Flush any pending responses that arrived while panel was closed
+      if (panelState.guardian && panelState.guardian.pendingResponses && panelState.guardian.pendingResponses.length) {
+        panelState.guardian.pendingResponses.forEach(data => {
+          _appendGuardianChatMsg('sentinel', data.response || '');
+        });
+        panelState.guardian.pendingResponses = [];
+      }
       guardianLoadTools();
       // Load marked.js for markdown rendering in guardian chat
       if (!window.marked) {
@@ -1844,15 +1851,34 @@
       if (!inp || !inp.value.trim()) return;
       const q = inp.value.trim(); inp.value = '';
       _appendGuardianChatMsg('user', q);
+      // Show thinking indicator
+      _appendGuardianChatMsg('sentinel', '⟳ Processing...');
       try {
         const r = await fetch('http://127.0.0.1:5001/guardian/chat', {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({message: q, mode: window._guardianMode})
         });
         const d = await r.json();
+        // Remove thinking indicator
+        const msgs = document.querySelectorAll('#guardian-chat-messages .g-msg-ai');
+        if (msgs.length > 0) {
+          const lastMsg = msgs[msgs.length - 1];
+          if (lastMsg && (lastMsg.textContent.includes('⟳') || lastMsg.textContent.includes('Processing'))) {
+            lastMsg.remove();
+          }
+        }
         const resp = d.response || d.message || d.result || '';
-        _appendGuardianChatMsg('sentinel', resp);
+        if (resp) _appendGuardianChatMsg('sentinel', resp);
+        // Full assessment result may also come via guardian_response socket event
       } catch(e) {
+        // Remove thinking indicator on error
+        const msgs = document.querySelectorAll('#guardian-chat-messages .g-msg-ai');
+        if (msgs.length > 0) {
+          const lastMsg = msgs[msgs.length - 1];
+          if (lastMsg && (lastMsg.textContent.includes('⟳') || lastMsg.textContent.includes('Processing'))) {
+            lastMsg.remove();
+          }
+        }
         _appendGuardianChatMsg('error', `Error: ${e.message}`);
       }
     };
@@ -2665,9 +2691,19 @@
             // If log panel is open and listening, logPanelHandler handles it
           });
 
-          // Guardian tool execution results arrive via this event (background thread)
+          // Guardian tool execution results — buffer when panel is closed, flush when opened
+          window._guardianSocketListenerActive = true;
+          window._sharedSocket = socket;
           socket.on('guardian_response', (data) => {
-            _appendGuardianChatMsg('sentinel', data.response || 'Assessment complete.');
+            const chatDiv = document.getElementById('guardian-chat-messages');
+            if (chatDiv) {
+              _appendGuardianChatMsg('sentinel', data.response || 'Assessment complete.');
+            } else {
+              // Panel not open — store for when it reopens
+              if (!panelState.guardian) panelState.guardian = { messages: [], logEntries: [], messagesHTML: '' };
+              if (!panelState.guardian.pendingResponses) panelState.guardian.pendingResponses = [];
+              panelState.guardian.pendingResponses.push(data);
+            }
           });
 
           socket.on('forge_complete', (data) => {
