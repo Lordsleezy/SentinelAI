@@ -60,6 +60,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress ChromaDB telemetry and fake_useragent noise before any imports trigger them
+logging.getLogger('chromadb.telemetry').setLevel(logging.CRITICAL)
+logging.getLogger('chromadb').setLevel(logging.WARNING)
+logging.getLogger('fake_useragent').setLevel(logging.ERROR)
+
 # Flask app
 app = Flask(__name__)
 CORS(app)
@@ -105,8 +110,21 @@ def emit_event(event: str, payload: dict) -> None:
         pass
 
 
+_SUPPRESS_PATTERNS = [
+    'chromadb.telemetry',
+    'ClientStartEvent',
+    'ClientCreateCollectionEvent',
+    'CollectionAddEvent',
+    'fake_useragent',
+    'anonymized_telemetry',
+    'capture() takes',
+]
+
+
 def log(message: str, level: str = 'info', source: str = 'system') -> None:
     """Emit a log_event to the Log tab via Socket.IO."""
+    if any(p in message for p in _SUPPRESS_PATTERNS):
+        return
     if SOCKETIO_AVAILABLE and socketio is not None:
         try:
             socketio.emit('log_event', {

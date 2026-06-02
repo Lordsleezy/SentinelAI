@@ -13,6 +13,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+
+# Suppress ChromaDB telemetry noise before lazy import
+logging.getLogger('chromadb.telemetry').setLevel(logging.CRITICAL)
+logging.getLogger('chromadb').setLevel(logging.WARNING)
 import re
 import sqlite3
 import threading
@@ -76,7 +80,10 @@ class MemoryManagerV2:
         try:
             import chromadb
             _CHROMA_PATH.mkdir(parents=True, exist_ok=True)
-            self._chroma = chromadb.PersistentClient(path=str(_CHROMA_PATH))
+            self._chroma = chromadb.PersistentClient(
+                path=str(_CHROMA_PATH),
+                settings=chromadb.Settings(anonymized_telemetry=False)
+            )
             self._warm_collection = self._chroma.get_or_create_collection(
                 name="sentinel_warm",
                 metadata={"hnsw:space": "cosine"}

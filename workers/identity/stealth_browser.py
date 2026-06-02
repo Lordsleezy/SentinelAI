@@ -23,6 +23,7 @@ import random
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+logging.getLogger('fake_useragent').setLevel(logging.ERROR)
 
 REALISTIC_VIEWPORTS = [
     {"width": 1920, "height": 1080},

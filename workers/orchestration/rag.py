@@ -8,6 +8,10 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
+# Suppress ChromaDB telemetry noise
+logging.getLogger('chromadb.telemetry').setLevel(logging.CRITICAL)
+logging.getLogger('chromadb').setLevel(logging.WARNING)
+
 CAPABILITY_DESCRIPTION = "Retrieves relevant codebase context for tasks via semantic search"
 
 try:
@@ -40,7 +44,10 @@ class CodebaseRAG:
             try:
                 import os as _os
                 _os.makedirs(self.db_path, exist_ok=True)
-                self.client = chromadb.PersistentClient(path=self.db_path)
+                self.client = chromadb.PersistentClient(
+                    path=self.db_path,
+                    settings=Settings(anonymized_telemetry=False)
+                )
                 self.model = SentenceTransformer('all-MiniLM-L6-v2')
             except Exception as e:
                 logger.error(f"Failed to initialize ChromaDB: {e}")
