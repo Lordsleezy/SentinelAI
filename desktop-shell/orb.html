@@ -2223,6 +2223,11 @@
             return;
           }
 
+          // Track pending task for APPROVE/DENY flow
+          if (data.pending_task_id) {
+            window.pendingTaskId = data.pending_task_id;
+          }
+
           orbState = 'speaking';
           renderOrb();
 
@@ -2234,7 +2239,7 @@
           responseArea.textContent = displayText || '(no response — check Log panel)';
           responseArea.classList.add('visible');
 
-          // Also show in chat panel
+          // Also show in chat panel (backend already logged it; just update UI)
           appendChatPanelMessage('sentinel', displayText || '(no response — check Log panel)');
 
           setTimeout(() => {

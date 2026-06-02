@@ -1225,6 +1225,35 @@ def api_log_recent():
 _chat_session = []
 _chat_session_lock = threading.Lock()
 
+# ── Pending task store (approval flow) ────────────────────────────────────────
+import uuid as _uuid_mod
+_pending_tasks: dict = {}
+_pending_latest_id: str = ''
+
+def _store_pending_task(task_data: dict) -> str:
+    global _pending_latest_id
+    task_id = task_data.get('task_id') or str(_uuid_mod.uuid4())
+    task_data['task_id'] = task_id
+    _pending_tasks[task_id] = task_data
+    _pending_latest_id = task_id
+    return task_id
+
+def _get_pending_task() -> dict:
+    if _pending_latest_id and _pending_latest_id in _pending_tasks:
+        return _pending_tasks[_pending_latest_id]
+    return {}
+
+def _clear_pending_task():
+    global _pending_latest_id
+    tid = _pending_latest_id
+    _pending_latest_id = ''
+    _pending_tasks.pop(tid, None)
+
+_APPROVE_WORDS = ['approve', 'yes', 'go ahead', 'do it', 'start', 'build it',
+                  'proceed', 'confirmed', 'ok', 'okay', 'yeah', 'yep', 'sure']
+_DENY_WORDS    = ['deny', 'no', 'cancel', 'stop', 'abort',
+                  'nevermind', 'nope', "don't", 'dont']
+
 @app.route('/api/memory/session', methods=['POST'])
 def api_memory_session_write():
     """Store a single chat exchange message to in-memory session."""
@@ -3613,6 +3642,50 @@ def api_chat():
         if not message:
             return jsonify({"error": "message required"}), 400
 
+        # ── APPROVE / DENY pending task — check FIRST before any routing ─────────
+        _msg_lower = message.lower().strip()
+        _pending = _get_pending_task()
+        if _pending:
+            if any(w in _msg_lower for w in _APPROVE_WORDS):
+                _clear_pending_task()
+                log(f"Task approved: {_pending.get('description', '')[:80]}", 'info', 'chat')
+                _task_type = _pending.get('type', '')
+                if _task_type == 'build':
+                    _task_desc = _pending.get('description', 'the task')
+                    _output_dir = _pending.get('output_dir')
+                    def _run_approved_build(_desc=_task_desc, _odir=_output_dir):
+                        try:
+                            from workers.aider_engine import AiderEngine
+                            engine = AiderEngine(socketio)
+                            result = engine.build_app(_desc, _odir)
+                            if socketio:
+                                socketio.emit('forge_complete', {
+                                    'success': getattr(result, 'success', False),
+                                    'files_modified': getattr(result, 'files_modified', []),
+                                    'entry_point': getattr(result, 'entry_point', ''),
+                                    'error': getattr(result, 'error', ''),
+                                })
+                            log(f"Build complete: {_desc[:60]}", 'info', 'aider')
+                        except Exception as _be:
+                            log(f"Build error: {_be}", 'error', 'aider')
+                    threading.Thread(target=_run_approved_build, daemon=True).start()
+                    _resp = f"✓ Approved. Building **{_task_desc}** now. Watch the LOG tab → AIDER filter for progress."
+                else:
+                    _resp = f"✓ Approved. Working on it now."
+                log(f"SENTINEL: {_resp}", 'info', 'chat')
+                _save_chat_exchange(message, _resp)
+                return jsonify({"status": "ok", "worker": "aider", "response": _resp, "routed": True})
+
+            if any(w in _msg_lower for w in _DENY_WORDS):
+                _task_desc = _pending.get('description', 'the task')
+                _clear_pending_task()
+                log(f"Task denied: {_task_desc[:80]}", 'info', 'chat')
+                _resp = f"Cancelled. Let me know if you'd like to try something different."
+                log(f"SENTINEL: {_resp}", 'info', 'chat')
+                _save_chat_exchange(message, _resp)
+                return jsonify({"status": "ok", "worker": "system", "response": _resp, "routed": True})
+        # ── END APPROVE/DENY ─────────────────────────────────────────────────────
+
         # Enrich message with relevant memory context then save to chat session
         _enriched_message = message
         if memory_v2 is not None:
@@ -3823,10 +3896,20 @@ def api_chat():
                     + (f"\n  ...and {len(plan.tasks)-5} more" if len(plan.tasks) > 5 else "")
                     + "\n\nReply APPROVE to start building, or DENY to cancel."
                 )
+                _task_id = _store_pending_task({
+                    'type': 'build',
+                    'description': message,
+                    'plan': plan_dict,
+                    'files': plan.files,
+                    'created_at': datetime.now().isoformat(),
+                })
+                log(f"SENTINEL: {resp_text[:200]}", 'info', 'chat')
+                _save_chat_exchange(message, resp_text)
                 return jsonify({
                     "status": "ok", "worker": "consultation",
                     "response": resp_text,
                     "plan": plan_dict, "plan_id": plan.id,
+                    "pending_task_id": _task_id,
                     "awaiting_approval": True,
                     "routed": True,
                 })
@@ -3883,6 +3966,31 @@ def api_chat():
                     'fan on', 'fan off', 'air conditioning', 'temperature to')
         if any(kw in lower for kw in _home_kw) and _pre_worker is None:
             _pre_worker = "home"
+
+        if _pre_worker == 'forge':
+            # Show a simple plan and ask for APPROVE/DENY
+            _plan_text = (
+                f"📋 Build Plan\n\n"
+                f"Task: {message}\n"
+                f"Worker: Aider (code generation)\n\n"
+                f"Sentinel will generate the code using Aider. This may take a minute.\n\n"
+                f"Reply APPROVE to start building, or DENY to cancel."
+            )
+            _task_id = _store_pending_task({
+                'type': 'build',
+                'description': message,
+                'created_at': datetime.now().isoformat(),
+            })
+            log(f"SENTINEL: {_plan_text[:200]}", 'info', 'chat')
+            _save_chat_exchange(message, _plan_text)
+            return jsonify({
+                "status": "ok",
+                "worker": "forge",
+                "response": _plan_text,
+                "pending_task_id": _task_id,
+                "awaiting_approval": True,
+                "routed": True,
+            })
 
         if _pre_worker:
             response_text = _WORKER_RESPONSES.get(_pre_worker, f"Routing to {_pre_worker} worker...")
