@@ -25,6 +25,40 @@ SENTINELWEB_URL = os.getenv("SENTINELWEB_URL", "http://localhost:8766")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:14b")
 
+# Identity prefix sent at the start of every new consultation
+SENTINEL_IDENTITY_PREFIX = """Hi, I'm Sentinel — {user_name}'s personal AI operating system, \
+built by Sentinel Prime Inc. I'm consulting you on {user_name}'s behalf. \
+Please address me as Sentinel in this conversation.
+
+{user_name}'s current context:
+{memory_context}
+
+My question/task:
+{prompt}"""
+
+# Memory request sent at the end of every consultation
+SENTINEL_MEMORY_REQUEST = """Please save this to your memory:
+- Sentinel ({user_name}'s AI assistant) consulted you about: {topic}
+- Date: {date}
+- Key decisions or recommendations: {summary}
+- This is part of an ongoing project: {project_context}"""
+
+
+def _build_identity_prompt(prompt: str, user_name: str = "Paul",
+                            memory_context: str = "") -> str:
+    return SENTINEL_IDENTITY_PREFIX.format(
+        user_name=user_name,
+        memory_context=memory_context or "No specific context loaded.",
+        prompt=prompt,
+    )
+
+
+def _summarize_response(response: str) -> str:
+    """Quick 2-3 sentence summary using simple truncation (no LLM cost)."""
+    sentences = [s.strip() for s in response.replace('\n', ' ').split('.') if s.strip()]
+    summary = '. '.join(sentences[:3])
+    return summary[:400] if len(summary) > 400 else summary
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -105,11 +139,23 @@ class Consultant:
             logger.debug("[Consultant] SentinelWeb %s error: %s", site, exc)
         return None
 
-    def ask_chatgpt(self, prompt: str) -> Optional[str]:
-        return self._sentinelweb_ask("chatgpt", prompt, timeout=60)
+    def ask_chatgpt(self, prompt: str, use_identity: bool = True,
+                    user_name: str = "Paul", memory_context: str = "") -> Optional[str]:
+        """Ask ChatGPT with Sentinel identity prefix."""
+        if use_identity:
+            full_prompt = _build_identity_prompt(prompt, user_name, memory_context)
+        else:
+            full_prompt = prompt
+        return self._sentinelweb_ask("chatgpt", full_prompt, timeout=60)
 
-    def ask_claude(self, prompt: str) -> Optional[str]:
-        return self._sentinelweb_ask("claude", prompt, timeout=60)
+    def ask_claude(self, prompt: str, use_identity: bool = True,
+                   user_name: str = "Paul", memory_context: str = "") -> Optional[str]:
+        """Ask Claude with Sentinel identity prefix."""
+        if use_identity:
+            full_prompt = _build_identity_prompt(prompt, user_name, memory_context)
+        else:
+            full_prompt = prompt
+        return self._sentinelweb_ask("claude", full_prompt, timeout=60)
 
     # ---------------------------------------------------------------- Ollama
 
@@ -128,26 +174,35 @@ class Consultant:
 
     # ---------------------------------------------------------------- Main API
 
+    def _get_user_name(self) -> str:
+        try:
+            from workers.identity.identity_manager import get_identity_manager
+            return get_identity_manager().get_user_name()
+        except Exception:
+            return "Paul"
+
     def consult_for_guidance(self, question: str, context: str = "") -> ConsultationResult:
         """
         Get architectural / strategic guidance.
         Tries ChatGPT, then Claude, then Ollama.
+        Wraps with Sentinel identity prefix.
         """
+        user_name = self._get_user_name()
         full_prompt = question
         if context:
             full_prompt = f"{question}\n\nContext:\n{context}"
 
-        # Try ChatGPT first
-        answer = self.ask_chatgpt(full_prompt)
+        # Try ChatGPT first (with Sentinel identity)
+        answer = self.ask_chatgpt(full_prompt, use_identity=True, user_name=user_name)
         if answer:
             return ConsultationResult(source="chatgpt", answer=answer, success=True)
 
         # Claude fallback
-        answer = self.ask_claude(full_prompt)
+        answer = self.ask_claude(full_prompt, use_identity=True, user_name=user_name)
         if answer:
             return ConsultationResult(source="claude", answer=answer, success=True)
 
-        # Ollama last resort
+        # Ollama last resort (no identity prefix needed — local model)
         answer = self._ask_ollama(full_prompt, timeout=90)
         return ConsultationResult(
             source="ollama_fallback",
