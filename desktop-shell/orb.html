@@ -763,11 +763,388 @@
     }
   </style>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* ════════════════════════════════════════════════════════════
+       DESIGN TOKENS — ChatGPT dark palette
+    ════════════════════════════════════════════════════════════ */
+    :root {
+      --bg-primary:     #212121;
+      --bg-secondary:   #2d2d2d;
+      --bg-tertiary:    #3d3d3d;
+      --bg-elevated:    #404040;
+      --text-primary:   #ececec;
+      --text-secondary: #b4b4b4;
+      --text-muted:     #6e6e6e;
+      --border-subtle:  rgba(255,255,255,0.1);
+      --border-normal:  rgba(255,255,255,0.15);
+      --border-strong:  rgba(255,255,255,0.25);
+      --accent:         #2563eb;
+      --accent-hover:   #1d4ed8;
+      --accent-subtle:  rgba(37,99,235,0.15);
+      --success:        #16a34a;
+      --warning:        #d97706;
+      --error:          #dc2626;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'SF Mono','Cascadia Code','Consolas',monospace;
+      --radius-sm:  6px;
+      --radius-md:  12px;
+      --radius-lg:  18px;
+      --radius-full: 9999px;
+    }
+
+    /* ── Global resets ── */
+    * { text-shadow: none !important; }
+    body {
+      font-family: var(--font-sans) !important;
+      background: var(--bg-primary) !important;
+      color: var(--text-primary) !important;
+      -webkit-font-smoothing: antialiased;
+    }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-normal); border-radius: var(--radius-full); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+    /* ── Title bar ── */
+    #title-bar {
+      background: var(--bg-primary) !important;
+      border-bottom: 1px solid var(--border-subtle) !important;
+      height: 44px !important;
+      padding: 0 16px !important;
+    }
+    #title-bar .title-text {
+      font-family: var(--font-sans) !important;
+      font-size: 13px !important;
+      font-weight: 500 !important;
+      color: var(--text-secondary) !important;
+      letter-spacing: 0.3px !important;
+    }
+    #title-bar .win-controls button {
+      background: transparent !important;
+      color: var(--text-muted) !important;
+      border: none !important;
+      border-radius: var(--radius-sm) !important;
+    }
+    #title-bar .win-controls button:hover { background: var(--bg-tertiary) !important; color: var(--text-primary) !important; }
+    #title-bar .win-controls button.close-btn:hover { background: rgba(220,38,38,0.2) !important; color: #fca5a5 !important; }
+    #trial-badge {
+      font-family: var(--font-sans) !important;
+      font-size: 11px !important;
+      font-weight: 500 !important;
+      padding: 3px 10px !important;
+      border-radius: var(--radius-full) !important;
+      background: var(--bg-tertiary) !important;
+      border: 1px solid var(--border-subtle) !important;
+      color: var(--text-secondary) !important;
+      letter-spacing: 0 !important;
+    }
+    #update-banner {
+      font-family: var(--font-sans) !important;
+      font-size: 11px !important;
+      border-radius: var(--radius-full) !important;
+      background: var(--accent-subtle) !important;
+      border: 1px solid rgba(37,99,235,0.4) !important;
+      color: #93c5fd !important;
+    }
+
+    /* ── App container & panels ── */
+    #app-container { background: var(--bg-primary) !important; }
+    #left-panel-container {
+      background: var(--bg-secondary) !important;
+      border-right: 1px solid var(--border-subtle) !important;
+      width: 0 !important;
+    }
+    #left-panel-container.open { width: 320px !important; }
+    #left-panel-header {
+      padding: 14px 16px !important;
+      border-bottom: 1px solid var(--border-subtle) !important;
+    }
+    #left-panel-header span {
+      font-family: var(--font-sans) !important;
+      font-size: 14px !important;
+      font-weight: 600 !important;
+      color: var(--text-primary) !important;
+      letter-spacing: 0 !important;
+    }
+    #left-panel-header button {
+      background: transparent !important;
+      border: none !important;
+      color: var(--text-muted) !important;
+      border-radius: var(--radius-sm) !important;
+      font-size: 16px !important;
+    }
+    #left-panel-header button:hover { background: var(--bg-tertiary) !important; color: var(--text-primary) !important; }
+    #panel-container {
+      background: var(--bg-secondary) !important;
+      border-left: 1px solid var(--border-subtle) !important;
+    }
+    #panel-container.open { width: 420px !important; }
+    #panel-header {
+      padding: 14px 16px !important;
+      border-bottom: 1px solid var(--border-subtle) !important;
+    }
+    #panel-title {
+      font-family: var(--font-sans) !important;
+      font-size: 14px !important;
+      font-weight: 600 !important;
+      color: var(--text-primary) !important;
+      letter-spacing: 0 !important;
+    }
+    #panel-close-btn {
+      background: transparent !important;
+      border: none !important;
+      color: var(--text-muted) !important;
+      border-radius: var(--radius-sm) !important;
+    }
+    #panel-close-btn:hover { background: var(--bg-tertiary) !important; color: var(--text-primary) !important; }
+    #panel-content {
+      padding: 16px !important;
+      background: var(--bg-secondary) !important;
+    }
+
+    /* ── Chat history ── */
+    #chat-history {
+      background: var(--bg-secondary) !important;
+      gap: 4px !important;
+      padding: 14px 12px !important;
+    }
+    #chat-history::-webkit-scrollbar-thumb { background: var(--border-normal) !important; }
+    .chat-msg {
+      font-family: var(--font-sans) !important;
+      font-size: 13px !important;
+      border-radius: var(--radius-lg) !important;
+      max-width: 88% !important;
+    }
+    .chat-msg-user {
+      background: var(--bg-tertiary) !important;
+      border: 1px solid var(--border-subtle) !important;
+      color: var(--text-primary) !important;
+      border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg) !important;
+    }
+    .chat-msg-sentinel {
+      background: transparent !important;
+      border: none !important;
+      color: var(--text-primary) !important;
+      padding: 8px 4px !important;
+    }
+    .chat-time { color: var(--text-muted) !important; font-size: 10px !important; font-family: var(--font-sans) !important; }
+
+    /* ── Chat input ── */
+    #input-section {
+      background: var(--bg-primary) !important;
+      border-top: 1px solid var(--border-subtle) !important;
+      padding: 12px 16px 14px !important;
+    }
+    #chat-input {
+      background: var(--bg-secondary) !important;
+      border: 1px solid var(--border-normal) !important;
+      color: var(--text-primary) !important;
+      border-radius: var(--radius-lg) !important;
+      font-family: var(--font-sans) !important;
+      padding: 12px 18px !important;
+      font-size: 14px !important;
+    }
+    #chat-input:focus {
+      border-color: var(--border-strong) !important;
+      box-shadow: none !important;
+    }
+    #chat-input::placeholder { color: var(--text-muted) !important; }
+
+    /* ── Dock buttons ── */
+    #input-section #status-indicator,
+    #input-section #status-line { font-family: var(--font-sans) !important; color: var(--text-muted) !important; font-size: 11px !important; letter-spacing: 0 !important; }
+    .dock-btn {
+      font-family: var(--font-sans) !important;
+      font-size: 12px !important;
+      font-weight: 500 !important;
+      padding: 5px 12px !important;
+      border-radius: var(--radius-full) !important;
+      background: transparent !important;
+      border: 1px solid var(--border-subtle) !important;
+      color: var(--text-secondary) !important;
+      letter-spacing: 0 !important;
+    }
+    .dock-btn:hover {
+      background: var(--bg-secondary) !important;
+      color: var(--text-primary) !important;
+      border-color: var(--border-normal) !important;
+    }
+    .dock-btn.active {
+      background: var(--accent-subtle) !important;
+      color: #93c5fd !important;
+      border-color: var(--accent) !important;
+    }
+
+    /* ── Panel stat/table/button resets ── */
+    .panel-stat { background: var(--bg-tertiary) !important; border: 1px solid var(--border-subtle) !important; border-radius: var(--radius-md) !important; }
+    .panel-stat-label { color: var(--text-muted) !important; font-family: var(--font-sans) !important; letter-spacing: 0 !important; }
+    .panel-stat-value { color: var(--text-primary) !important; font-family: var(--font-sans) !important; }
+    .panel-btn {
+      font-family: var(--font-sans) !important;
+      background: var(--accent) !important;
+      border: none !important;
+      color: #fff !important;
+      border-radius: var(--radius-md) !important;
+      font-weight: 500 !important;
+    }
+    .panel-btn:hover { background: var(--accent-hover) !important; }
+    .panel-btn:disabled { background: var(--bg-tertiary) !important; color: var(--text-muted) !important; cursor: not-allowed !important; }
+    .panel-section-title {
+      font-family: var(--font-sans) !important;
+      font-size: 11px !important;
+      font-weight: 600 !important;
+      color: var(--text-muted) !important;
+      text-transform: none !important;
+      letter-spacing: 0 !important;
+    }
+    .panel-table th {
+      font-family: var(--font-sans) !important;
+      color: var(--text-muted) !important;
+      letter-spacing: 0 !important;
+      text-transform: none !important;
+      font-size: 11px !important;
+      font-weight: 600 !important;
+      border-bottom: 1px solid var(--border-subtle) !important;
+    }
+    .panel-table td {
+      font-family: var(--font-sans) !important;
+      color: var(--text-secondary) !important;
+      border-bottom: 1px solid var(--border-subtle) !important;
+    }
+    .panel-table tr:hover td { background: rgba(255,255,255,0.03) !important; }
+
+    /* ── Guardian ── */
+    .mode-btn-p {
+      font-family: var(--font-sans) !important;
+      background: transparent !important;
+      border: 1px solid var(--border-subtle) !important;
+      color: var(--text-muted) !important;
+      border-radius: var(--radius-md) !important;
+      font-size: 12px !important;
+      font-weight: 500 !important;
+    }
+    .mode-btn-p.active-defend { background: var(--accent-subtle) !important; color: #93c5fd !important; border-color: var(--accent) !important; }
+    .mode-btn-p.active-attack { background: rgba(220,38,38,0.12) !important; color: #fca5a5 !important; border-color: rgba(220,38,38,0.4) !important; }
+    .mode-btn-p.active-forensics { background: rgba(139,92,246,0.12) !important; color: #c4b5fd !important; border-color: rgba(139,92,246,0.4) !important; }
+    #guardian-chat-messages {
+      background: var(--bg-primary) !important;
+      border: 1px solid var(--border-subtle) !important;
+      border-radius: var(--radius-md) !important;
+      font-family: var(--font-sans) !important;
+    }
+    .g-msg-user { color: var(--text-primary) !important; font-family: var(--font-sans) !important; }
+    .g-msg-ai {
+      color: var(--text-primary) !important;
+      border-left: 2px solid var(--accent) !important;
+      background: var(--accent-subtle) !important;
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0 !important;
+      font-family: var(--font-sans) !important;
+    }
+    #guardian-input {
+      background: var(--bg-primary) !important;
+      border: 1px solid var(--border-normal) !important;
+      color: var(--text-primary) !important;
+      font-family: var(--font-sans) !important;
+      border-radius: var(--radius-md) !important;
+    }
+
+    /* ── Market / Ticker ── */
+    .ticker-card { background: var(--bg-tertiary) !important; border: 1px solid var(--border-subtle) !important; border-radius: var(--radius-md) !important; }
+    .ticker-sym { color: var(--text-muted) !important; font-family: var(--font-sans) !important; letter-spacing: 0 !important; }
+    .ticker-price { color: var(--text-primary) !important; font-family: var(--font-sans) !important; }
+    .mkt-tab { font-family: var(--font-sans) !important; background: transparent !important; border: 1px solid var(--border-subtle) !important; color: var(--text-muted) !important; border-radius: var(--radius-full) !important; }
+    .mkt-tab:hover { background: var(--bg-tertiary) !important; color: var(--text-primary) !important; }
+    .mkt-tab.active { background: var(--accent-subtle) !important; color: #93c5fd !important; border-color: var(--accent) !important; }
+
+    /* ── Earn panel ── */
+    .earn-accept-btn, .panel-btn[onclick*="earnAccept"] {
+      background: var(--accent) !important;
+      border: none !important;
+      color: #fff !important;
+      font-family: var(--font-sans) !important;
+      border-radius: var(--radius-full) !important;
+      font-size: 11px !important;
+      font-weight: 500 !important;
+      padding: 4px 12px !important;
+    }
+
+    /* ── Scalp ── */
+    .scalp-log { background: var(--bg-primary) !important; border: 1px solid var(--border-subtle) !important; color: var(--text-secondary) !important; font-family: var(--font-mono) !important; border-radius: var(--radius-md) !important; }
+    .signal-card { background: var(--bg-tertiary) !important; border: 1px solid var(--border-subtle) !important; border-radius: var(--radius-md) !important; }
+    .signal-sym { color: var(--text-muted) !important; font-family: var(--font-sans) !important; }
+
+    /* ── Tier badge (on orb) ── */
+    .tier-badge.free { background: var(--bg-tertiary) !important; border: 1px solid var(--border-subtle) !important; color: var(--text-muted) !important; font-family: var(--font-sans) !important; }
+    .tier-badge.pro  { background: rgba(37,99,235,0.15) !important; border: 1px solid rgba(37,99,235,0.4) !important; color: #93c5fd !important; box-shadow: none !important; font-family: var(--font-sans) !important; }
+
+    /* ── Response / plan areas ── */
+    #response-area {
+      background: var(--bg-secondary) !important;
+      border: 1px solid var(--border-subtle) !important;
+      border-radius: var(--radius-md) !important;
+      font-family: var(--font-sans) !important;
+      color: var(--text-primary) !important;
+    }
+    #plan-preview {
+      background: var(--bg-secondary) !important;
+      border: 1px solid var(--border-subtle) !important;
+      border-radius: var(--radius-md) !important;
+    }
+    #plan-preview h2 { color: var(--text-primary) !important; }
+    .plan-btn {
+      font-family: var(--font-sans) !important;
+      background: var(--accent) !important;
+      border: none !important;
+      color: #fff !important;
+      border-radius: var(--radius-md) !important;
+    }
+    .plan-btn:hover { background: var(--accent-hover) !important; }
+    .plan-btn.deny { background: rgba(220,38,38,0.15) !important; color: #fca5a5 !important; }
+    .plan-btn.deny:hover { background: rgba(220,38,38,0.25) !important; }
+
+    /* ── Log filter buttons ── */
+    .log-filter-btn {
+      font-family: var(--font-sans) !important;
+      background: transparent !important;
+      border: 1px solid var(--border-subtle) !important;
+      color: var(--text-muted) !important;
+      border-radius: var(--radius-full) !important;
+      font-size: 11px !important;
+      font-weight: 500 !important;
+    }
+    .log-filter-btn.active { background: var(--accent-subtle) !important; color: #93c5fd !important; border-color: var(--accent) !important; }
+
+    /* ── Credential card ── */
+    #credential-card {
+      background: var(--bg-secondary) !important;
+      border: 1px solid var(--border-subtle) !important;
+      border-radius: var(--radius-md) !important;
+    }
+    #credential-card input {
+      background: var(--bg-primary) !important;
+      border: 1px solid var(--border-normal) !important;
+      color: var(--text-primary) !important;
+      font-family: var(--font-sans) !important;
+      border-radius: var(--radius-sm) !important;
+    }
+    #cred-title { color: var(--text-primary) !important; font-family: var(--font-sans) !important; letter-spacing: 0 !important; }
+    #cred-label { color: var(--text-secondary) !important; font-family: var(--font-sans) !important; }
+    #cred-save-btn { background: var(--accent) !important; color: #fff !important; border: none !important; font-family: var(--font-sans) !important; border-radius: var(--radius-sm) !important; }
+    #cred-save-btn:hover { background: var(--accent-hover) !important; }
+
+    /* ── Left panel footer ── */
+    #left-panel-footer { border-top: 1px solid var(--border-subtle) !important; background: var(--bg-secondary) !important; font-family: var(--font-sans) !important; color: var(--text-muted) !important; font-size: 11px !important; }
+    #diagnose-btn { font-family: var(--font-sans) !important; background: var(--bg-tertiary) !important; border: 1px solid var(--border-subtle) !important; color: var(--text-secondary) !important; border-radius: var(--radius-md) !important; letter-spacing: 0 !important; font-size: 12px !important; }
+    #diagnose-btn:hover { background: var(--bg-elevated) !important; color: var(--text-primary) !important; }
+  </style>
 </head>
 <body>
   <div id="app-container">
     <div id="title-bar">
-      <span class="title-text">SENTINEL AI</span>
+      <span class="title-text">Sentinel</span>
       <span id="trial-badge" style="display:none;font-size:10px;font-family:monospace;
             padding:2px 8px;border-radius:3px;margin-left:10px;cursor:pointer;
             background:rgba(255,165,0,0.15);border:1px solid rgba(255,165,0,0.4);
@@ -789,8 +1166,8 @@
       <!-- LEFT PANEL — Chat history (slides in from left) -->
       <div id="left-panel-container">
         <div id="left-panel-header">
-          <span style="color:#0ff;font-size:12px;font-weight:700;letter-spacing:2px;">💬 SENTINEL CHAT</span>
-          <button onclick="toggleChatPanel()" style="background:none;border:1px solid rgba(0,255,255,0.2);color:#0ff;width:24px;height:24px;border-radius:4px;cursor:pointer;font-size:12px;">✕</button>
+          <span>Chat</span>
+          <button onclick="toggleChatPanel()" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;">&#x2715;</button>
         </div>
         <div id="chat-history"></div>
         <div id="left-panel-footer" style="padding:8px 12px;border-top:1px solid rgba(0,255,255,0.1);font-size:10px;color:#444;text-align:center;">
@@ -2544,7 +2921,8 @@
       div.className = `chat-msg chat-msg-${role}`;
       div.dataset.role = role;
       div.dataset.timestamp = time;
-      div.innerHTML = `<span class="chat-time">${escapeHtml(time)}</span><span class="chat-content">${escapeHtml(content)}</span>`;
+      const label = role === 'user' ? 'You' : 'Sentinel';
+      div.innerHTML = `<span class="chat-time">${escapeHtml(label)} &middot; ${escapeHtml(time)}</span><span class="chat-content">${escapeHtml(content)}</span>`;
       historyEl.appendChild(div);
       if (scroll) historyEl.scrollTop = historyEl.scrollHeight;
     }
