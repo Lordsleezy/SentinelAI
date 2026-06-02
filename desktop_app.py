@@ -40,6 +40,7 @@ from openclaw_integration import OpenClawCommandRouter
 from workers.forge_worker import run_approved_forge_task
 from workers.licensing.license_manager import get_license_manager
 from workers.identity.identity_manager import get_identity_manager
+from workers.memory.memory_manager_v2 import get_memory_manager_v2
 
 # Register Scalp routes
 try:
@@ -71,6 +72,9 @@ identity_manager = get_identity_manager()
 
 # Browser sessions — populated after startup
 browser_sessions = None
+
+# Memory V2 — 3-layer memory system (initialized after socketio is ready)
+memory_v2 = None
 
 # ─── Real-time events (Task 4) — graceful fallback to polling ──────────────────
 # When flask-socketio is installed we push events to the HUD instantly; if not,
@@ -607,6 +611,60 @@ def sync_conversations():
         sync = get_conversation_sync(sessions=browser_sessions, socketio=socketio)
         convos = sync.get_all_conversations()
         return jsonify({"conversations": convos, "count": len(convos)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Memory V2 Routes ──────────────────────────────────────────────────────────
+
+@app.route('/memory/stats')
+def memory_stats():
+    if memory_v2 is None:
+        return jsonify({"error": "Memory V2 not initialized"}), 503
+    return jsonify(memory_v2.get_stats())
+
+
+@app.route('/memory/recall')
+def memory_recall():
+    if memory_v2 is None:
+        return jsonify({"error": "Memory V2 not initialized"}), 503
+    query = request.args.get('q', '')
+    limit = int(request.args.get('limit', 5))
+    source_filter = request.args.get('source', None)
+    sources = [source_filter] if source_filter else None
+    results = memory_v2.recall(query, limit=limit, sources=sources)
+    return jsonify({"results": [r.to_dict() for r in results], "count": len(results)})
+
+
+@app.route('/memory/conversations')
+def memory_conversations():
+    try:
+        from workers.sync.conversation_sync import get_conversation_sync
+        sync = get_conversation_sync(sessions=browser_sessions, socketio=socketio)
+        convos = sync.get_all_conversations()
+        return jsonify({"conversations": convos, "count": len(convos)})
+    except Exception as e:
+        return jsonify({"conversations": [], "count": 0, "error": str(e)})
+
+
+@app.route('/memory/from/<source>')
+def memory_from_source(source):
+    if memory_v2 is None:
+        return jsonify({"error": "Memory V2 not initialized"}), 503
+    results = memory_v2.recall_from_source(source)
+    return jsonify({"results": [r.to_dict() for r in results], "source": source})
+
+
+@app.route('/memory/clear/hot', methods=['DELETE'])
+def memory_clear_hot():
+    if memory_v2 is None:
+        return jsonify({"error": "Memory V2 not initialized"}), 503
+    try:
+        import sqlite3
+        with sqlite3.connect(str(memory_v2._DB_PATH if hasattr(memory_v2, '_DB_PATH') else 'memory/hot_memory.db')) as conn:
+            conn.execute("DELETE FROM hot_memory")
+            conn.commit()
+        return jsonify({"status": "cleared"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -3413,6 +3471,16 @@ def api_chat():
         if not message:
             return jsonify({"error": "message required"}), 400
 
+        # Enrich message with relevant memory context
+        if memory_v2 is not None:
+            try:
+                mem_context = memory_v2.get_context_for_prompt(message, max_tokens=1500)
+                if mem_context:
+                    # Store it for downstream use; also save this user msg to memory
+                    memory_v2.remember(message, source="user", topic=message[:80])
+            except Exception as _mem_err:
+                logger.debug("Memory context lookup failed: %s", _mem_err)
+
         from workers.orchestration.task_decomposer import get_decomposer, is_conversational_input
 
         lower = message.lower()
@@ -4389,6 +4457,14 @@ def start_backend():
     backend_state["running"] = True
     backend_state["startup_complete"] = True
     logger.info("Backend started on http://127.0.0.1:5001")
+
+    # Initialize Memory V2 (3-layer hot/warm/cold)
+    global memory_v2
+    try:
+        memory_v2 = get_memory_manager_v2(socketio=socketio)
+        logger.info("Memory Manager V2 initialized")
+    except Exception as e:
+        logger.warning("Memory V2 init failed: %s", e)
 
     try:
         enqueue_new_repair_opportunities()
