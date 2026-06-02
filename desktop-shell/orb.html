@@ -1728,11 +1728,19 @@
       }
     }
 
+    function _telemetryTrack(event, props) {
+      fetch('http://127.0.0.1:5001/api/telemetry/event', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ event, props: props || {} })
+      }).catch(() => {});
+    }
+
     function openPanel(name) {
       if (currentPanel === name) { closePanel(); return; }
       savePanelState(currentPanel);
       currentPanel = name;
       document.getElementById('panel-title').textContent = name.toUpperCase();
+      _telemetryTrack('panel_opened', { panel: name });
       loadPanelContent(name);
       document.getElementById('panel-container').classList.add('open');
       // Trigger orb resize after CSS transition
@@ -1921,6 +1929,7 @@
 
         const d = await r.json();
         if (d.status === 'accepted' || d.job_id) {
+          _telemetryTrack('earn_accepted', { source: p.source || p.type || 'unknown' });
           showEarnNotification(`✓ ${p.name || p.title || 'Program'} accepted. Sentinel is analyzing the target.`, 'success');
           if (btn) {
             btn.textContent = '✓ Accepted';

@@ -94,6 +94,7 @@
         <div class="dot active" id="dot0"></div>
         <div class="dot" id="dot1"></div>
         <div class="dot" id="dot2"></div>
+        <div class="dot" id="dot3"></div>
       </div>
 
       <!-- SCREEN 0: Scanning -->
@@ -167,7 +168,21 @@
           </div>
         </div>
         <div class="btn-row">
-          <button class="btn btn-primary" id="btn-finish" onclick="finish()" disabled>Launch Sentinel &rarr;</button>
+          <button class="btn btn-primary" id="btn-intent-next" onclick="goToTelemetry()" disabled>Continue &rarr;</button>
+        </div>
+      </div>
+
+      <!-- SCREEN 3: Telemetry -->
+      <div class="screen" id="screen-3">
+        <h2>Help improve Sentinel</h2>
+        <p class="sub">Share anonymous usage data? No chat content, no personal info &mdash; ever.</p>
+        <div style="margin:18px 0;padding:14px 16px;background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.12);border-radius:8px;font-size:12px;color:#888;line-height:1.7;">
+          What we collect: feature usage counts, OS family, model name, session duration.<br>
+          What we <strong style="color:#ddd;">never</strong> collect: chat messages, prompts, responses, file paths, or any personal data.
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btn-optin" onclick="finish(true)">Yes &mdash; share anonymously</button>
+          <button class="btn btn-skip" onclick="finish(false)">No thanks</button>
         </div>
       </div>
 
@@ -183,7 +198,7 @@
     let modelReady = false;
 
     function setDot(idx) {
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 4; i++) {
         const d = document.getElementById('dot' + i);
         d.className = 'dot' + (i < idx ? ' done' : i === idx ? ' active' : '');
       }
@@ -309,15 +324,26 @@
       document.querySelectorAll('.intent-card').forEach(function(c) { c.classList.remove('selected'); });
       el.classList.add('selected');
       selectedIntent = intent;
-      document.getElementById('btn-finish').disabled = false;
+      document.getElementById('btn-intent-next').disabled = false;
     };
 
-    window.finish = async function() {
+    function goToTelemetry() {
+      showScreen(3);
+    }
+
+    window.finish = async function(optInTelemetry) {
       try {
         await fetch(BACKEND + '/api/setup/intent', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ intent: selectedIntent })
         });
+      } catch (_) {}
+      try {
+        if (optInTelemetry) {
+          await fetch(BACKEND + '/api/telemetry/opt-in', { method: 'POST' });
+        } else {
+          await fetch(BACKEND + '/api/telemetry/opt-out', { method: 'POST' });
+        }
       } catch (_) {}
       ipcRenderer.send('setup-wizard-done');
     };

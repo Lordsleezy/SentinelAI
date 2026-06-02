@@ -3606,6 +3606,54 @@ def api_trial_status():
         return jsonify({'error': str(e)}), 500
 
 
+# ─── Anonymous Telemetry API ─────────────────────────────────────────────────
+
+from workers.telemetry.telemetry_manager import get_telemetry_manager as _get_tm
+
+_telemetry = _get_tm()
+
+
+@app.route('/api/telemetry/status', methods=['GET'])
+def api_telemetry_status():
+    """Return current telemetry opt-in status."""
+    return jsonify({'opted_in': _telemetry.is_opted_in()})
+
+
+@app.route('/api/telemetry/opt-in', methods=['POST'])
+def api_telemetry_opt_in():
+    """Opt in to anonymous telemetry."""
+    try:
+        _telemetry.opt_in()
+        _telemetry.start()
+        return jsonify({'status': 'ok', 'opted_in': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/telemetry/opt-out', methods=['POST'])
+def api_telemetry_opt_out():
+    """Opt out of anonymous telemetry."""
+    try:
+        _telemetry.opt_out()
+        return jsonify({'status': 'ok', 'opted_in': False})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/telemetry/event', methods=['POST'])
+def api_telemetry_event():
+    """Record a single anonymous event from the frontend."""
+    try:
+        data = request.get_json(force=True) or {}
+        event = data.get('event', 'unknown')
+        props = {k: v for k, v in (data.get('props') or {}).items()
+                 if k not in ('content', 'message', 'prompt', 'response', 'key')}
+        _telemetry.track(event, props)
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ─── Licensing & Tier API ────────────────────────────────────────────────────
 
 @app.route('/license/status', methods=['GET'])
@@ -5122,6 +5170,17 @@ def start_backend():
             log(f"Browser session startup failed: {e}", 'warning', 'identity')
 
     threading.Thread(target=_start_browser_sessions, daemon=True).start()
+
+    # Telemetry — start flush loop if user has opted in
+    def _start_telemetry():
+        try:
+            if _telemetry.is_opted_in():
+                _telemetry.start()
+                logger.info('[Telemetry] Started (opted in)')
+        except Exception as exc:
+            logger.debug('[Telemetry] Startup error: %s', exc)
+
+    threading.Thread(target=_start_telemetry, daemon=True).start()
 
 
 def approval_watch_loop():
