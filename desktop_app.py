@@ -504,6 +504,41 @@ def api_ping():
     return jsonify({"ok": True, "running": backend_state.get("running", False)})
 
 
+@app.route('/api/launch', methods=['POST'])
+def api_launch():
+    """Launch a built file (Python script, exe, bat, html) by absolute path."""
+    try:
+        data = request.json or {}
+        file_path = data.get('file', '').strip()
+
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({"error": f"File not found: {file_path}"}), 404
+
+        ext = os.path.splitext(file_path)[1].lower()
+        python_exe = str(Path(__file__).parent / "venv" / "Scripts" / "python.exe")
+        if not os.path.exists(python_exe):
+            python_exe = "python"
+
+        if ext == '.py':
+            subprocess.Popen([python_exe, file_path],
+                             creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
+        elif ext in ('.exe', '.bat', '.cmd'):
+            subprocess.Popen([file_path], shell=True)
+        elif ext == '.html':
+            webbrowser.open(file_path)
+        else:
+            if os.name == 'nt':
+                os.startfile(file_path)
+            else:
+                subprocess.Popen(['xdg-open', file_path])
+
+        log(f"Launched: {os.path.basename(file_path)}", 'success', 'forge')
+        return jsonify({"status": "launched", "file": os.path.basename(file_path)})
+    except Exception as e:
+        log(f"Launch error: {e}", 'error', 'forge')
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/status')
 def api_status():
     """Get current system status."""
@@ -763,10 +798,13 @@ def api_forge_request():
                     'success': result.success,
                     'output': result.output[:2000],
                     'files_modified': result.files_modified,
+                    'entry_point': result.entry_point,
+                    'output_dir': result.output_dir,
+                    'error': result.error,
                 })
             except Exception as exc:
                 log(f'Forge engine error: {exc}', 'error', 'forge')
-                emit_event('forge_complete', {'success': False, 'output': str(exc), 'files_modified': []})
+                emit_event('forge_complete', {'success': False, 'output': str(exc), 'files_modified': [], 'entry_point': None, 'output_dir': None, 'error': str(exc)})
 
         t = threading.Thread(target=run, daemon=True)
         t.start()
@@ -2872,10 +2910,13 @@ def api_orchestration_chat():
                         'success': result.success,
                         'output': result.output[:2000],
                         'files_modified': result.files_modified,
+                        'entry_point': result.entry_point,
+                        'output_dir': result.output_dir,
+                        'error': result.error,
                     })
                 except Exception as exc:
                     log(f'Build error: {exc}', 'error', 'forge')
-                    emit_event('forge_complete', {'success': False, 'output': str(exc), 'files_modified': []})
+                    emit_event('forge_complete', {'success': False, 'output': str(exc), 'files_modified': [], 'entry_point': None, 'output_dir': None, 'error': str(exc)})
 
             t = threading.Thread(target=build, daemon=True)
             t.start()
