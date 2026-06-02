@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Menu, MenuItem, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, MenuItem, Notification, globalShortcut } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -813,6 +813,12 @@ function setupIPC() {
     }
   });
 
+  ipcMain.handle('toggle-fullscreen', () => {
+    if (orbWindow && !orbWindow.isDestroyed()) {
+      orbWindow.setFullScreen(!orbWindow.isFullScreen());
+    }
+  });
+
   ipcMain.on('minimize-window', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win) win.hide();
@@ -1116,6 +1122,13 @@ app.whenReady().then(() => {
   buildAppMenu();
   startupSequence();
 
+  // F11 toggles fullscreen
+  globalShortcut.register('F11', () => {
+    if (orbWindow && !orbWindow.isDestroyed()) {
+      orbWindow.setFullScreen(!orbWindow.isFullScreen());
+    }
+  });
+
   // Right-click context menu — cut/copy/paste/select-all on all windows
   app.on('web-contents-created', (event, contents) => {
     contents.on('context-menu', (ev, params) => {
@@ -1157,6 +1170,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     gracefulShutdown();
   }
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });
 
 app.on('before-quit', (event) => {

@@ -65,11 +65,13 @@
 
     #orb-container {
       flex: 1;
+      min-width: 0;
+      min-height: 0;
       display: flex;
       align-items: center;
       justify-content: center;
       position: relative;
-      min-height: 0;
+      overflow: hidden;
       transition: flex 0.3s ease;
     }
 
@@ -755,6 +757,7 @@
     <div id="title-bar">
       <span class="title-text">SENTINEL AI</span>
       <div class="win-controls">
+        <button id="fullscreen-btn" onclick="toggleFullscreen()" title="Toggle Fullscreen (F11)" style="font-size:13px;">⛶</button>
         <button id="btn-minimize" title="Minimize">—</button>
         <button id="btn-close" class="close-btn" title="Hide to tray">✕</button>
       </div>
@@ -1231,17 +1234,21 @@
     ctx._targetCol = hexToRgb(STATES.idle.particle);
     ctx.mounted = true;
 
-    window.addEventListener('resize', function () {
+    function _resizeRenderer() {
       if (!ctx.three) return;
-      // Read from the flex container, not root (which is a canvas with fixed pixels)
       var container = document.getElementById('orb-container') || root.parentElement || root;
-      var w = container.clientWidth || root.clientWidth;
-      var h = container.clientHeight || root.clientHeight;
+      var rect = container.getBoundingClientRect();
+      var w = rect.width || container.clientWidth || root.clientWidth;
+      var h = rect.height || container.clientHeight || root.clientHeight;
       if (w <= 0 || h <= 0) return;
       ctx.three.camera.aspect = w / h;
       ctx.three.camera.updateProjectionMatrix();
-      ctx.three.renderer.setSize(w, h);
-    });
+      ctx.three.renderer.setSize(w, h, false);
+      ctx.three.renderer.domElement.style.width = '100%';
+      ctx.three.renderer.domElement.style.height = '100%';
+    }
+    window.addEventListener('resize', _resizeRenderer);
+    window._resizeOrbRenderer = _resizeRenderer;
 
     setState('idle');
     loop();
@@ -1329,8 +1336,11 @@
       document.getElementById('panel-title').textContent = name.toUpperCase();
       loadPanelContent(name);
       document.getElementById('panel-container').classList.add('open');
-      // Trigger orb resize after CSS transition (must be > 300ms transition)
-      setTimeout(() => window.dispatchEvent(new Event('resize')), 350);
+      // Trigger orb resize after CSS transition
+      setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+        if (window._resizeOrbRenderer) window._resizeOrbRenderer();
+      }, 360);
       document.querySelectorAll('.dock-btn').forEach(btn =>
         btn.classList.toggle('active', btn.dataset.panel === name));
     }
@@ -1355,13 +1365,13 @@
       // reads the final container dimensions, not the old ones
       setTimeout(() => {
         document.getElementById('panel-content').innerHTML = '';
-        // Force layout reflow before resize so flex calc is complete
         const orbEl = document.getElementById('orb-container');
         orbEl.style.display = 'none';
         void orbEl.offsetHeight;
         orbEl.style.display = '';
         window.dispatchEvent(new Event('resize'));
-      }, 350);
+        if (window._resizeOrbRenderer) window._resizeOrbRenderer();
+      }, 360);
     }
 
     async function loadPanelContent(name) {
@@ -1943,7 +1953,15 @@
       initOrb();
       renderOrb();
       // Fire a resize after first paint so Three.js matches actual CSS dimensions.
-      requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event('resize'));
+        if (window._resizeOrbRenderer) window._resizeOrbRenderer();
+      });
+      // Secondary resize after 100ms to handle any layout settling
+      setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+        if (window._resizeOrbRenderer) window._resizeOrbRenderer();
+      }, 100);
     });
 
     // Worker status polling
@@ -2198,6 +2216,15 @@
       const div = document.createElement('div');
       div.textContent = str;
       return div.innerHTML;
+    }
+
+    function toggleFullscreen() {
+      try {
+        const { ipcRenderer } = require('electron');
+        ipcRenderer.invoke('toggle-fullscreen');
+      } catch(e) {
+        console.warn('toggleFullscreen:', e);
+      }
     }
 
     // ─── License Management ──────────────────────────────────────────────────
