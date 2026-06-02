@@ -1464,49 +1464,40 @@ def api_forge_request():
 
         def run():
             try:
-                from workers.aider_engine import AiderEngine
-                engine = AiderEngine(socketio)
-                result = engine.build_app(task, output_dir) if output_dir else engine.run_task(task, files)
+                forge_result, _art = _run_forge_build(task, output_dir)
+                result_ok = forge_result.success
                 log(
-                    'Task complete' if result.success else f'Task failed: {result.error}',
-                    'success' if result.success else 'error',
+                    'Task complete' if result_ok else f'Task failed: {forge_result.error}',
+                    'success' if result_ok else 'error',
                     'forge',
                 )
                 fail_msg = None
-                if not result.success and result.error:
-                    partial = f"Partial files: {', '.join(result.files_modified)}" if result.files_modified else "No files created."
-                    fail_msg = f"Build stopped: {result.error}. {partial} Check the Log tab for details."
+                if not result_ok and forge_result.error:
+                    partial = f"Partial files: {', '.join(forge_result.files)}" if forge_result.files else "No files created."
+                    fail_msg = f"Build stopped: {forge_result.error}. {partial} Check the Log tab for details."
                 # Save build result to long-term memory with HIGH importance
                 if memory_v2 is not None:
                     try:
                         mem_content = (
                             f"Sentinel built: {task}. "
-                            f"Entry point: {result.entry_point}. "
-                            f"All files: {', '.join(result.files_modified)}. "
-                            f"Output dir: {result.output_dir}. "
+                            f"Builder: {forge_result.builder}. "
+                            f"Entry point: {forge_result.entry_point}. "
+                            f"All files: {', '.join(forge_result.files)}. "
+                            f"Output dir: {forge_result.output_dir}. "
                             f"Built at: {datetime.now().isoformat()}. "
-                            f"Success: {result.success}."
+                            f"Success: {forge_result.success}."
                         )
                         memory_v2.remember(mem_content, source='sentinel',
                                            topic='build_completion', importance=9)
                     except Exception:
                         pass
-                emit_event('forge_complete', {
-                    'success': result.success,
-                    'output': result.output[:2000],
-                    'files_modified': result.files_modified,
-                    'entry_point': result.entry_point,
-                    'output_dir': result.output_dir,
-                    'error': result.error,
-                    'message': fail_msg,
-                })
             except Exception as exc:
                 log(f'Forge engine error: {exc}', 'error', 'forge')
                 emit_event('forge_complete', {'success': False, 'output': str(exc), 'files_modified': [], 'entry_point': None, 'output_dir': None, 'error': str(exc), 'message': f'Forge engine error: {exc}'})
 
         t = threading.Thread(target=run, daemon=True)
         t.start()
-        return jsonify({"status": "started", "message": "Aider is working on your task"})
+        return jsonify({"status": "started", "message": "Forge builder is working on your task"})
 
     except Exception as e:
         log(str(e), 'error', 'forge')
@@ -3705,6 +3696,65 @@ _BUILD_KEYWORDS = [
 ]
 
 
+def _run_forge_build(description: str, output_dir=None, sentinel_task_id: str = ''):
+    """
+    Execute build via ForgeBuildEngine (builder router + verification + artifact).
+    Callable from approved chat builds, /api/forge/request, or orchestration.
+    """
+    from builders.forge_engine import ForgeBuildEngine
+    from builders.router import route_build
+    from workers.artifacts.artifact_registry import register_artifact
+
+    route_build(description, socketio)
+
+    def _on_progress(pct: int, msg: str) -> None:
+        if not sentinel_task_id:
+            return
+        try:
+            from workers.task_manager import update_task, RUNNING
+            update_task(sentinel_task_id, status=RUNNING, progress=pct, result_summary=msg)
+        except Exception:
+            pass
+
+    engine = ForgeBuildEngine(socketio)
+    result = engine.build(description, output_dir, on_progress=_on_progress)
+
+    ver_status = "verified" if result.verified else ("failed" if result.verification else "unknown")
+    art = register_artifact(
+        task=description[:120],
+        entry_point=result.entry_point,
+        output_dir=result.output_dir,
+        files=result.files,
+        launch_command=result.launch_command,
+        task_id=sentinel_task_id or None,
+        artifact_type=result.artifact_type,
+        builder_used=result.builder,
+        project_type=result.project_type,
+        verification_status=ver_status,
+        build_logs=result.build_logs,
+    )
+    log(
+        f"[FORGE] {result.builder} ({result.project_type}) — {ver_status} — {result.output_dir}",
+        'success' if result.success else 'error',
+        'forge',
+    )
+    if socketio:
+        socketio.emit('forge_complete', {
+            'success': result.success,
+            'files_modified': result.files,
+            'entry_point': result.entry_point,
+            'output_dir': result.output_dir,
+            'error': result.error or '',
+            'task_id': sentinel_task_id,
+            'artifact_id': art.get('id'),
+            'builder': result.builder,
+            'project_type': result.project_type,
+            'verification_status': ver_status,
+            'launch_command': result.launch_command,
+        })
+    return result, art
+
+
 def _is_build_request(message: str) -> bool:
     msg_lower = message.lower()
     return any(kw in msg_lower for kw in _BUILD_KEYWORDS)
@@ -3746,25 +3796,14 @@ def api_orchestration_chat():
 
             def build():
                 try:
-                    from workers.aider_engine import AiderEngine
-                    engine = AiderEngine(socketio)
-                    result = engine.build_app(description, output_path)
-                    log(
-                        'Build complete' if result.success else f'Build failed: {result.error}',
-                        'success' if result.success else 'error',
-                        'forge',
-                    )
-                    emit_event('forge_complete', {
-                        'success': result.success,
-                        'output': result.output[:2000],
-                        'files_modified': result.files_modified,
-                        'entry_point': result.entry_point,
-                        'output_dir': result.output_dir,
-                        'error': result.error,
-                    })
+                    _run_forge_build(description, output_path)
                 except Exception as exc:
                     log(f'Build error: {exc}', 'error', 'forge')
-                    emit_event('forge_complete', {'success': False, 'output': str(exc), 'files_modified': [], 'entry_point': None, 'output_dir': None, 'error': str(exc)})
+                    emit_event('forge_complete', {
+                        'success': False, 'output': str(exc),
+                        'files_modified': [], 'entry_point': None,
+                        'output_dir': None, 'error': str(exc),
+                    })
 
             t = threading.Thread(target=build, daemon=True)
             t.start()
@@ -4385,46 +4424,24 @@ def api_chat():
                     _task_desc = _pending.get('description', 'the task')
                     _output_dir = _pending.get('output_dir')
                     def _run_approved_build(_desc=_task_desc, _odir=_output_dir):
-                        from workers.task_manager import TaskContext, COMPLETED, FAILED
-                        from workers.artifacts.artifact_registry import register_artifact as _reg_art
+                        from workers.task_manager import TaskContext
                         with TaskContext(f"Build {_desc[:60]}", source="forge") as ctx:
                             try:
-                                ctx.progress(10, "Planning build…")
-                                from workers.aider_engine import AiderEngine
-                                engine = AiderEngine(socketio)
-                                ctx.progress(30, "Building…")
-                                result = engine.build_app(_desc, _odir)
-                                ctx.progress(85, "Verifying…")
-                                # Register artifact
-                                _entry = getattr(result, 'entry_point', '') or ''
-                                _odir2 = getattr(result, 'output_dir', '') or ''
-                                _files = getattr(result, 'files_modified', []) or []
-                                art = _reg_art(
-                                    task=_desc,
-                                    entry_point=_entry,
-                                    output_dir=_odir2,
-                                    files=_files,
-                                    task_id=ctx.task_id,
+                                forge_result, art = _run_forge_build(
+                                    _desc, _odir, sentinel_task_id=ctx.task_id,
                                 )
-                                log(f"[ARTIFACT] Registered build: {_desc[:60]}", 'info', 'forge')
                                 ctx.complete(
-                                    result_summary=f"Built {_entry or _desc[:40]}",
+                                    result_summary=(
+                                        f"{forge_result.builder} — "
+                                        f"{forge_result.project_type} — "
+                                        f"{forge_result.verification.message if forge_result.verification else 'done'}"
+                                    ),
                                     artifact_id=art.get('id'),
                                 )
-                                if socketio:
-                                    socketio.emit('forge_complete', {
-                                        'success': getattr(result, 'success', False),
-                                        'files_modified': _files,
-                                        'entry_point': _entry,
-                                        'output_dir': _odir2,
-                                        'error': getattr(result, 'error', ''),
-                                        'task_id': ctx.task_id,
-                                        'artifact_id': art.get('id'),
-                                    })
-                                log(f"Build complete: {_desc[:60]}", 'info', 'aider')
+                                log(f"Build complete: {_desc[:60]} via {forge_result.builder}", 'info', 'forge')
                             except Exception as _be:
                                 ctx.fail(str(_be))
-                                log(f"Build error: {_be}", 'error', 'aider')
+                                log(f"Build error: {_be}", 'error', 'forge')
                     threading.Thread(target=_run_approved_build, daemon=True).start()
                     _resp = f"✓ Approved. Building **{_task_desc}** now. Watch the LOG tab → AIDER filter for progress."
                 else:
@@ -4765,11 +4782,13 @@ def api_chat():
 
         if _pre_worker == 'forge':
             # Show a simple plan and ask for APPROVE/DENY
+            from builders.router import classify_build
+            _btype = classify_build(message).value
             _plan_text = (
                 f"📋 Build Plan\n\n"
                 f"Task: {message}\n"
-                f"Worker: Aider (code generation)\n\n"
-                f"Sentinel will generate the code using Aider. This may take a minute.\n\n"
+                f"Builder route: **{_btype}** (Aider fallback if needed)\n\n"
+                f"Stages: Planning → Generating → Testing → Verifying → Launch\n\n"
                 f"Reply APPROVE to start building, or DENY to cancel."
             )
             _task_id = _store_pending_task({

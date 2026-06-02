@@ -79,12 +79,16 @@ def _derive_launch_command(entry_point: str, output_dir: str) -> str:
         return ""
     p = Path(entry_point)
     ext = p.suffix.lower()
+    if p.name == "project.godot" or ext == ".godot":
+        return f'godot --path "{output_dir or p.parent}"'
     if ext == ".py":
         return f"python \"{entry_point}\""
     if ext in (".exe", ".bat", ".cmd"):
         return f"\"{entry_point}\""
     if ext in (".html", ".htm"):
-        return f"start \"{entry_point}\""
+        return f"start \"\" \"{entry_point}\""
+    if ext == ".js" and p.name == "main.js" and (p.parent / "package.json").exists():
+        return f'cd /d "{p.parent}" && npm start'
     if ext == ".js":
         return f"node \"{entry_point}\""
     if ext == ".sh":
@@ -103,6 +107,10 @@ def register_artifact(
     task_id: Optional[str] = None,
     project_id: Optional[str] = None,
     artifact_type: str = "app",
+    builder_used: str = "",
+    project_type: str = "",
+    verification_status: str = "",
+    build_logs: str = "",
 ) -> Dict:
     """
     Register a newly created artifact.
@@ -125,16 +133,20 @@ def register_artifact(
         launch_command = _derive_launch_command(entry_point, output_dir)
     artifact_id = "art_" + uuid.uuid4().hex[:10]
     artifact: Dict = {
-        "id":             artifact_id,
-        "task":           task,
-        "entry_point":    entry_point,
-        "output_dir":     output_dir,
-        "files":          files or ([entry_point] if entry_point else []),
-        "launch_command": launch_command,
-        "artifact_type":  artifact_type,
-        "task_id":        task_id,
-        "project_id":     project_id,
-        "timestamp":      _now(),
+        "id":                  artifact_id,
+        "task":                task,
+        "entry_point":         entry_point,
+        "output_dir":          output_dir,
+        "files":               files or ([entry_point] if entry_point else []),
+        "launch_command":      launch_command,
+        "artifact_type":       artifact_type,
+        "task_id":             task_id,
+        "project_id":          project_id,
+        "builder_used":        builder_used,
+        "project_type":        project_type,
+        "verification_status": verification_status or "unknown",
+        "build_logs":          (build_logs or "")[:8000],
+        "timestamp":           _now(),
     }
     with _LOCK:
         _registry[artifact_id] = artifact
@@ -208,6 +220,14 @@ def launch_artifact(artifact: Dict) -> Dict:
             import webbrowser
             webbrowser.open(Path(entry).as_uri())
             return {"ok": True, "message": f"Opened {entry} in browser."}
+
+        if entry and Path(entry).name == "project.godot":
+            import shutil
+            godot = shutil.which("godot") or shutil.which("godot.exe")
+            if godot:
+                cmd = f'"{godot}" --path "{artifact.get("output_dir", Path(entry).parent)}"'
+            else:
+                cmd = artifact.get("launch_command") or cmd
 
         # Detach so the launched process doesn't block Sentinel
         kwargs: Dict = {}
