@@ -1245,15 +1245,31 @@ def api_memory_session_write():
 
 @app.route('/api/memory/recent')
 def api_memory_recent_chat():
-    """Return recent chat session messages."""
+    """Return recent chat session messages (current session only)."""
     try:
         limit = int(request.args.get('limit', 50))
-        msg_type = request.args.get('type', 'chat')
+        since = request.args.get('since', None)
         with _chat_session_lock:
-            msgs = list(_chat_session[-limit:])
+            msgs = list(_chat_session)
+        if since:
+            msgs = [m for m in msgs if m.get('timestamp', '') >= since]
+        msgs = msgs[-limit:]
         return jsonify({'messages': msgs, 'count': len(msgs)})
     except Exception as e:
         return jsonify({'messages': [], 'error': str(e)}), 500
+
+
+@app.route('/api/memory/sessions')
+def api_memory_sessions():
+    """Return list of past chat sessions grouped by date."""
+    try:
+        if memory_v2 is not None:
+            sessions = memory_v2.get_chat_sessions()
+        else:
+            sessions = []
+        return jsonify({'sessions': sessions})
+    except Exception as e:
+        return jsonify({'sessions': [], 'error': str(e)}), 500
 
 
 @app.route('/api/earnings')

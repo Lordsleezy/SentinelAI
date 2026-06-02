@@ -1856,8 +1856,11 @@
         </div>
         <div id="memory-stats" style="font-size:11px;color:#555;margin-bottom:12px;">Loading stats...</div>
         <div class="panel-section-title">Recent Memories</div>
-        <div id="memory-list" style="font-size:12px;">Loading...</div>`;
+        <div id="memory-list" style="font-size:12px;">Loading...</div>
+        <div class="panel-section-title" style="margin-top:14px;">Previous Sessions</div>
+        <div id="memory-sessions" style="font-size:12px;color:#555;">Loading sessions...</div>`;
       memoryLoad();
+      memoryLoadSessions();
     }
 
     async function memoryLoad(filter='all', query='') {
@@ -1909,6 +1912,32 @@
       catch(_) {}
       setTimeout(() => memoryLoad(window._memoryFilter||'all'), 2000);
     };
+
+    async function memoryLoadSessions() {
+      const el = document.getElementById('memory-sessions');
+      if (!el) return;
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/memory/sessions');
+        if (!r.ok) { el.innerHTML = '<div style="color:#444;">No session data.</div>'; return; }
+        const d = await r.json();
+        const sessions = d.sessions || [];
+        if (!sessions.length) { el.innerHTML = '<div style="color:#444;">No previous sessions found.</div>'; return; }
+        el.innerHTML = sessions.map(s => `
+          <div style="margin-bottom:8px;padding:8px;background:#0a0a1a;border:1px solid rgba(0,255,255,0.08);border-radius:5px;cursor:pointer;"
+               onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="color:#0ff;font-size:11px;">${escapeHtml(s.date || '')}</span>
+              <span style="color:#555;font-size:10px;">${s.count || 0} messages</span>
+            </div>
+            <div style="color:#888;font-size:11px;margin-top:3px;">${escapeHtml((s.preview||'').substring(0,80))}${(s.preview||'').length>80?'…':''}</div>
+          </div>
+          <div style="display:none;padding:6px;background:#050510;border:1px solid rgba(0,255,255,0.05);border-radius:4px;margin-top:-6px;margin-bottom:8px;font-size:11px;color:#777;">
+            ${escapeHtml(s.first_ts||'')} → ${escapeHtml(s.last_ts||'')}
+          </div>`).join('');
+      } catch(e) {
+        if (el) el.innerHTML = `<div style="color:#444;font-size:11px;">Sessions unavailable: ${e.message}</div>`;
+      }
+    }
 
     window.addEventListener('DOMContentLoaded', () => {
       initOrb();
@@ -2033,8 +2062,9 @@
     updateWorkerStatus();
 
     // ── CHAT PANEL (LEFT SIDE) ────────────────────────────────────────────────
+    const SESSION_START = new Date().toISOString();
     let chatPanelOpen = false;
-    let chatPanelMessages = [];  // {role, content, timestamp}
+    let chatPanelMessages = [];  // {role, content, timestamp} — current session only
 
     function toggleChatPanel() {
       chatPanelOpen = !chatPanelOpen;
@@ -2054,28 +2084,28 @@
     async function loadChatHistory() {
       const historyEl = document.getElementById('chat-history');
       if (!historyEl) return;
-      // Show any already-in-memory messages first
+      // Show already-in-memory messages from this session
       if (chatPanelMessages.length > 0) {
         historyEl.innerHTML = '';
         chatPanelMessages.forEach(m => renderChatMsg(m.role, m.content, m.timestamp, false));
         historyEl.scrollTop = historyEl.scrollHeight;
         return;
       }
-      // Load from backend session memory
+      // Fresh launch — fetch only messages since SESSION_START
       try {
-        const r = await fetch('http://127.0.0.1:5001/api/memory/recent?limit=50&type=chat');
+        const r = await fetch(
+          `http://127.0.0.1:5001/api/memory/recent?limit=100&since=${encodeURIComponent(SESSION_START)}`
+        );
         if (r.ok) {
           const d = await r.json();
-          const msgs = d.messages || d.data || [];
+          const msgs = d.messages || [];
           msgs.forEach(m => {
             renderChatMsg(m.role || 'sentinel', m.content || m.message || '', m.timestamp, false);
             chatPanelMessages.push({role: m.role || 'sentinel', content: m.content || m.message || '', timestamp: m.timestamp});
           });
           if (historyEl) historyEl.scrollTop = historyEl.scrollHeight;
         }
-      } catch(_) {
-        // Backend may not have this yet — that's OK
-      }
+      } catch(_) {}
     }
 
     function appendChatPanelMessage(role, content, timestamp) {

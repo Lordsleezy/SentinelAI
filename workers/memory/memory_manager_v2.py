@@ -461,6 +461,62 @@ importance: {entry.importance}
 
     # ── Stats ──────────────────────────────────────────────────────────────────
 
+    def get_recent(self, limit: int = 20, type_filter: str = None, since: str = None) -> list:
+        """Query hot layer for recent entries with optional type and since filters."""
+        results = []
+        try:
+            query = "SELECT id, content, source, topic, project, importance, created_at FROM hot_memory WHERE 1=1"
+            params: list = []
+            if type_filter:
+                query += " AND source = ?"
+                params.append(type_filter)
+            if since:
+                query += " AND created_at >= ?"
+                params.append(since)
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+            with sqlite3.connect(str(_DB_PATH)) as conn:
+                rows = conn.execute(query, params).fetchall()
+                for r in rows:
+                    results.append({
+                        'id': r[0], 'content': r[1], 'source': r[2],
+                        'topic': r[3] or '', 'project': r[4] or '',
+                        'importance': r[5] or 5, 'created_at': r[6],
+                    })
+        except Exception as e:
+            logger.debug("[MemV2] get_recent failed: %s", e)
+        return results
+
+    def get_chat_sessions(self) -> list:
+        """Return past chat sessions grouped by day from hot memory."""
+        sessions = []
+        try:
+            with sqlite3.connect(str(_DB_PATH)) as conn:
+                rows = conn.execute(
+                    """SELECT DATE(created_at) as day,
+                              COUNT(*) as cnt,
+                              MIN(content) as preview,
+                              MIN(created_at) as first_ts,
+                              MAX(created_at) as last_ts
+                       FROM hot_memory
+                       WHERE source IN ('user', 'sentinel', 'claude', 'chatgpt')
+                       GROUP BY day
+                       ORDER BY day DESC
+                       LIMIT 30"""
+                ).fetchall()
+                for r in rows:
+                    day, cnt, preview, first_ts, last_ts = r
+                    sessions.append({
+                        'date': day,
+                        'count': cnt,
+                        'preview': (preview or '')[:100],
+                        'first_ts': first_ts,
+                        'last_ts': last_ts,
+                    })
+        except Exception as e:
+            logger.debug("[MemV2] get_chat_sessions failed: %s", e)
+        return sessions
+
     def get_stats(self) -> dict:
         hot_count = self._hot_count()
         hot_size = self._hot_size_mb()
