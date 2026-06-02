@@ -69,6 +69,9 @@ license_manager = get_license_manager()
 # Identity manager (credentials for Claude.ai / ChatGPT)
 identity_manager = get_identity_manager()
 
+# Browser sessions — populated after startup
+browser_sessions = None
+
 # ─── Real-time events (Task 4) — graceful fallback to polling ──────────────────
 # When flask-socketio is installed we push events to the HUD instantly; if not,
 # the HUD keeps working via its 2-second polling loop.
@@ -4366,6 +4369,32 @@ def start_backend():
         logger.info("Approval watcher started")
     except Exception as e:
         logger.warning(f"Approval watcher failed to start: {e}")
+
+    # Browser sessions — auto-login to Claude + ChatGPT in background
+    def _start_browser_sessions():
+        import time as _time
+        _time.sleep(5)  # Let Flask settle first
+        try:
+            from workers.identity.browser_sessions import BrowserSessions
+            global browser_sessions
+            browser_sessions = BrowserSessions(identity_manager, socketio)
+            browser_sessions.startup_login()
+            log(
+                f"Claude.ai: {'connected' if browser_sessions.claude_logged_in else 'skipped/failed'}",
+                'info' if browser_sessions.claude_logged_in else 'info',
+                'identity'
+            )
+            log(
+                f"ChatGPT: {'connected' if browser_sessions.chatgpt_logged_in else 'skipped/failed'}",
+                'info' if browser_sessions.chatgpt_logged_in else 'info',
+                'identity'
+            )
+        except ImportError:
+            logger.warning("playwright not installed — browser sessions disabled")
+        except Exception as e:
+            log(f"Browser session startup failed: {e}", 'warning', 'identity')
+
+    threading.Thread(target=_start_browser_sessions, daemon=True).start()
 
 
 def approval_watch_loop():
