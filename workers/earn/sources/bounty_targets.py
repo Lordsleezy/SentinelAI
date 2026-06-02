@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 SOURCE_NAME = "bounty_targets"
 
 _SEVERITY_REWARD_HINT = {
-    "critical": "Up to $10k+",
+    "critical": "Up to $10,000+",
     "high":     "Up to $2,500",
     "medium":   "Up to $500",
     "low":      "Up to $100",
@@ -45,8 +45,34 @@ def parse_hackerone_program(program: Dict[str, Any]) -> Dict[str, Any]:
     _order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     best_severity = min(severities, key=lambda s: _order.get(s, 99), default=None) if severities else None
 
+    attrs = program.get("attributes") or {}
+
+    # Try explicit bounty table fields first
+    min_b = attrs.get("minimum_bounty_table") or {}
+    max_b = attrs.get("maximum_bounty_table") or {}
+    bounty_amount = attrs.get("bounty_amount")
+
     if offers_bounties:
-        if best_severity and best_severity in _SEVERITY_REWARD_HINT:
+        if bounty_amount:
+            try:
+                reward = f"${int(float(bounty_amount)):,}"
+            except (ValueError, TypeError):
+                reward = str(bounty_amount)
+        elif min_b or max_b:
+            min_val = min_b.get("critical") or min_b.get("high") or 0
+            max_val = max_b.get("critical") or max_b.get("high") or 0
+            try:
+                min_val = int(float(min_val)) if min_val else 0
+                max_val = int(float(max_val)) if max_val else 0
+            except (ValueError, TypeError):
+                min_val = max_val = 0
+            if min_val and max_val:
+                reward = f"${min_val:,} – ${max_val:,}"
+            elif max_val:
+                reward = f"Up to ${max_val:,}"
+            else:
+                reward = _SEVERITY_REWARD_HINT.get(best_severity, "Varies") if best_severity else "Varies"
+        elif best_severity and best_severity in _SEVERITY_REWARD_HINT:
             reward = _SEVERITY_REWARD_HINT[best_severity]
         else:
             reward = "Varies"

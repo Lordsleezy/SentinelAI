@@ -94,6 +94,21 @@ def emit_event(event: str, payload: dict) -> None:
         pass
 
 
+def log(message: str, level: str = 'info', source: str = 'system') -> None:
+    """Emit a log_event to the Log tab via Socket.IO."""
+    if SOCKETIO_AVAILABLE and socketio is not None:
+        try:
+            socketio.emit('log_event', {
+                'type': source,
+                'level': level,
+                'message': message,
+                'timestamp': datetime.now().isoformat(),
+            })
+        except Exception:
+            pass
+    logger.debug("[%s/%s] %s", source, level, message)
+
+
 # ─── Live worker state (Issue 2/6) ────────────────────────────────────────────
 # In-memory per-worker runtime state surfaced at /api/workers/status under `live`
 # so the HUD dock + worker panels show real status/activity. Updated by the forge
@@ -722,71 +737,43 @@ def api_forge_tasks():
 
 @app.route('/api/forge/request', methods=['POST'])
 def api_forge_request():
-    """Synchronous Forge code generation.
-
-    Always calls Ollama directly (120 s timeout) and returns the generated
-    code in the response.  The old async approval-queue path is preserved as
-    a fallback only when Ollama is unavailable.
-    """
+    """Aider-powered code generation — streams output to Log tab via Socket.IO."""
     try:
-        # Check forge task limit for free tier
-        limit_check = license_manager.check_limit("forge_tasks")
-        if not limit_check["allowed"]:
-            return jsonify({"error": limit_check["message"], "code": "limit_reached"}), 403
-
         data = request.get_json() or {}
-        prompt = (data.get("prompt") or "").strip()
-        if not prompt:
-            return jsonify({"error": "prompt required"}), 400
+        task = (data.get('prompt') or data.get('task') or '').strip()
+        output_dir = data.get('output_dir', None)
+        files = data.get('files', [])
 
-        # Always attempt synchronous generation first (ignores requires_approval flag).
-        try:
-            import httpx as _hx
-            ollama_host = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
-            ollama_model = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
-            forge_prompt = (
-                f"You are an expert programmer. Write clean, working, well-commented code "
-                f"for the following task. Return ONLY the code, no prose explanations "
-                f"before or after:\n\n{prompt}"
-            )
-            with _hx.Client(timeout=120.0) as client:
-                resp = client.post(
-                    f"{ollama_host}/api/generate",
-                    json={
-                        "model": ollama_model,
-                        "prompt": forge_prompt,
-                        "system": SENTINEL_SYSTEM_PROMPT,
-                        "stream": False,
-                    },
-                )
-            if resp.status_code == 200:
-                code = _strip_code_fences(resp.json().get("response", ""))
-                license_manager.increment_usage("forge_tasks")
-                db.log_event("forge_generated", f"Forge direct-generated code for: {prompt[:80]}")
-                return jsonify({
-                    "status": "complete",
-                    "code": code,
-                    "model": ollama_model,
-                    "prompt": prompt,
-                    "forge_task_id": None,
-                })
-            else:
-                return jsonify({"error": f"Ollama returned HTTP {resp.status_code}"}), 500
-        except Exception as gen_err:
-            logger.error("Forge synchronous generation failed: %s", gen_err)
-            # Fall back to the approval queue so the task is not lost
+        if not task:
+            return jsonify({"error": "No task provided"}), 400
+
+        log(f'Starting forge task: {task[:120]}', 'info', 'forge')
+
+        def run():
             try:
-                task_id = db.create_forge_task(prompt)
-                license_manager.increment_usage("forge_tasks")
-                db.log_event("forge_approval_required", f"Forge task #{task_id} queued (Ollama unavailable): {gen_err}")
-                return jsonify({
-                    "status": "pending_approval",
-                    "forge_task_id": task_id,
-                    "message": f"Code generation queued (Ollama unavailable: {gen_err})",
+                from workers.aider_engine import AiderEngine
+                engine = AiderEngine(socketio)
+                result = engine.build_app(task, output_dir) if output_dir else engine.run_task(task, files)
+                log(
+                    'Task complete' if result.success else f'Task failed: {result.error}',
+                    'success' if result.success else 'error',
+                    'forge',
+                )
+                emit_event('forge_complete', {
+                    'success': result.success,
+                    'output': result.output[:2000],
+                    'files_modified': result.files_modified,
                 })
-            except Exception as db_err:
-                return jsonify({"error": f"Code generation failed: {gen_err}; DB fallback also failed: {db_err}"}), 500
+            except Exception as exc:
+                log(f'Forge engine error: {exc}', 'error', 'forge')
+                emit_event('forge_complete', {'success': False, 'output': str(exc), 'files_modified': []})
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        return jsonify({"status": "started", "message": "Aider is working on your task"})
+
     except Exception as e:
+        log(str(e), 'error', 'forge')
         return jsonify({"error": str(e)}), 500
 
 
@@ -2826,15 +2813,68 @@ def api_news_unread():
 
 # ─── Orchestration Pipeline API ───────────────────────────────────────────────
 
+_BUILD_KEYWORDS = [
+    'build', 'create', 'make', 'write', 'develop', 'code',
+    'script', 'app', 'program', 'tool', 'website', 'dashboard',
+]
+
+
+def _is_build_request(message: str) -> bool:
+    msg_lower = message.lower()
+    return any(kw in msg_lower for kw in _BUILD_KEYWORDS)
+
+
 @app.route('/orchestration/chat', methods=['POST'])
 def api_orchestration_chat():
-    """Process user request through orchestration pipeline"""
+    """Process user request through orchestration pipeline."""
     try:
         data = request.get_json()
         user_request = data.get('message', '')
 
         if not user_request:
             return jsonify({"error": "No message provided"}), 400
+
+        log(f'Chat: {user_request[:100]}', 'info', 'system')
+
+        # Route build requests directly to Aider
+        if _is_build_request(user_request):
+            # Extract description (use full message)
+            description = user_request
+            import re as _re
+            name_match = _re.search(
+                r'(?:called?|named?|for)\s+([a-zA-Z0-9_\-]+)', user_request, _re.IGNORECASE
+            )
+            proj_name = name_match.group(1) if name_match else "sentinel_project"
+            output_path = rf"C:\Users\pgg12\Desktop\{proj_name}"
+
+            def build():
+                try:
+                    from workers.aider_engine import AiderEngine
+                    engine = AiderEngine(socketio)
+                    result = engine.build_app(description, output_path)
+                    log(
+                        'Build complete' if result.success else f'Build failed: {result.error}',
+                        'success' if result.success else 'error',
+                        'forge',
+                    )
+                    emit_event('forge_complete', {
+                        'success': result.success,
+                        'output': result.output[:2000],
+                        'files_modified': result.files_modified,
+                    })
+                except Exception as exc:
+                    log(f'Build error: {exc}', 'error', 'forge')
+                    emit_event('forge_complete', {'success': False, 'output': str(exc), 'files_modified': []})
+
+            t = threading.Thread(target=build, daemon=True)
+            t.start()
+
+            response_text = (
+                f"On it. Building {description[:80]} now. "
+                f"Watch the Log tab for live progress."
+            )
+            log(f'Response: {response_text[:100]}', 'info', 'system')
+            return jsonify({"response": response_text, "worker": "aider"})
 
         from workers.orchestration.pipeline import get_pipeline
         from workers.orchestration.task_decomposer import is_conversational_input
@@ -2847,15 +2887,18 @@ def api_orchestration_chat():
             for subtask in plan.get("subtasks", []):
                 if subtask.get("worker") == "forge":
                     logger.warning(
-                        "Safety override: non-technical input was routed to forge — overriding to ollama_general: %r",
+                        "Safety override: non-technical input routed to forge — overriding to ollama_general: %r",
                         user_request,
                     )
                     subtask["worker"] = "ollama_general"
                     subtask["type"] = "GENERAL"
 
+        resp_str = result.get("response", "")
+        log(f'Response: {str(resp_str)[:100]}', 'info', 'system')
         return jsonify(result)
     except Exception as e:
-        logger.error(f"Orchestration chat failed: {e}")
+        logger.error("Orchestration chat failed: %s", e)
+        log(str(e), 'error', 'system')
         return jsonify({"error": str(e)}), 500
 
 
@@ -3503,7 +3546,7 @@ def api_realtime_news():
 
 @app.route('/earn/accept', methods=['POST'])
 def api_earn_accept():
-    """Accept an earn job and create a Forge analysis task."""
+    """Accept an earn job and start Aider bounty analysis in background."""
     try:
         import json as _json
         job_data = request.get_json() or {}
@@ -3523,37 +3566,31 @@ def api_earn_accept():
         except Exception as _save_err:
             logger.warning("earn/accept: could not save job file: %s", _save_err)
 
-        # Build forge task prompt
-        scope_str = ', '.join(job_scope[:5]) if job_scope else 'Check program page'
-        forge_task = (
-            f"Analyze this bug bounty program and suggest attack vectors:\n\n"
-            f"Program: {job_title}\nSource: {job_source}\nURL: {job_url}\n"
-            f"In-scope targets: {scope_str}\nReward: {job_reward}\n\n"
-            f"Research the most common vulnerability types for these targets. "
-            f"Suggest the top 3 attack vectors most likely to yield a valid bug report. "
-            f"Include specific tools and techniques for each vector."
-        )
+        # Start Aider analysis in background
+        log(f'Earn job accepted: {job_title}', 'info', 'earn')
 
-        task_id = f"earn-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        def analyze():
+            try:
+                from workers.aider_engine import AiderEngine
+                engine = AiderEngine(socketio)
+                engine.analyze_bounty(job_title, job_url, job_scope)
+            except Exception as exc:
+                log(f'Bounty analysis failed: {exc}', 'error', 'earn')
 
-        # Try to queue a real forge task — but don't fail if DB is unavailable
-        try:
-            db_task_id = db.create_forge_task(forge_task)
-            task_id = str(db_task_id)
-            db.log_event("earn_job_accepted", f"Earn job accepted: {job_title}")
-        except Exception as _db_err:
-            logger.warning("earn/accept: DB create_forge_task failed: %s", _db_err)
+        t = threading.Thread(target=analyze, daemon=True)
+        t.start()
 
+        task_id = f"earn_{int(datetime.now().timestamp())}"
         emit_event("orb_state", {"state": "thinking"})
 
         return jsonify({
-            "status": "ok",
-            "message": f"Forge is analyzing {job_title}...",
-            "forge_task_id": task_id,
-            "forge_task": forge_task,
+            "status": "accepted",
+            "message": f"Accepted {job_title}. Sentinel is analyzing the target. Watch the Log tab.",
+            "job_id": task_id,
         })
     except Exception as e:
         logger.exception("earn_accept failed")
+        log(str(e), 'error', 'earn')
         return jsonify({"status": "error", "error": str(e)}), 200
 
 
@@ -3741,7 +3778,7 @@ def get_guardian_brain():
     global _guardian_brain
     if _guardian_brain is None:
         from workers.guardian.guardian_brain import GuardianBrain
-        _guardian_brain = GuardianBrain()
+        _guardian_brain = GuardianBrain(socketio=socketio)
     return _guardian_brain
 
 
@@ -3760,10 +3797,13 @@ def api_guardian_chat():
         message = (data.get('message') or '').strip()
         if not message:
             return jsonify({"status": "error", "error": "No message provided"}), 200
+        log(f'Guardian query: {message[:100]}', 'info', 'guardian')
         result = get_guardian_brain().chat(message)
+        log(f'Guardian response: {str(result.get("response",""))[:100]}', 'info', 'guardian')
         return jsonify({"status": "ok", **result})
     except Exception as e:
         logger.error("Guardian chat error: %s", e, exc_info=True)
+        log(str(e), 'error', 'guardian')
         return jsonify({"status": "error", "error": str(e)}), 200
 
 

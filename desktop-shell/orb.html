@@ -611,12 +611,15 @@
     </div>
     <div id="status-line"></div>
     <!-- Quick-access worker dock -->
-    <div id="worker-dock" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-      <button onclick="openWorker('forge')"   class="dock-btn">⚒ FORGE</button>
+    <div id="status-indicator" style="margin-bottom:4px;font-size:10px;letter-spacing:1px;color:#555;">
+      STATUS: <span id="status-text" style="color:#555;">INITIALIZING</span>
+    </div>
+    <div id="worker-dock" style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
       <button onclick="openWorker('guardian')" class="dock-btn">🛡 GUARDIAN</button>
       <button onclick="openWorker('earn')"    class="dock-btn">💰 EARN</button>
       <button onclick="openWorker('market')"  class="dock-btn">📈 MARKET</button>
       <button onclick="openWorker('scalp')"   class="dock-btn">⚡ SCALP</button>
+      <button onclick="openLog()"             class="dock-btn">📋 LOG</button>
     </div>
   </div>
 
@@ -1372,6 +1375,62 @@
         ipcRenderer.send('route-to-worker', { worker, context: {} });
       } catch(_) {}
     };
+
+    window.openLog = function() {
+      try {
+        const { ipcRenderer } = require('electron');
+        ipcRenderer.send('open-log');
+      } catch(_) {}
+    };
+
+    // ── Status bar: ONLINE / OFFLINE ─────────────────────────────────────────
+    const _statusEl = document.getElementById('status-text');
+
+    async function checkReady() {
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/ping');
+        if (r.ok) {
+          if (_statusEl) { _statusEl.textContent = 'ONLINE'; _statusEl.style.color = '#00ff88'; }
+          return;
+        }
+      } catch (_) {}
+      setTimeout(checkReady, 2000);
+    }
+    checkReady();
+
+    // ── Socket.IO for real-time events ──────────────────────────────────────
+    // Load socket.io client dynamically to avoid blocking if backend not ready
+    (function loadSocketIO() {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.socket.io/4.7.2/socket.io.min.js';
+      script.onload = function() {
+        try {
+          const socket = io('http://localhost:5001', { transports: ['websocket', 'polling'] });
+          socket.on('connect', () => {
+            if (_statusEl) { _statusEl.textContent = 'ONLINE'; _statusEl.style.color = '#00ff88'; }
+          });
+          socket.on('disconnect', () => {
+            if (_statusEl) { _statusEl.textContent = 'OFFLINE'; _statusEl.style.color = '#ff4444'; }
+          });
+          socket.on('forge_complete', (data) => {
+            const msg = data.success
+              ? `✓ Done. ${(data.files_modified || []).length} file(s) created/modified. Check the Log tab for full details.`
+              : `✗ Build failed. Check the Log tab for the error.`;
+            if (responseArea) {
+              responseArea.textContent = msg;
+              responseArea.classList.add('visible');
+              setTimeout(() => responseArea.classList.remove('visible'), 6000);
+            }
+            orbState = 'idle';
+            renderOrb();
+          });
+        } catch(e) {
+          console.warn('Socket.IO init failed:', e);
+        }
+      };
+      script.onerror = function() { console.warn('Socket.IO CDN load failed'); };
+      document.head.appendChild(script);
+    })();
 
     window.saveCredential = async function() {
       const value = document.getElementById('cred-input').value.trim();

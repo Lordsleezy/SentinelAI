@@ -25,10 +25,11 @@ try { fs.writeFileSync(_dbgLog, '', 'utf8'); } catch (_) {}
 
 let orbWindow = null;          // Window 1 - The Orb
 let workerWindow = null;        // Window 2 - Contextual worker windows
+let logWindow = null;           // Log tab window
 let splashWindow = null;
 let setupWizardWindow = null;   // Setup wizard window (first run only)
 let backendProcess = null;
-let ptyProcess = null;          // Terminal PTY for Forge window
+let ptyProcess = null;          // Terminal PTY (legacy)
 let backendReady = false;
 let appReady = false;           // True once main windows have launched - guards window-all-closed
 let isQuitting = false;
@@ -519,14 +520,13 @@ function createWorkerWindow(workerType = 'forge', context = {}) {
   }
 
   const windowMap = {
-    forge: 'forge_window.html',
     earn: 'earn_window.html',
     market: 'market_window.html',
     guardian: 'guardian_window.html',
     scalp: 'scalp_window.html',
   };
 
-  const htmlFile = windowMap[workerType] || windowMap['forge'];
+  const htmlFile = windowMap[workerType] || windowMap['earn'];
 
   workerWindow = new BrowserWindow({
     width: 1200,
@@ -554,16 +554,13 @@ function createWorkerWindow(workerType = 'forge', context = {}) {
       workerWindow.webContents.send(`${workerType}-context`, context);
     }
 
-    // If this is Forge, spawn a PTY terminal
-    if (workerType === 'forge') {
-      spawnPtyTerminal();
-    }
+    // (Forge window removed — Aider runs internally)
   });
 
   workerWindow.on('closed', () => {
     workerWindow = null;
-    // Clean up PTY if this was a Forge window
-    if (ptyProcess && workerType === 'forge') {
+    // Clean up any lingering PTY
+    if (ptyProcess) {
       try { ptyProcess.kill(); } catch (_) {}
       ptyProcess = null;
     }
@@ -779,6 +776,17 @@ function setupIPC() {
     openOrchestrationOS();
   });
 
+  ipcMain.on('open-log', () => {
+    openLogWindow();
+  });
+
+  ipcMain.on('open-forge', () => {
+    new Notification({
+      title: 'Forge Integrated',
+      body: 'Forge is now built into Sentinel. Just ask Sentinel to build something.',
+    }).show();
+  });
+
   ipcMain.on('show-notification', (_event, { title, body }) => {
     new Notification({ title, body }).show();
   });
@@ -824,6 +832,29 @@ function setupIPC() {
 }
 
 // ============================================================================
+// LOG WINDOW
+// ============================================================================
+
+function openLogWindow() {
+  if (logWindow && !logWindow.isDestroyed()) {
+    logWindow.focus();
+    return;
+  }
+  logWindow = new BrowserWindow({
+    width: 900,
+    height: 600,
+    title: 'Sentinel Log',
+    backgroundColor: '#000000',
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+  logWindow.loadFile(path.join(__dirname, 'log_window.html'));
+  logWindow.on('closed', () => { logWindow = null; });
+}
+
+// ============================================================================
 // APP MENU
 // ============================================================================
 
@@ -833,29 +864,30 @@ function buildAppMenu() {
       label: 'Platforms',
       submenu: [
         {
-          label: 'Forge',
-          accelerator: 'CmdOrCtrl+1',
-          click: () => createWorkerWindow('forge')
-        },
-        {
           label: 'Earn',
-          accelerator: 'CmdOrCtrl+2',
+          accelerator: 'CmdOrCtrl+1',
           click: () => createWorkerWindow('earn')
         },
         {
           label: 'Market',
-          accelerator: 'CmdOrCtrl+3',
+          accelerator: 'CmdOrCtrl+2',
           click: () => createWorkerWindow('market')
         },
         {
           label: 'Guardian',
-          accelerator: 'CmdOrCtrl+4',
+          accelerator: 'CmdOrCtrl+3',
           click: () => createWorkerWindow('guardian')
         },
         {
           label: 'Scalp',
-          accelerator: 'CmdOrCtrl+5',
+          accelerator: 'CmdOrCtrl+4',
           click: () => createWorkerWindow('scalp')
+        },
+        { type: 'separator' },
+        {
+          label: 'Log',
+          accelerator: 'CmdOrCtrl+L',
+          click: () => openLogWindow()
         }
       ]
     },

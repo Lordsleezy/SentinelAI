@@ -33,7 +33,8 @@ Be specific, technical, and thorough."""
 
 
 class GuardianBrain:
-    def __init__(self):
+    def __init__(self, socketio=None):
+        self.socketio = socketio
         self.config = self._load_config()
         self.models = self.config.get("models", {
             "fast": "qwen2.5-coder:7b",
@@ -45,6 +46,26 @@ class GuardianBrain:
         self.conversation_history: List[Dict] = []
         self.authorized_targets: set = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
         self.pending_confirmation: Optional[str] = None
+
+        # Check which security tools are available
+        try:
+            from workers.guardian.tools import NucleiTool, MetasploitTool, ReconftfTool, ZAPTool
+            self.tools_available = {
+                'nuclei': NucleiTool().is_available(),
+                'metasploit': MetasploitTool().is_available(),
+                'reconftw': ReconftfTool().is_available(),
+                'zap': ZAPTool().is_available(),
+            }
+        except Exception:
+            self.tools_available = {
+                'nuclei': False, 'metasploit': False, 'reconftw': False, 'zap': False,
+            }
+
+    def get_tools_header(self) -> str:
+        """Return tool availability string for UI header."""
+        def mark(name):
+            return f"{name} ✓" if self.tools_available.get(name) else f"{name} ✗"
+        return "Tools: " + " | ".join([mark("Nuclei"), mark("MSF"), mark("Reconftw"), mark("ZAP")])
 
     def _load_config(self) -> Dict:
         try:
@@ -331,25 +352,53 @@ Add any vulnerabilities the initial audit missed, especially:
             logger.error("CVE fetch failed: %s", e)
             return []
 
+    def _get_cve_data(self, cve_id: str) -> Dict:
+        """Fetch CVE data — try OpenCVE first, fall back to NVD."""
+        import requests as _req
+        opencve_user = os.getenv("OPENCVE_USERNAME", "")
+        opencve_pass = os.getenv("OPENCVE_PASSWORD", "")
+        if opencve_user and opencve_pass:
+            try:
+                resp = _req.get(
+                    f"https://www.opencve.io/api/cve/{cve_id}",
+                    auth=(opencve_user, opencve_pass),
+                    timeout=10,
+                )
+                if resp.status_code == 200:
+                    return {"source": "opencve", "data": resp.json()}
+            except Exception:
+                pass
+        # Fall back to NVD
+        resp = _req.get(
+            f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cve_id}",
+            timeout=10,
+            headers={"User-Agent": "SentinelGuardian/1.0"},
+        )
+        return {"source": "nvd", "data": resp.json()}
+
     def analyze_cve(self, cve_id: str) -> Dict:
-        """Fetch CVE details from NVD and have Guardian analyze it."""
+        """Fetch CVE details (OpenCVE or NVD) and have Guardian analyze it."""
         try:
-            import requests
-            r = requests.get(
-                f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cve_id}",
-                timeout=10,
-            )
-            data = r.json()
-            vulns = data.get("vulnerabilities", [])
-            if not vulns:
-                return {"error": f"{cve_id} not found in NVD"}
-            cve_data = vulns[0]["cve"]
-            descs = cve_data.get("descriptions", [])
-            description = next((d["value"] for d in descs if d.get("lang") == "en"), "")
-            metrics = cve_data.get("metrics", {})
-            score = None
-            if "cvssMetricV31" in metrics:
-                score = metrics["cvssMetricV31"][0]["cvssData"]["baseScore"]
+            result = self._get_cve_data(cve_id)
+            raw = result["data"]
+            source = result["source"]
+
+            if source == "opencve":
+                description = raw.get("description", "")
+                score = raw.get("cvss", {}).get("v31", {}).get("score") or raw.get("cvss", {}).get("v3", {}).get("score")
+            else:
+                vulns = raw.get("vulnerabilities", [])
+                if not vulns:
+                    return {"error": f"{cve_id} not found in NVD"}
+                cve_data = vulns[0]["cve"]
+                descs = cve_data.get("descriptions", [])
+                description = next((d["value"] for d in descs if d.get("lang") == "en"), "")
+                metrics = cve_data.get("metrics", {})
+                score = None
+                if "cvssMetricV31" in metrics:
+                    score = metrics["cvssMetricV31"][0]["cvssData"]["baseScore"]
+                elif "cvssMetricV30" in metrics:
+                    score = metrics["cvssMetricV30"][0]["cvssData"]["baseScore"]
         except Exception as e:
             return {"error": str(e)}
 
@@ -391,4 +440,6 @@ Provide:
             "mode": self.mode,
             "history_length": len(self.conversation_history),
             "authorized_targets": list(self.authorized_targets),
+            "tools_available": self.tools_available,
+            "tools_header": self.get_tools_header(),
         }

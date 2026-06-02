@@ -279,17 +279,17 @@
         const data = await res.json();
 
         const msg = document.getElementById('status-msg');
-        if (data.status === 'ok') {
+        if (data.status === 'accepted' || data.status === 'ok') {
           msg.className = 'success';
-          msg.textContent = data.message || 'Forge is analyzing the program...';
-          // Open Forge window
+          msg.textContent = '✓ ' + (data.message || 'Sentinel is analyzing the target. Watch the Log tab.');
+          // Open Log tab to show analysis progress
           try {
             const { ipcRenderer } = require('electron');
-            ipcRenderer.send('route-to-worker', { worker: 'forge', context: { forge_task_id: data.forge_task_id } });
+            ipcRenderer.send('open-log');
           } catch (_) {}
         } else {
           msg.className = 'error';
-          msg.textContent = 'Error: ' + (data.error || 'Unknown error');
+          msg.textContent = '✗ Error: ' + (data.error || 'Unknown error');
         }
 
         if (btn) { btn.disabled = false; btn.textContent = 'Accept & Work'; }

@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <title>Sentinel Guardian</title>
+  <!-- Markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -160,6 +165,7 @@
   <button class="mode-btn"        data-mode="attack" id="mode-attack">ATTACK</button>
   <button class="mode-btn"     data-mode="forensics" id="mode-forensics">FORENSICS</button>
   <div id="model-badge">connecting...</div>
+  <div id="tools-badge" style="font-size:10px;color:#555;margin-left:6px;white-space:nowrap;"></div>
 </div>
 
 <!-- Tab bar -->
@@ -265,6 +271,33 @@ let activeTmpl        = '-sV -sC {target}';
 let cveActiveSev      = 'CRITICAL';
 const reports         = [];
 
+// ── Configure marked.js ──────────────────────────────────────────────────
+if (typeof marked !== 'undefined') {
+  marked.setOptions({
+    highlight: (code, lang) => {
+      if (typeof hljs !== 'undefined') {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+      }
+      return code;
+    },
+    breaks: true,
+    gfm: true,
+  });
+}
+
+function renderMarkdown(text) {
+  if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+    return DOMPurify.sanitize(marked.parse(text));
+  }
+  // Fallback: escape HTML
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
 // ── Status ──────────────────────────────────────────────────────────────
 async function loadStatus() {
   try {
@@ -272,6 +305,18 @@ async function loadStatus() {
     if (d.model_fast) {
       document.getElementById('model-badge').textContent =
         `fast:${d.model_fast.split(':')[0]} · reason:${d.model_reasoning?.split(':')[0]} · code:${d.model_code?.split(':')[0]}`;
+    }
+    // Show tools availability
+    if (d.tools_available) {
+      const tools = d.tools_available;
+      const mark = (name, key) => `${name} ${tools[key] ? '✓' : '✗'}`;
+      const el = document.getElementById('tools-badge');
+      if (el) el.textContent = [
+        mark('Nuclei', 'nuclei'),
+        mark('MSF', 'metasploit'),
+        mark('Reconftw', 'reconftw'),
+        mark('ZAP', 'zap'),
+      ].join(' | ');
     }
   } catch(_) { document.getElementById('model-badge').textContent = 'backend offline'; }
 }
@@ -321,7 +366,12 @@ function addMsg(text, type='guardian', extra={}) {
   const wrap = document.getElementById('chat-messages');
   const el   = document.createElement('div');
   el.className = `msg ${type}`;
-  el.textContent = text;
+  // Use markdown rendering for guardian responses
+  if (type === 'guardian') {
+    el.innerHTML = renderMarkdown(text);
+  } else {
+    el.textContent = text;
+  }
   (extra.tools||[]).forEach(tc => {
     const b = document.createElement('div'); b.className='tool-badge'; b.textContent=`▶ ${tc.tool} ${tc.args}`; el.appendChild(b);
     if (tc.output) { const o=document.createElement('div'); o.className='tool-out'; o.textContent=tc.output; el.appendChild(o); }
