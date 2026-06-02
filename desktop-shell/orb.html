@@ -1230,9 +1230,9 @@
       let programs = [];
       let stats = { total: 0, bounty: 0 };
       try {
-        const r = await fetch('http://127.0.0.1:5001/earn/programs');
+        const r = await fetch('http://127.0.0.1:5001/earn/jobs');
         const d = await r.json();
-        programs = d.programs || d.data || d || [];
+        programs = d.jobs || d.programs || d.data || [];
         stats.total = programs.length;
         stats.bounty = programs.filter(p => (p.type||'').toLowerCase().includes('bounty')).length;
       } catch(e) { /* backend may not have this endpoint yet */ }
@@ -1268,9 +1268,9 @@
       if (!btn) return;
       btn.disabled = true; btn.textContent = '⏳ Scanning...';
       try {
-        const r = await fetch('http://127.0.0.1:5001/earn/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+        const r = await fetch('http://127.0.0.1:5001/earn/jobs');
         const d = await r.json();
-        const programs = d.programs || d.data || [];
+        const programs = d.jobs || d.programs || d.data || [];
         document.getElementById('earn-programs-list').innerHTML = programs.length > 0
           ? renderEarnTable(programs) : '<div style="color:#00ff88;font-size:12px;padding:8px 0;">Scan complete. No new programs.</div>';
       } catch(e) {
@@ -1323,13 +1323,13 @@
       try {
         const r = await fetch('http://127.0.0.1:5001/market/summary');
         const d = await r.json();
-        const prices = d.prices || d.data || d || {};
+        const prices = d.quotes || d.prices || d.data || {};
         for (const [sym, info] of Object.entries(prices)) {
           const priceEl = document.getElementById(`price-${sym}`);
           const chgEl = document.getElementById(`chg-${sym}`);
           if (priceEl) priceEl.textContent = info.price ? `$${Number(info.price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '—';
           if (chgEl) {
-            const chg = info.change_pct || info.change || 0;
+            const chg = info.change_pct || info.change_24h || info.change || 0;
             chgEl.textContent = chg ? `${chg > 0 ? '+' : ''}${Number(chg).toFixed(2)}%` : '';
             chgEl.className = `ticker-chg ${chg >= 0 ? 'up' : 'down'}`;
           }
@@ -1374,11 +1374,22 @@
       const el = document.getElementById('guardian-tools');
       if (!el) return;
       try {
-        const r = await fetch('http://127.0.0.1:5001/guardian/tools');
+        const r = await fetch('http://127.0.0.1:5001/guardian/status');
         const d = await r.json();
-        const tools = d.tools || d.available || [];
-        el.innerHTML = tools.map(t => `<span style="padding:3px 8px;border:1px solid rgba(0,255,136,0.2);border-radius:3px;font-size:10px;color:#00ff88;">${escapeHtml(t)}</span>`).join('');
-        if (!tools.length) el.innerHTML = '<span style="font-size:11px;color:#444;">No tools detected</span>';
+        const rawTools = d.tools_available || d.available_tools || d.tools || d.available || {};
+        // tools_available is a dict {name: bool}; convert to badge array
+        const toolEntries = Array.isArray(rawTools)
+          ? rawTools.map(t => ({name: t, ok: true}))
+          : Object.entries(rawTools).map(([name, ok]) => ({name, ok}));
+        if (toolEntries.length) {
+          el.innerHTML = toolEntries.map(({name, ok}) =>
+            `<span style="padding:3px 8px;border:1px solid ${ok ? 'rgba(0,255,136,0.4)' : 'rgba(255,68,68,0.3)'};
+             border-radius:3px;font-size:10px;color:${ok ? '#00ff88' : '#ff6666'};">
+             ${ok ? '✓' : '✗'} ${escapeHtml(name)}</span>`
+          ).join(' ');
+        } else {
+          el.innerHTML = '<span style="font-size:11px;color:#444;">No tools detected</span>';
+        }
       } catch(_) { el.innerHTML = '<span style="font-size:11px;color:#444;">Tool check unavailable</span>'; }
     }
 
@@ -1782,7 +1793,7 @@
 
         try {
           // Route the query to the orchestration pipeline
-          const res = await fetch('http://127.0.0.1:5001/orchestration/chat', {
+          const res = await fetch('http://127.0.0.1:5001/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: query })
@@ -1806,7 +1817,7 @@
           const displayText = typeof rawResp === 'string'
             ? rawResp
             : (rawResp?.response || rawResp?.text || rawResp?.message || (rawResp != null ? JSON.stringify(rawResp) : ''));
-          responseArea.textContent = displayText || 'Processing...';
+          responseArea.textContent = displayText || '(no response — check Log panel)';
           responseArea.classList.add('visible');
 
           setTimeout(() => {

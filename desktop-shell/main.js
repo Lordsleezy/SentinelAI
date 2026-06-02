@@ -517,6 +517,7 @@ function createOrbWindow() {
   });
 
   orbWindow.loadFile('orb.html');
+  orbWindow.webContents.openDevTools();  // DIAGNOSTIC — remove before release
 
   orbWindow.once('ready-to-show', () => {
     if (splashWindow && !splashWindow.isDestroyed()) {
