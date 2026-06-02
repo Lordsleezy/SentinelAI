@@ -1302,6 +1302,7 @@
         <button onclick="openPanel('log')"      class="dock-btn" data-panel="log">📋 LOG</button>
         <button onclick="openPanel('memory')"   class="dock-btn" data-panel="memory">🧠 MEMORY</button>
         <button onclick="openPanel('settings')"  class="dock-btn" data-panel="settings">⚙ SETTINGS</button>
+        <button onclick="openPanel('tasks')"     class="dock-btn" data-panel="tasks" id="tasks-dock-btn">📋 TASKS</button>
       </div>
     </div>
   </div><!-- end #app-container -->
@@ -1857,6 +1858,7 @@
           case 'log':      await loadLogPanel(content); break;
           case 'memory':   await loadMemoryPanel(content); break;
           case 'settings':  await loadSettingsPanel(content); break;
+          case 'tasks':    await loadTasksPanel(content); break;
           default: content.innerHTML = '<div style="color:#555;padding:20px;">Unknown panel.</div>';
         }
       } catch(e) {
@@ -1886,8 +1888,464 @@
         case 'memory':
           await loadMemoryPanel(content);
           break;
+        case 'tasks':
+          await loadTasksPanel(content);
+          break;
         default:
           content.innerHTML = '<div style="color:#555;padding:20px;">Unknown panel.</div>';
+      }
+    }
+
+    // ── TASKS PANEL ───────────────────────────────────────────────────────────
+    async function loadTasksPanel(container) {
+      container.innerHTML = `
+        <div id="tasks-panel-root" style="display:flex;flex-direction:column;height:100%;overflow:hidden;">
+          <!-- Sub-tabs -->
+          <div style="display:flex;gap:0;border-bottom:1px solid rgba(0,255,136,0.15);flex-shrink:0;">
+            <button class="tasks-tab active" data-tab="running"   onclick="switchTasksTab('running')"   style="flex:1;">▶ RUNNING</button>
+            <button class="tasks-tab"        data-tab="completed" onclick="switchTasksTab('completed')" style="flex:1;">✓ DONE</button>
+            <button class="tasks-tab"        data-tab="failed"    onclick="switchTasksTab('failed')"    style="flex:1;">✗ FAILED</button>
+            <button class="tasks-tab"        data-tab="artifacts" onclick="switchTasksTab('artifacts')" style="flex:1;">📦 ARTIFACTS</button>
+            <button class="tasks-tab"        data-tab="workspace" onclick="switchTasksTab('workspace')" style="flex:1;">🗂 WORKSPACE</button>
+          </div>
+
+          <!-- Projects quick-assign bar -->
+          <div id="tasks-projects-bar" style="padding:6px 10px;background:rgba(0,0,0,0.2);border-bottom:1px solid rgba(255,255,255,0.04);display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex-shrink:0;">
+            <span style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:1px;">Project:</span>
+            <span id="tasks-projects-chips" style="display:flex;gap:5px;flex-wrap:wrap;flex:1;"></span>
+            <button onclick="openNewProjectDialog()" style="background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);color:#00ff88;border-radius:10px;padding:2px 9px;font-size:10px;cursor:pointer;">+ New</button>
+          </div>
+
+          <!-- Tab content -->
+          <div id="tasks-tab-content" style="flex:1;overflow-y:auto;padding:8px 6px;"></div>
+
+          <!-- Detail drawer -->
+          <div id="task-detail-drawer" style="display:none;border-top:1px solid rgba(0,255,136,0.2);padding:12px;background:#060611;flex-shrink:0;max-height:220px;overflow-y:auto;font-size:11px;line-height:1.7;color:#aaa;"></div>
+        </div>`;
+
+      // Inject tab styles (idempotent)
+      if (!document.getElementById('tasks-panel-styles')) {
+        const s = document.createElement('style');
+        s.id = 'tasks-panel-styles';
+        s.textContent = `
+          .tasks-tab {
+            background:none;border:none;color:#555;font-size:10px;letter-spacing:0.8px;
+            text-transform:uppercase;padding:8px 4px;cursor:pointer;border-bottom:2px solid transparent;
+            transition:color .2s,border-color .2s;
+          }
+          .tasks-tab:hover { color:#00ff88; }
+          .tasks-tab.active { color:#00ff88;border-bottom-color:#00ff88; }
+          .task-card {
+            background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.1);
+            border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer;
+            transition:border-color .2s;
+          }
+          .task-card:hover { border-color:rgba(0,255,136,0.35); }
+          .task-card.running { border-left:3px solid #00cfff; }
+          .task-card.completed { border-left:3px solid #00ff88; }
+          .task-card.failed { border-left:3px solid #ff4444; }
+          .task-card.cancelled { border-left:3px solid #555; }
+          .task-progress-bar { height:3px;background:rgba(255,255,255,0.08);border-radius:2px;margin-top:6px;overflow:hidden; }
+          .task-progress-fill { height:100%;border-radius:2px;transition:width .4s; }
+          .proj-chip {
+            display:inline-block;padding:2px 9px;border-radius:10px;font-size:10px;
+            cursor:pointer;border:1px solid transparent;transition:opacity .2s;
+          }
+          .proj-chip:hover { opacity:.8; }
+          .art-card {
+            background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);
+            border-radius:8px;padding:10px 12px;margin-bottom:6px;
+          }
+          .art-btn {
+            background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.2);color:#00ff88;
+            border-radius:6px;padding:4px 10px;font-size:10px;cursor:pointer;
+          }
+          .art-btn:hover { background:rgba(0,255,136,0.2); }
+        `;
+        document.head.appendChild(s);
+      }
+
+      window._tasksData = window._tasksData || { tasks: [], artifacts: [], projects: [] };
+      await refreshTasksPanel();
+      _initTasksSocket();
+    }
+
+    async function refreshTasksPanel() {
+      try {
+        const [tr, ar, pr] = await Promise.all([
+          fetch('/api/sentinel/tasks?limit=80').then(r=>r.ok?r.json():{tasks:[]}),
+          fetch('/api/sentinel/artifacts?limit=30').then(r=>r.ok?r.json():{artifacts:[]}),
+          fetch('/api/sentinel/projects').then(r=>r.ok?r.json():{projects:[]}),
+        ]);
+        window._tasksData.tasks     = tr.tasks     || [];
+        window._tasksData.artifacts = ar.artifacts || [];
+        window._tasksData.projects  = pr.projects  || [];
+      } catch(e) {
+        console.warn('[TASKS] refresh error', e);
+      }
+      renderTasksProjectBar();
+      const activeTab = (document.querySelector('.tasks-tab.active')||{}).dataset?.tab || 'running';
+      renderTasksTab(activeTab);
+    }
+
+    function renderTasksProjectBar() {
+      const chips = document.getElementById('tasks-projects-chips');
+      if (!chips) return;
+      const projects = window._tasksData.projects || [];
+      if (projects.length === 0) {
+        chips.innerHTML = '<span style="font-size:10px;color:#333;font-style:italic;">No projects yet</span>';
+        return;
+      }
+      chips.innerHTML = projects.map(p =>
+        `<span class="proj-chip" style="background:${p.color}22;border-color:${p.color}44;color:${p.color};"
+           title="${p.name}" onclick="filterTasksByProject('${p.id}')">${p.name}</span>`
+      ).join('');
+    }
+
+    function switchTasksTab(tab) {
+      document.querySelectorAll('.tasks-tab').forEach(b =>
+        b.classList.toggle('active', b.dataset.tab === tab));
+      renderTasksTab(tab);
+    }
+
+    function renderTasksTab(tab) {
+      const content = document.getElementById('tasks-tab-content');
+      if (!content) return;
+      const tasks     = window._tasksData.tasks     || [];
+      const artifacts = window._tasksData.artifacts || [];
+
+      if (tab === 'artifacts') { renderArtifactsTab(content, artifacts); return; }
+      if (tab === 'workspace') { renderWorkspaceTab(content, tasks, artifacts); return; }
+
+      const statusMap = { running:'RUNNING', completed:'COMPLETED', failed:'FAILED' };
+      const wantedStatuses = tab === 'running'
+        ? ['RUNNING', 'PENDING', 'WAITING_FOR_APPROVAL', 'WAITING_FOR_USER']
+        : tab === 'completed' ? ['COMPLETED']
+        : ['FAILED', 'CANCELLED'];
+
+      const filtered = tasks.filter(t => wantedStatuses.includes(t.status));
+
+      if (filtered.length === 0) {
+        const emptyMsg = {
+          running: 'No active tasks.<br><span style="color:#333">Run a Guardian scan, Earn job, or Build to see tasks here.</span>',
+          completed: 'No completed tasks yet.',
+          failed: 'No failed tasks.',
+        }[tab] || 'No tasks.';
+        content.innerHTML = `<div style="text-align:center;padding:32px 16px;color:#444;font-size:12px;">${emptyMsg}</div>`;
+        return;
+      }
+
+      content.innerHTML = filtered.map(t => {
+        const dur = _taskDuration(t);
+        const pctW = Math.min(100, t.progress || 0);
+        const barColor = t.status === 'FAILED' ? '#ff4444' : t.status === 'COMPLETED' ? '#00ff88' : '#00cfff';
+        const src = t.source ? `<span style="color:#555;font-size:9px;text-transform:uppercase;letter-spacing:1px;">${t.source}</span>` : '';
+        const proj = _projectBadge(t.project_id);
+        return `
+          <div class="task-card ${t.status.toLowerCase()}" onclick="showTaskDetail('${t.id}')">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+              <span style="font-size:12px;color:#ddd;flex:1;word-break:break-word;">${_esc(t.title)}</span>
+              <span style="font-size:10px;color:#555;white-space:nowrap;">${dur}</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+              ${src}${proj}
+              <span style="flex:1;text-align:right;font-size:10px;color:${barColor};">${t.progress || 0}%</span>
+            </div>
+            ${t.result_summary ? `<div style="font-size:10px;color:#666;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(t.result_summary)}</div>` : ''}
+            <div class="task-progress-bar">
+              <div class="task-progress-fill" style="width:${pctW}%;background:${barColor};"></div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    function renderArtifactsTab(content, artifacts) {
+      if (artifacts.length === 0) {
+        content.innerHTML = `<div style="text-align:center;padding:32px;color:#444;font-size:12px;">
+          No artifacts yet.<br><span style="color:#333">Build something and an artifact entry will appear here.</span></div>`;
+        return;
+      }
+      content.innerHTML = artifacts.map(a => {
+        const proj = _projectBadge(a.project_id);
+        const fname = a.entry_point ? a.entry_point.split(/[\\/]/).pop() : '(no entry)';
+        const date  = a.timestamp ? a.timestamp.slice(0,16).replace('T',' ') : '';
+        return `
+          <div class="art-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="color:#00ff88;font-size:12px;font-weight:600;">${_esc(a.task || 'Artifact')}</span>
+              <span style="font-size:9px;color:#444;">${date}</span>
+            </div>
+            <div style="font-size:10px;color:#666;margin-bottom:8px;">${_esc(fname)}  ${proj}</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="art-btn" onclick="launchArtifact('${a.id}','${_esc(a.task||'')}')">▶ Launch</button>
+              <button class="art-btn" onclick="openArtifactFolder('${_esc(a.output_dir||a.entry_point||'')}')">📂 Folder</button>
+              <button class="art-btn" onclick="viewArtifactFiles('${a.id}')">📄 Files</button>
+              <button class="art-btn" onclick="assignArtifactProject('${a.id}')">🗂 Project</button>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    function renderWorkspaceTab(content, tasks, artifacts) {
+      const running   = tasks.filter(t => ['RUNNING','PENDING','WAITING_FOR_APPROVAL','WAITING_FOR_USER'].includes(t.status));
+      const recent    = artifacts.slice(0, 5);
+      const projects  = window._tasksData.projects || [];
+
+      content.innerHTML = `
+        <div style="padding:4px 2px;">
+          <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Active Tasks <span style="color:#00cfff;">(${running.length})</span></div>
+          ${running.length ? running.slice(0,5).map(t => `
+            <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,207,255,0.05);border:1px solid rgba(0,207,255,0.15);border-radius:6px;padding:8px 10px;margin-bottom:5px;cursor:pointer;" onclick="switchTasksTab('running');showTaskDetail('${t.id}')">
+              <span style="font-size:11px;color:#ccc;">${_esc(t.title)}</span>
+              <span style="font-size:10px;color:#00cfff;">${t.progress||0}%</span>
+            </div>`).join('') : '<div style="color:#333;font-size:11px;padding:8px 0;">None running.</div>'}
+
+          <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px;">Recent Artifacts <span style="color:#00ff88;">(${recent.length})</span></div>
+          ${recent.length ? recent.map(a => `
+            <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.1);border-radius:6px;padding:8px 10px;margin-bottom:5px;">
+              <span style="font-size:11px;color:#ccc;">${_esc(a.task||'Artifact')}</span>
+              <button class="art-btn" onclick="launchArtifact('${a.id}','${_esc(a.task||'')}')">▶</button>
+            </div>`).join('') : '<div style="color:#333;font-size:11px;padding:8px 0;">No artifacts yet.</div>'}
+
+          <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px;">Projects <span style="color:#ffd700;">(${projects.length})</span></div>
+          ${projects.length ? projects.map(p => `
+            <div style="display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.02);border-radius:6px;padding:7px 10px;margin-bottom:4px;">
+              <span style="width:10px;height:10px;border-radius:50%;background:${p.color};display:inline-block;flex-shrink:0;"></span>
+              <span style="font-size:11px;color:#ccc;flex:1;">${_esc(p.name)}</span>
+              <span style="font-size:10px;color:#444;">${tasks.filter(t=>t.project_id===p.id).length} tasks</span>
+            </div>`).join('') : '<div style="color:#333;font-size:11px;padding:8px 0;">No projects yet. Create one above.</div>'}
+        </div>`;
+    }
+
+    function showTaskDetail(taskId) {
+      const drawer = document.getElementById('task-detail-drawer');
+      if (!drawer) return;
+      const task = (window._tasksData.tasks || []).find(t => t.id === taskId);
+      if (!task) { drawer.style.display = 'none'; return; }
+      if (drawer.dataset.taskId === taskId && drawer.style.display !== 'none') {
+        drawer.style.display = 'none'; drawer.dataset.taskId = ''; return;
+      }
+      drawer.dataset.taskId = taskId;
+      const projects = window._tasksData.projects || [];
+      const proj = projects.find(p => p.id === task.project_id);
+      drawer.innerHTML = `
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span style="color:#00ff88;font-weight:600;">${_esc(task.title)}</span>
+          <button onclick="document.getElementById('task-detail-drawer').style.display='none';"
+            style="background:none;border:none;color:#555;cursor:pointer;font-size:14px;">✕</button>
+        </div>
+        <div><span style="color:#555;">Status: </span><span style="color:#ddd;">${task.status}</span></div>
+        <div><span style="color:#555;">Source: </span><span style="color:#ddd;">${task.source||'—'}</span></div>
+        <div><span style="color:#555;">Progress: </span><span style="color:#ddd;">${task.progress||0}%</span></div>
+        ${task.project_id ? `<div><span style="color:#555;">Project: </span><span style="color:${proj?.color||'#aaa'};">${proj?.name||task.project_id}</span></div>` : ''}
+        ${task.result_summary ? `<div><span style="color:#555;">Summary: </span><span style="color:#ccc;">${_esc(task.result_summary)}</span></div>` : ''}
+        ${task.error ? `<div><span style="color:#ff4444;">Error: </span><span style="color:#ff8888;">${_esc(task.error)}</span></div>` : ''}
+        <div style="margin-top:8px;display:flex;gap:8px;">
+          <button class="art-btn" onclick="assignTaskProject('${taskId}')">🗂 Assign Project</button>
+          ${task.status === 'RUNNING' ? `<button class="art-btn" style="color:#ff4444;border-color:#ff444440;" onclick="cancelTask('${taskId}')">✕ Cancel</button>` : ''}
+        </div>`;
+      drawer.style.display = 'block';
+    }
+
+    async function launchArtifact(artifactId, label) {
+      try {
+        const hint = label || '';
+        const res  = await fetch('/api/sentinel/artifacts/launch', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({task: hint})
+        }).then(r=>r.json());
+        if (res.ok) {
+          _appendChatMsg('sentinel', `✓ Launching ${_esc(label||'artifact')}`);
+        } else {
+          _appendChatMsg('sentinel', `✗ Launch failed: ${_esc(res.error||res.message||'?')}`);
+        }
+      } catch(e) {
+        console.error('[TASKS] launchArtifact', e);
+      }
+    }
+
+    function openArtifactFolder(path) {
+      if (!path) return;
+      // Electron exposes this; fallback to clipboard copy
+      if (window.electronAPI && window.electronAPI.openFolder) {
+        window.electronAPI.openFolder(path);
+      } else {
+        const dir = path.split(/[\\/]/).slice(0,-1).join('/');
+        _appendChatMsg('sentinel', `Folder: \`${dir || path}\``);
+      }
+    }
+
+    function viewArtifactFiles(artifactId) {
+      const art = (window._tasksData.artifacts || []).find(a => a.id === artifactId);
+      if (!art) return;
+      const files = (art.files || [art.entry_point]).filter(Boolean);
+      const drawer = document.getElementById('task-detail-drawer');
+      if (!drawer) return;
+      drawer.innerHTML = `
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span style="color:#00ff88;font-weight:600;">${_esc(art.task)} — Files</span>
+          <button onclick="document.getElementById('task-detail-drawer').style.display='none';"
+            style="background:none;border:none;color:#555;cursor:pointer;">✕</button>
+        </div>
+        ${files.map(f => `<div style="color:#aaa;font-size:11px;padding:3px 0;word-break:break-all;">${_esc(f)}</div>`).join('')}
+        <div style="margin-top:8px;font-size:10px;color:#444;">Launch: <code style="color:#00ff88;">${_esc(art.launch_command||'—')}</code></div>`;
+      drawer.style.display = 'block';
+    }
+
+    async function assignArtifactProject(artifactId) {
+      const projects = window._tasksData.projects || [];
+      if (projects.length === 0) { openNewProjectDialog(); return; }
+      const names = projects.map((p,i) => `${i+1}. ${p.name}`).join('\n');
+      const choice = prompt(`Assign to project:\n${names}\n\nEnter number:`);
+      if (!choice) return;
+      const idx = parseInt(choice, 10) - 1;
+      if (idx < 0 || idx >= projects.length) return;
+      await fetch(`/api/sentinel/artifacts/${artifactId}/assign`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({project_id: projects[idx].id})
+      });
+      await refreshTasksPanel();
+    }
+
+    async function assignTaskProject(taskId) {
+      const projects = window._tasksData.projects || [];
+      if (projects.length === 0) { openNewProjectDialog(); return; }
+      const names = projects.map((p,i) => `${i+1}. ${p.name}`).join('\n');
+      const choice = prompt(`Assign to project:\n${names}\n\nEnter number:`);
+      if (!choice) return;
+      const idx = parseInt(choice, 10) - 1;
+      if (idx < 0 || idx >= projects.length) return;
+      await fetch(`/api/sentinel/tasks/${taskId}`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({metadata: {project_id: projects[idx].id}})
+      });
+      // Also update locally and re-render
+      const task = (window._tasksData.tasks || []).find(t => t.id === taskId);
+      if (task) task.project_id = projects[idx].id;
+      const activeTab = (document.querySelector('.tasks-tab.active')||{}).dataset?.tab || 'running';
+      renderTasksTab(activeTab);
+    }
+
+    async function cancelTask(taskId) {
+      await fetch(`/api/sentinel/tasks/${taskId}/cancel`, {method:'POST'});
+      const task = (window._tasksData.tasks || []).find(t => t.id === taskId);
+      if (task) task.status = 'CANCELLED';
+      renderTasksTab('running');
+    }
+
+    function filterTasksByProject(projectId) {
+      window._tasksData._projectFilter = projectId;
+    }
+
+    async function openNewProjectDialog() {
+      const name = prompt('New project name:');
+      if (!name || !name.trim()) return;
+      const res = await fetch('/api/sentinel/projects', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({name: name.trim()})
+      }).then(r=>r.json());
+      if (res.project) {
+        window._tasksData.projects.push(res.project);
+        renderTasksProjectBar();
+      }
+    }
+
+    function _taskDuration(task) {
+      try {
+        const start  = new Date(task.created_at);
+        const end    = task.status === 'RUNNING' ? new Date() : new Date(task.updated_at);
+        const ms     = end - start;
+        if (ms < 0) return '';
+        const secs   = Math.floor(ms / 1000);
+        if (secs < 60) return `${secs}s`;
+        const mins = Math.floor(secs / 60);
+        if (mins < 60) return `${mins}m ${secs % 60}s`;
+        return `${Math.floor(mins/60)}h ${mins%60}m`;
+      } catch(_) { return ''; }
+    }
+
+    function _projectBadge(projectId) {
+      if (!projectId) return '';
+      const proj = (window._tasksData?.projects || []).find(p => p.id === projectId);
+      if (!proj) return '';
+      return `<span style="background:${proj.color}22;border:1px solid ${proj.color}44;color:${proj.color};border-radius:8px;padding:1px 7px;font-size:9px;">${_esc(proj.name)}</span>`;
+    }
+
+    function _esc(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── Tasks Socket.IO live updates ─────────────────────────────────────────
+    function _initTasksSocket() {
+      if (window._tasksPanelSocketInited) return;
+      window._tasksPanelSocketInited = true;
+
+      const sock = (typeof io !== 'undefined') ? io() : null;
+      if (!sock) return;
+
+      // Badge counter on dock button
+      function _updateTaskBadge() {
+        const btn   = document.getElementById('tasks-dock-btn');
+        if (!btn) return;
+        const count = (window._tasksData?.tasks || []).filter(
+          t => ['RUNNING','PENDING','WAITING_FOR_APPROVAL','WAITING_FOR_USER'].includes(t.status)
+        ).length;
+        btn.textContent = count > 0 ? `📋 TASKS (${count})` : '📋 TASKS';
+      }
+
+      sock.on('task_created', function(task) {
+        window._tasksData = window._tasksData || {tasks:[],artifacts:[],projects:[]};
+        const existing = window._tasksData.tasks.findIndex(t => t.id === task.id);
+        if (existing === -1) window._tasksData.tasks.unshift(task);
+        if (currentPanel === 'tasks') {
+          const activeTab = (document.querySelector('.tasks-tab.active')||{}).dataset?.tab || 'running';
+          renderTasksTab(activeTab);
+          renderWorkspaceTab_if_active();
+        }
+        _updateTaskBadge();
+      });
+
+      sock.on('task_update', function(task) {
+        window._tasksData = window._tasksData || {tasks:[],artifacts:[],projects:[]};
+        const idx = window._tasksData.tasks.findIndex(t => t.id === task.id);
+        if (idx >= 0) window._tasksData.tasks[idx] = task;
+        else window._tasksData.tasks.unshift(task);
+        if (currentPanel === 'tasks') {
+          const activeTab = (document.querySelector('.tasks-tab.active')||{}).dataset?.tab || 'running';
+          renderTasksTab(activeTab);
+          // Update detail drawer if it's showing this task
+          const drawer = document.getElementById('task-detail-drawer');
+          if (drawer && drawer.dataset.taskId === task.id && drawer.style.display !== 'none') {
+            showTaskDetail(task.id);
+          }
+        }
+        _updateTaskBadge();
+      });
+
+      sock.on('artifact_created', function(art) {
+        window._tasksData = window._tasksData || {tasks:[],artifacts:[],projects:[]};
+        const existing = window._tasksData.artifacts.findIndex(a => a.id === art.id);
+        if (existing === -1) window._tasksData.artifacts.unshift(art);
+        if (currentPanel === 'tasks') {
+          const activeTab = (document.querySelector('.tasks-tab.active')||{}).dataset?.tab;
+          if (activeTab === 'artifacts' || activeTab === 'workspace') renderTasksTab(activeTab);
+        }
+      });
+
+      sock.on('project_created', function(proj) {
+        window._tasksData = window._tasksData || {tasks:[],artifacts:[],projects:[]};
+        const existing = window._tasksData.projects.findIndex(p => p.id === proj.id);
+        if (existing === -1) window._tasksData.projects.push(proj);
+        if (currentPanel === 'tasks') renderTasksProjectBar();
+      });
+    }
+
+    function renderWorkspaceTab_if_active() {
+      const activeTab = (document.querySelector('.tasks-tab.active')||{}).dataset?.tab;
+      if (activeTab === 'workspace') {
+        const content = document.getElementById('tasks-tab-content');
+        if (content) renderWorkspaceTab(content, window._tasksData.tasks||[], window._tasksData.artifacts||[]);
       }
     }
 

@@ -267,12 +267,33 @@ Be specific and reference actual data from the output above."""
         def _assess():
             results: Dict[str, str] = {}
 
+            # ── Task Manager integration ─────────────────────────────────────
+            _task_id: str = ''
+            try:
+                from workers.task_manager import create_task, update_task, RUNNING, COMPLETED, FAILED
+                _t = create_task(f"Guardian Scan — {target}", source="guardian",
+                                 metadata={"target": target})
+                _task_id = _t["id"]
+            except Exception as _tm_err:
+                pass  # task tracking optional — never block the assessment
+
+            def _task_progress(pct: int, summary: str = '') -> None:
+                if not _task_id:
+                    return
+                try:
+                    from workers.task_manager import update_task, RUNNING
+                    update_task(_task_id, status=RUNNING, progress=pct,
+                                result_summary=summary or None)
+                except Exception:
+                    pass
+
             try:
                 self._guardian_log(f"[GUARDIAN] Assessment started: {target}", 'info')
                 self._emit_guardian_response(
                     f"🔍 **Assessment started for `{target}`**\n\nRunning 5 stages. Results appear below as each completes.",
                     target, step='start'
                 )
+                _task_progress(5, "Assessment started")
 
                 # ── Stage 1: DNS / HTTP ──────────────────────────────────────────
                 try:
@@ -286,12 +307,14 @@ Be specific and reference actual data from the output above."""
                         f"**Stage 1/5 — DNS / HTTP Headers ✓**\n```\n{results['headers'][:1500]}\n```",
                         target, step='headers'
                     )
+                    _task_progress(20, "HTTP headers complete")
                 except Exception as _e1:
                     results['headers'] = f"Stage 1 error: {_e1}"
                     self._guardian_log(f"[GUARDIAN] Stage 1 error: {_e1}", 'error')
                     self._emit_guardian_response(
                         f"**Stage 1/5 — DNS / HTTP Headers ✗** Error: {_e1}", target, step='headers'
                     )
+                    _task_progress(20, "HTTP headers skipped")
 
                 # ── Stage 2: Recon ───────────────────────────────────────────────
                 try:
@@ -314,12 +337,14 @@ Be specific and reference actual data from the output above."""
                             f"**Stage 2/5 — Recon ⚠ Skipped**\nReconFTW not installed. Skipping recon phase. Assessment continues.",
                             target, step='recon'
                         )
+                    _task_progress(40, "Recon complete")
                 except Exception as _e2:
                     results['recon'] = f"Stage 2 error: {_e2}"
                     self._guardian_log(f"[GUARDIAN] Stage 2 error: {_e2}", 'error')
                     self._emit_guardian_response(
                         f"**Stage 2/5 — Recon ✗** Error: {_e2}. Continuing.", target, step='recon'
                     )
+                    _task_progress(40, "Recon skipped")
 
                 # ── Stage 3: Port Scan ───────────────────────────────────────────
                 try:
@@ -341,12 +366,14 @@ Be specific and reference actual data from the output above."""
                             f"**Stage 3/5 — Port Scan ✓**\n```\n{ports_out[:1500]}\n```",
                             target, step='ports'
                         )
+                    _task_progress(60, "Port scan complete")
                 except Exception as _e3:
                     results['ports'] = f"Stage 3 error: {_e3}"
                     self._guardian_log(f"[GUARDIAN] Stage 3 error: {_e3}", 'error')
                     self._emit_guardian_response(
                         f"**Stage 3/5 — Port Scan ✗** Error: {_e3}. Continuing.", target, step='ports'
                     )
+                    _task_progress(60, "Port scan skipped")
 
                 # ── Stage 4: Vulnerability Scan ──────────────────────────────────
                 try:
@@ -368,12 +395,14 @@ Be specific and reference actual data from the output above."""
                             f"**Stage 4/5 — Vulnerability Scan ✓**\n```\n{vulns_out[:1500]}\n```",
                             target, step='vulns'
                         )
+                    _task_progress(80, "Vulnerability scan complete")
                 except Exception as _e4:
                     results['vulns'] = f"Stage 4 error: {_e4}"
                     self._guardian_log(f"[GUARDIAN] Stage 4 error: {_e4}", 'error')
                     self._emit_guardian_response(
                         f"**Stage 4/5 — Vulnerability Scan ✗** Error: {_e4}. Continuing.", target, step='vulns'
                     )
+                    _task_progress(80, "Vulnerability scan skipped")
 
                 # ── Stage 5: AI Analysis ─────────────────────────────────────────
                 try:
@@ -393,12 +422,14 @@ Be specific and reference actual data from the output above."""
                         f"**Stage 5/5 — AI Analysis ✓**\n\n{analysis}",
                         target, step='analysis'
                     )
+                    _task_progress(95, "AI analysis complete")
                 except Exception as _e5:
                     analysis = f"AI analysis error: {_e5}"
                     self._guardian_log(f"[GUARDIAN] Stage 5 error: {_e5}", 'error')
                     self._emit_guardian_response(
                         f"**Stage 5/5 — AI Analysis ✗** Error: {_e5}", target, step='analysis'
                     )
+                    _task_progress(95, "AI analysis skipped")
 
                 # ── Final Report ─────────────────────────────────────────────────
                 self._guardian_log(f"[GUARDIAN] Assessment complete for {target}", 'success')
@@ -408,6 +439,13 @@ Be specific and reference actual data from the output above."""
                     f"See individual stage results above.",
                     target, step='final'
                 )
+                if _task_id:
+                    try:
+                        from workers.task_manager import update_task, COMPLETED
+                        update_task(_task_id, status=COMPLETED, progress=100,
+                                    result_summary=f"Assessment complete for {target}")
+                    except Exception:
+                        pass
 
             except Exception as _top_err:
                 # Top-level safety net — always emit a final report
@@ -417,6 +455,12 @@ Be specific and reference actual data from the output above."""
                     f"Partial results may be available in the stages above.",
                     target, step='final'
                 )
+                if _task_id:
+                    try:
+                        from workers.task_manager import update_task, FAILED
+                        update_task(_task_id, status=FAILED, error=str(_top_err))
+                    except Exception:
+                        pass
 
         threading.Thread(target=_assess, daemon=True).start()
 

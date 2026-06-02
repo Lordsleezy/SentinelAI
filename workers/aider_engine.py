@@ -427,6 +427,26 @@ class AiderEngine:
 
         _emit(self.socketio, f"[EARN] ENTER analyze_bounty: {title}", "info", "earn")
 
+        # ── Task Manager integration ─────────────────────────────────────────
+        _task_id: str = ''
+        try:
+            from workers.task_manager import create_task, update_task, RUNNING, COMPLETED, FAILED
+            _t = create_task(f"Earn Analysis — {title[:60]}", source="earn",
+                             metadata={"url": url, "title": title})
+            _task_id = _t["id"]
+        except Exception:
+            pass
+
+        def _earn_progress(pct: int, summary: str = '') -> None:
+            if not _task_id:
+                return
+            try:
+                from workers.task_manager import update_task, RUNNING
+                update_task(_task_id, status=RUNNING, progress=pct,
+                            result_summary=summary or None)
+            except Exception:
+                pass
+
         vault_dir = Path(self.work_dir) / "memory" / "vault" / "bounties"
         vault_dir.mkdir(parents=True, exist_ok=True)
 
@@ -436,8 +456,10 @@ class AiderEngine:
         # ── Stage 1: Scope extraction ────────────────────────────────────────────
         try:
             _emit(self.socketio, f"[EARN] Stage 1/4: Extracting scope for {title}...", "info", "earn")
+            _earn_progress(10, "Scope extraction")
             scope_str = ", ".join(scope[:5]) if scope else "Not specified"
             _emit(self.socketio, f"[EARN] Scope extracted: {scope_str[:120]}", "info", "earn")
+            _earn_progress(20, f"Scope: {scope_str[:60]}")
         except Exception as _se:
             scope_str = "Not specified"
             _emit(self.socketio, f"[EARN] Stage 1 error (scope extraction): {_se}", "error", "earn")
@@ -445,6 +467,7 @@ class AiderEngine:
         # ── Stage 2: Create analysis document stub ───────────────────────────────
         try:
             _emit(self.socketio, f"[EARN] Stage 2/4: Creating analysis document...", "info", "earn")
+            _earn_progress(30, "Creating analysis document")
             findings_file.write_text(
                 f"# Bug Bounty Analysis: {title}\n\n"
                 f"URL: {url}\n\n"
@@ -455,11 +478,18 @@ class AiderEngine:
             _emit(self.socketio, f"[EARN] Stage 2/4: Document stub created at {findings_file.name}", "info", "earn")
         except Exception as _de:
             _emit(self.socketio, f"[EARN] Stage 2 error (document creation): {_de}", "error", "earn")
+            if _task_id:
+                try:
+                    from workers.task_manager import update_task, FAILED
+                    update_task(_task_id, status=FAILED, error=str(_de))
+                except Exception:
+                    pass
             result = AiderResult(success=False, output="", error=f"Analysis failed: {_de}")
             return result
 
         # ── Stage 3: AI analysis via Aider (120s timeout) ───────────────────────
         _emit(self.socketio, f"[EARN] Stage 3/4: Running AI analysis (max 120s)...", "info", "earn")
+        _earn_progress(50, "AI analysis in progress")
         prompt = (
             f"You are a professional bug bounty hunter. Analyze this program and complete "
             f"the security analysis document.\n\n"
@@ -491,15 +521,29 @@ class AiderEngine:
         # ── Stage 4: Recommendations and result ─────────────────────────────────
         try:
             _emit(self.socketio, f"[EARN] Stage 4/4: Compiling recommendations...", "info", "earn")
+            _earn_progress(85, "Compiling recommendations")
             if result and result.success:
                 doc_text = findings_file.read_text(encoding="utf-8", errors="replace") if findings_file.exists() else ""
                 rec_lines = [ln.strip() for ln in doc_text.splitlines() if ln.strip() and not ln.startswith('#')][:10]
                 rec_preview = "\n".join(rec_lines) if rec_lines else "(see full document)"
                 _emit(self.socketio, f"[EARN] SUCCESS Analysis complete for {title}. Recommendations:\n{rec_preview}", "success", "earn")
                 _emit(self.socketio, f"[EARN] Analysis saved to {findings_file}", "success", "earn")
+                if _task_id:
+                    try:
+                        from workers.task_manager import update_task, COMPLETED
+                        update_task(_task_id, status=COMPLETED, progress=100,
+                                    result_summary=f"Analysis complete for {title[:50]}")
+                    except Exception:
+                        pass
             else:
                 err_msg = (result.error if result else "Unknown error")
                 _emit(self.socketio, f"[EARN] FAIL Analysis failed: {err_msg}", "error", "earn")
+                if _task_id:
+                    try:
+                        from workers.task_manager import update_task, FAILED
+                        update_task(_task_id, status=FAILED, error=err_msg)
+                    except Exception:
+                        pass
         except Exception as _re:
             _emit(self.socketio, f"[EARN] Stage 4 error (recommendations): {_re}", "error", "earn")
 

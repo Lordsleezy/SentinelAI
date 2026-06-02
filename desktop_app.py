@@ -849,8 +849,8 @@ def api_launch():
 def api_artifact_latest():
     """Return the most recently registered build artifact."""
     try:
-        import artifact_registry as _ar
-        artifact = _ar.get_latest_artifact()
+        from workers.artifacts.artifact_registry import get_latest_artifact
+        artifact = get_latest_artifact()
         if artifact:
             return jsonify({"status": "ok", "artifact": artifact})
         return jsonify({"status": "none", "artifact": None})
@@ -863,25 +863,227 @@ def api_artifact_latest():
 def api_artifact_launch():
     """Launch the most recently registered artifact."""
     try:
-        import artifact_registry as _ar
+        from workers.artifacts.artifact_registry import (
+            get_artifact_by_task, get_latest_artifact, launch_artifact
+        )
         data = request.get_json() or {}
         task_hint = data.get('task', '').strip()
 
-        if task_hint:
-            artifact = _ar.get_artifact_by_task(task_hint) or _ar.get_latest_artifact()
-        else:
-            artifact = _ar.get_latest_artifact()
+        artifact = (get_artifact_by_task(task_hint) if task_hint else None) or get_latest_artifact()
 
         if not artifact:
             log("[ARTIFACT] No artifacts registered — nothing to launch", 'warning', 'forge')
             return jsonify({"status": "error", "message": "No builds found. Build something first."})
 
-        result = _ar.launch_artifact(artifact)
-        log(f"[ARTIFACT] {result['message']}", 'success' if result['status'] == 'launched' else 'error', 'forge')
+        result = launch_artifact(artifact)
+        msg = result.get('message', result.get('error', ''))
+        log(f"[ARTIFACT] {msg}", 'success' if result.get('ok') else 'error', 'forge')
         return jsonify(result)
     except Exception as e:
         log(f"[ARTIFACT] Launch error: {e}", 'error', 'forge')
         return jsonify({"status": "error", "message": str(e)}), 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sentinel Task Manager — REST API
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/api/sentinel/tasks', methods=['GET'])
+def api_sentinel_tasks():
+    """List Sentinel tracked tasks with optional filters."""
+    try:
+        from workers.task_manager import list_tasks, recent_tasks
+        status_filter  = request.args.get('status')
+        source_filter  = request.args.get('source')
+        project_filter = request.args.get('project_id')
+        limit          = int(request.args.get('limit', 50))
+        tasks = list_tasks(status=status_filter, source=source_filter,
+                           project_id=project_filter, limit=limit)
+        return jsonify({"status": "ok", "tasks": tasks, "count": len(tasks)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/sentinel/tasks', methods=['POST'])
+def api_sentinel_task_create():
+    """Manually create a Sentinel task (for testing / custom workflows)."""
+    try:
+        from workers.task_manager import create_task
+        data = request.get_json() or {}
+        task = create_task(
+            title      = data.get('title', 'Unnamed Task'),
+            source     = data.get('source', 'system'),
+            project_id = data.get('project_id'),
+            metadata   = data.get('metadata', {}),
+        )
+        return jsonify({"status": "ok", "task": task})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/sentinel/tasks/<task_id>', methods=['GET'])
+def api_sentinel_task_get(task_id):
+    """Get a single Sentinel task by ID."""
+    try:
+        from workers.task_manager import get_task
+        task = get_task(task_id)
+        if not task:
+            return jsonify({"status": "not_found"}), 404
+        return jsonify({"status": "ok", "task": task})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/sentinel/tasks/<task_id>', methods=['PATCH'])
+def api_sentinel_task_update(task_id):
+    """Update a Sentinel task (status, progress, error, result_summary)."""
+    try:
+        from workers.task_manager import update_task
+        data = request.get_json() or {}
+        task = update_task(
+            task_id,
+            status         = data.get('status'),
+            progress       = data.get('progress'),
+            error          = data.get('error'),
+            result_summary = data.get('result_summary'),
+            metadata_update= data.get('metadata'),
+        )
+        if not task:
+            return jsonify({"status": "not_found"}), 404
+        return jsonify({"status": "ok", "task": task})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/sentinel/tasks/<task_id>/cancel', methods=['POST'])
+def api_sentinel_task_cancel(task_id):
+    """Cancel a Sentinel task."""
+    try:
+        from workers.task_manager import cancel_task
+        task = cancel_task(task_id)
+        return jsonify({"status": "ok", "task": task})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sentinel Project Manager — REST API
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/api/sentinel/projects', methods=['GET'])
+def api_sentinel_projects():
+    """List all Sentinel projects."""
+    try:
+        from workers.projects.project_manager import list_projects
+        return jsonify({"status": "ok", "projects": list_projects()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/sentinel/projects', methods=['POST'])
+def api_sentinel_project_create():
+    """Create a new Sentinel project."""
+    try:
+        from workers.projects.project_manager import create_project
+        data    = request.get_json() or {}
+        name    = data.get('name', '').strip()
+        color   = data.get('color')
+        if not name:
+            return jsonify({"status": "error", "error": "name required"}), 400
+        project = create_project(name, color=color)
+        return jsonify({"status": "ok", "project": project})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/sentinel/projects/<project_id>', methods=['GET'])
+def api_sentinel_project_get(project_id):
+    from workers.projects.project_manager import get_project
+    p = get_project(project_id)
+    if not p:
+        return jsonify({"status": "not_found"}), 404
+    return jsonify({"status": "ok", "project": p})
+
+
+@app.route('/api/sentinel/projects/<project_id>', methods=['PATCH'])
+def api_sentinel_project_update(project_id):
+    from workers.projects.project_manager import update_project
+    data = request.get_json() or {}
+    p = update_project(project_id, name=data.get('name'), color=data.get('color'))
+    if not p:
+        return jsonify({"status": "not_found"}), 404
+    return jsonify({"status": "ok", "project": p})
+
+
+@app.route('/api/sentinel/projects/<project_id>', methods=['DELETE'])
+def api_sentinel_project_delete(project_id):
+    from workers.projects.project_manager import delete_project
+    ok = delete_project(project_id)
+    return jsonify({"status": "ok" if ok else "not_found"})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sentinel Artifact Registry — REST API (new canonical endpoints)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/api/sentinel/artifacts', methods=['GET'])
+def api_sentinel_artifacts():
+    """List Sentinel artifacts (most recent first)."""
+    try:
+        from workers.artifacts.artifact_registry import list_artifacts
+        limit      = int(request.args.get('limit', 20))
+        project_id = request.args.get('project_id')
+        task_id    = request.args.get('task_id')
+        arts = list_artifacts(limit=limit, project_id=project_id, task_id=task_id)
+        return jsonify({"status": "ok", "artifacts": arts, "count": len(arts)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/sentinel/artifacts/latest', methods=['GET'])
+def api_sentinel_artifact_latest():
+    try:
+        from workers.artifacts.artifact_registry import get_latest_artifact
+        art = get_latest_artifact()
+        return jsonify({"status": "ok" if art else "none", "artifact": art})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/sentinel/artifacts/launch', methods=['POST'])
+def api_sentinel_artifact_launch():
+    """Launch an artifact by task hint or the latest one."""
+    try:
+        from workers.artifacts.artifact_registry import (
+            get_artifact_by_task, get_latest_artifact, launch_artifact
+        )
+        data       = request.get_json() or {}
+        task_hint  = data.get('task', '').strip()
+        artifact   = (get_artifact_by_task(task_hint) if task_hint else None) or get_latest_artifact()
+        if not artifact:
+            return jsonify({"status": "error", "message": "No artifacts found. Build something first."})
+        result = launch_artifact(artifact)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/sentinel/artifacts/<artifact_id>/assign', methods=['POST'])
+def api_sentinel_artifact_assign(artifact_id):
+    """Assign an artifact to a project."""
+    try:
+        from workers.artifacts import artifact_registry as _ar
+        data = request.get_json() or {}
+        art  = _ar.get_artifact(artifact_id)
+        if not art:
+            return jsonify({"status": "not_found"}), 404
+        art['project_id'] = data.get('project_id')
+        with _ar._LOCK:
+            _ar._registry[artifact_id] = art
+            _ar._persist()
+        return jsonify({"status": "ok", "artifact": art})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
 
 
 @app.route('/api/status')
@@ -4172,33 +4374,46 @@ def api_chat():
                     _task_desc = _pending.get('description', 'the task')
                     _output_dir = _pending.get('output_dir')
                     def _run_approved_build(_desc=_task_desc, _odir=_output_dir):
-                        try:
-                            from workers.aider_engine import AiderEngine
-                            engine = AiderEngine(socketio)
-                            result = engine.build_app(_desc, _odir)
-                            # Register artifact so "launch it" can find it
+                        from workers.task_manager import TaskContext, COMPLETED, FAILED
+                        from workers.artifacts.artifact_registry import register_artifact as _reg_art
+                        with TaskContext(f"Build {_desc[:60]}", source="forge") as ctx:
                             try:
-                                import artifact_registry as _ar
-                                _ar.register_artifact(
+                                ctx.progress(10, "Planning build…")
+                                from workers.aider_engine import AiderEngine
+                                engine = AiderEngine(socketio)
+                                ctx.progress(30, "Building…")
+                                result = engine.build_app(_desc, _odir)
+                                ctx.progress(85, "Verifying…")
+                                # Register artifact
+                                _entry = getattr(result, 'entry_point', '') or ''
+                                _odir2 = getattr(result, 'output_dir', '') or ''
+                                _files = getattr(result, 'files_modified', []) or []
+                                art = _reg_art(
                                     task=_desc,
-                                    entry_point=getattr(result, 'entry_point', '') or '',
-                                    output_dir=getattr(result, 'output_dir', '') or '',
-                                    files=getattr(result, 'files_modified', []) or [],
+                                    entry_point=_entry,
+                                    output_dir=_odir2,
+                                    files=_files,
+                                    task_id=ctx.task_id,
                                 )
                                 log(f"[ARTIFACT] Registered build: {_desc[:60]}", 'info', 'forge')
-                            except Exception as _arre:
-                                logger.warning("[ARTIFACT] Register failed: %s", _arre)
-                            if socketio:
-                                socketio.emit('forge_complete', {
-                                    'success': getattr(result, 'success', False),
-                                    'files_modified': getattr(result, 'files_modified', []),
-                                    'entry_point': getattr(result, 'entry_point', ''),
-                                    'output_dir': getattr(result, 'output_dir', ''),
-                                    'error': getattr(result, 'error', ''),
-                                }, broadcast=True)
-                            log(f"Build complete: {_desc[:60]}", 'info', 'aider')
-                        except Exception as _be:
-                            log(f"Build error: {_be}", 'error', 'aider')
+                                ctx.complete(
+                                    result_summary=f"Built {_entry or _desc[:40]}",
+                                    artifact_id=art.get('id'),
+                                )
+                                if socketio:
+                                    socketio.emit('forge_complete', {
+                                        'success': getattr(result, 'success', False),
+                                        'files_modified': _files,
+                                        'entry_point': _entry,
+                                        'output_dir': _odir2,
+                                        'error': getattr(result, 'error', ''),
+                                        'task_id': ctx.task_id,
+                                        'artifact_id': art.get('id'),
+                                    }, broadcast=True)
+                                log(f"Build complete: {_desc[:60]}", 'info', 'aider')
+                            except Exception as _be:
+                                ctx.fail(str(_be))
+                                log(f"Build error: {_be}", 'error', 'aider')
                     threading.Thread(target=_run_approved_build, daemon=True).start()
                     _resp = f"✓ Approved. Building **{_task_desc}** now. Watch the LOG tab → AIDER filter for progress."
                 else:
@@ -4245,8 +4460,9 @@ def api_chat():
                       'launch app', 'run app', 'run program', 'launch program')
         if any(kw in lower for kw in _launch_kw):
             try:
-                import artifact_registry as _ar
-                # Try to extract task name from message
+                from workers.artifacts.artifact_registry import (
+                    get_artifact_by_task, get_latest_artifact, launch_artifact as _launch_art,
+                )
                 _task_hint = ''
                 for _phrase in ('launch ', 'run ', 'open ', 'start ', 'execute '):
                     if _phrase in lower:
@@ -4254,16 +4470,16 @@ def api_chat():
                         if _candidate and _candidate not in ('it', 'the', 'app', 'program', 'this'):
                             _task_hint = _candidate
                             break
-                artifact = _ar.get_artifact_by_task(_task_hint) if _task_hint else _ar.get_latest_artifact()
+                artifact = (get_artifact_by_task(_task_hint) if _task_hint else None) or get_latest_artifact()
                 if artifact:
-                    _launch_result = _ar.launch_artifact(artifact)
-                    if _launch_result['status'] == 'launched':
+                    _launch_result = _launch_art(artifact)
+                    if _launch_result.get('ok'):
                         _task_name = artifact.get('task', 'application')
-                        _resp = f"✓ Launching {_task_name}\n\n`{artifact.get('entry_point', 'entry_point')}`"
+                        _resp = f"✓ Launching {_task_name}\n\n`{artifact.get('entry_point', '')}`"
                         log(f"[ARTIFACT] Launched via chat: {_task_name}", 'success', 'forge')
                     else:
-                        _resp = f"✗ Launch failed: {_launch_result.get('message', 'unknown error')}"
-                        log(f"[ARTIFACT] Launch failed: {_launch_result.get('message')}", 'error', 'forge')
+                        _resp = f"✗ Launch failed: {_launch_result.get('error', 'unknown error')}"
+                        log(f"[ARTIFACT] Launch failed: {_launch_result.get('error')}", 'error', 'forge')
                 else:
                     _resp = "No recent builds found. Build something first, then ask me to launch it."
                     log("[ARTIFACT] No artifacts registered — cannot launch", 'warning', 'forge')
