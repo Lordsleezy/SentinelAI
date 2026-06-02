@@ -1136,7 +1136,11 @@
 
     window.addEventListener('resize', function () {
       if (!ctx.three) return;
-      var w = root.clientWidth, h = root.clientHeight;
+      // Read from the flex container, not root (which is a canvas with fixed pixels)
+      var container = document.getElementById('orb-container') || root.parentElement || root;
+      var w = container.clientWidth || root.clientWidth;
+      var h = container.clientHeight || root.clientHeight;
+      if (w <= 0 || h <= 0) return;
       ctx.three.camera.aspect = w / h;
       ctx.three.camera.updateProjectionMatrix();
       ctx.three.renderer.setSize(w, h);
@@ -1175,25 +1179,70 @@
     // ── Panel System ──────────────────────────────────────────────────────────
     let currentPanel = null;
 
+    // ── PANEL STATE STORE — persists content when switching panels ─────────────
+    const panelState = {
+      guardian: { messagesHTML: '', mode: 'defend', logEntries: [], initialized: false },
+      earn:     { programsHTML: '', initialized: false },
+      market:   { initialized: false },
+      scalp:    { logText: '', initialized: false },
+      log:      { initialized: false },   // log uses global logEntries already
+      memory:   { initialized: false }
+    };
+
+    function savePanelState(name) {
+      if (!name || !panelState[name]) return;
+      switch (name) {
+        case 'guardian': {
+          const msgs = document.getElementById('guardian-chat-messages');
+          if (msgs) panelState.guardian.messagesHTML = msgs.innerHTML;
+          panelState.guardian.mode = window._guardianMode || 'defend';
+          // guardian log entries are saved directly in panelState.guardian.logEntries
+          panelState.guardian.initialized = true;
+          break;
+        }
+        case 'earn': {
+          const list = document.getElementById('earn-programs-list');
+          if (list) panelState.earn.programsHTML = list.innerHTML;
+          panelState.earn.initialized = true;
+          break;
+        }
+        case 'market':
+          panelState.market.initialized = true;
+          break;
+        case 'scalp': {
+          const sl = document.getElementById('scalp-log');
+          if (sl) panelState.scalp.logText = sl.textContent;
+          panelState.scalp.initialized = true;
+          break;
+        }
+        case 'log':
+          // logEntries is already global; just mark initialized
+          panelState.log.initialized = true;
+          break;
+        case 'memory':
+          panelState.memory.initialized = true;
+          break;
+      }
+    }
+
     function openPanel(name) {
       if (currentPanel === name) { closePanel(); return; }
+      savePanelState(currentPanel);
       currentPanel = name;
       document.getElementById('panel-title').textContent = name.toUpperCase();
       loadPanelContent(name);
       document.getElementById('panel-container').classList.add('open');
-      // Trigger orb resize after CSS transition
-      setTimeout(() => window.dispatchEvent(new Event('resize')), 310);
+      // Trigger orb resize after CSS transition (must be > 300ms transition)
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 350);
       document.querySelectorAll('.dock-btn').forEach(btn =>
         btn.classList.toggle('active', btn.dataset.panel === name));
     }
 
     function closePanel() {
+      const closingPanel = currentPanel;
       currentPanel = null;
+      savePanelState(closingPanel);
       document.getElementById('panel-container').classList.remove('open');
-      setTimeout(() => {
-        document.getElementById('panel-content').innerHTML = '';
-        window.dispatchEvent(new Event('resize'));
-      }, 310);
       document.querySelectorAll('.dock-btn').forEach(btn => btn.classList.remove('active'));
       // Cleanup log panel Socket.IO listener
       if (window._logPanelSocket) {
@@ -1205,10 +1254,27 @@
       if (window._marketInterval) { clearInterval(window._marketInterval); window._marketInterval = null; }
       // Cleanup xterm
       if (logTerminal) { try { logTerminal.dispose(); } catch(_) {} logTerminal = null; }
+      // Wait for CSS transition (300ms) before dispatching resize so Three.js
+      // reads the final container dimensions, not the old ones
+      setTimeout(() => {
+        document.getElementById('panel-content').innerHTML = '';
+        // Force layout reflow before resize so flex calc is complete
+        const orbEl = document.getElementById('orb-container');
+        orbEl.style.display = 'none';
+        void orbEl.offsetHeight;
+        orbEl.style.display = '';
+        window.dispatchEvent(new Event('resize'));
+      }, 350);
     }
 
     async function loadPanelContent(name) {
       const content = document.getElementById('panel-content');
+      const state = panelState[name];
+      // Restore from saved state if available (avoids reload on every switch)
+      if (state && state.initialized) {
+        content.innerHTML = '<div style="color:#0ff4;padding:20px;text-align:center;font-size:12px;">Restoring...</div>';
+        try { await restorePanelState(name, content); return; } catch(_) {}
+      }
       content.innerHTML = '<div style="color:#0ff4;padding:20px;text-align:center;font-size:12px;">Loading...</div>';
       try {
         switch(name) {
@@ -1225,8 +1291,47 @@
       }
     }
 
+    async function restorePanelState(name, content) {
+      switch (name) {
+        case 'guardian':
+          await loadGuardianPanel(content, panelState.guardian);
+          break;
+        case 'earn':
+          await loadEarnPanel(content, panelState.earn);
+          break;
+        case 'market':
+          // Market always refreshes for fresh prices — skip state restore
+          await loadMarketPanel(content);
+          break;
+        case 'scalp':
+          await loadScalpPanel(content, panelState.scalp);
+          break;
+        case 'log':
+          // Log panel replays from global logEntries automatically
+          await loadLogPanel(content);
+          break;
+        case 'memory':
+          await loadMemoryPanel(content);
+          break;
+        default:
+          content.innerHTML = '<div style="color:#555;padding:20px;">Unknown panel.</div>';
+      }
+    }
+
     // ── EARN PANEL ────────────────────────────────────────────────────────────
-    async function loadEarnPanel(container) {
+    async function loadEarnPanel(container, savedState) {
+      // If we have saved HTML, restore it without a network call
+      if (savedState && savedState.programsHTML) {
+        container.innerHTML = `
+          <div class="panel-stat-row">
+            <div class="panel-stat"><div class="panel-stat-label">Programs</div><div class="panel-stat-value">—</div></div>
+            <div class="panel-stat"><div class="panel-stat-label">Bounties</div><div class="panel-stat-value">—</div></div>
+          </div>
+          <button class="panel-btn" id="earn-scan-btn" onclick="earnScanNow()">🔍 SCAN NOW</button>
+          <div class="panel-section-title" style="margin-top:14px;">Programs</div>
+          <div id="earn-programs-list" style="margin-top:6px;">${savedState.programsHTML}</div>`;
+        return;
+      }
       let programs = [];
       let stats = { total: 0, bounty: 0 };
       try {
@@ -1343,12 +1448,13 @@
     }
 
     // ── GUARDIAN PANEL ────────────────────────────────────────────────────────
-    async function loadGuardianPanel(container) {
+    async function loadGuardianPanel(container, savedState) {
+      const restoredMode = (savedState && savedState.mode) || window._guardianMode || 'defend';
       container.innerHTML = `
         <div class="mode-selector">
-          <button class="mode-btn-p active-defend" data-mode="defend" onclick="guardianSetMode(this,'defend')">🛡 DEFEND</button>
-          <button class="mode-btn-p" data-mode="attack" onclick="guardianSetMode(this,'attack')">⚔ ATTACK</button>
-          <button class="mode-btn-p" data-mode="forensics" onclick="guardianSetMode(this,'forensics')">🔍 FORENSICS</button>
+          <button class="mode-btn-p ${restoredMode==='defend'?'active-defend':''}" data-mode="defend" onclick="guardianSetMode(this,'defend')">🛡 DEFEND</button>
+          <button class="mode-btn-p ${restoredMode==='attack'?'active-attack':''}" data-mode="attack" onclick="guardianSetMode(this,'attack')">⚔ ATTACK</button>
+          <button class="mode-btn-p ${restoredMode==='forensics'?'active-forensics':''}" data-mode="forensics" onclick="guardianSetMode(this,'forensics')">🔍 FORENSICS</button>
         </div>
         <div class="panel-section-title">Tools</div>
         <div id="guardian-tools" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
@@ -1359,8 +1465,36 @@
         <div id="guardian-input-row">
           <input id="guardian-input" placeholder="Enter command or question..." onkeydown="if(event.key==='Enter')guardianSend()"/>
           <button class="panel-btn" onclick="guardianSend()">Send</button>
-        </div>`;
+        </div>
+        <div class="panel-section-title" style="margin-top:8px;">
+          GUARDIAN LOG
+          <button class="panel-btn" onclick="guardianLogClear()" style="float:right;padding:2px 8px;font-size:10px;">CLEAR</button>
+        </div>
+        <div id="guardian-log" style="height:180px;overflow-y:auto;background:#000;border:1px solid rgba(0,255,255,0.2);padding:8px;font-family:monospace;font-size:11px;color:#0f0;margin-top:4px;border-radius:4px;"></div>`;
+      window._guardianMode = restoredMode;
+      // Restore saved messages
+      if (savedState && savedState.messagesHTML) {
+        const msgs = document.getElementById('guardian-chat-messages');
+        if (msgs) { msgs.innerHTML = savedState.messagesHTML; msgs.scrollTop = msgs.scrollHeight; }
+      }
+      // Restore saved guardian log entries
+      if (savedState && savedState.logEntries && savedState.logEntries.length) {
+        savedState.logEntries.forEach(e => appendGuardianLogEntry(e));
+      }
       guardianLoadTools();
+      // Re-attach Socket.IO listener for guardian log
+      if (window._sharedSocket) {
+        if (window._guardianLogHandler) {
+          window._sharedSocket.off('log_event', window._guardianLogHandler);
+        }
+        window._guardianLogHandler = (data) => {
+          if (data.type === 'guardian') {
+            panelState.guardian.logEntries.push(data);
+            appendGuardianLogEntry(data);
+          }
+        };
+        window._sharedSocket.on('log_event', window._guardianLogHandler);
+      }
     }
 
     window._guardianMode = 'defend';
@@ -1368,6 +1502,24 @@
       window._guardianMode = mode;
       document.querySelectorAll('.mode-btn-p').forEach(b => b.className = 'mode-btn-p');
       btn.className = `mode-btn-p active-${mode}`;
+    };
+
+    function appendGuardianLogEntry(entry) {
+      const el = document.getElementById('guardian-log');
+      if (!el) return;
+      const color = { error:'#f44', warning:'#fa0', success:'#0f0', info:'#0ff', tool:'#f0f' }[entry.level] || '#0f0';
+      const line = document.createElement('div');
+      line.style.color = color;
+      const time = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+      line.textContent = `${time} [${(entry.level||'info').toUpperCase()}] ${entry.message}`;
+      el.appendChild(line);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    window.guardianLogClear = function() {
+      panelState.guardian.logEntries = [];
+      const el = document.getElementById('guardian-log');
+      if (el) el.innerHTML = '';
     };
 
     async function guardianLoadTools() {
@@ -1416,7 +1568,8 @@
     };
 
     // ── SCALP PANEL ───────────────────────────────────────────────────────────
-    async function loadScalpPanel(container) {
+    async function loadScalpPanel(container, savedState) {
+      const savedLog = (savedState && savedState.logText) || 'Waiting for signals...';
       container.innerHTML = `
         <div style="display:flex;gap:8px;margin-bottom:12px;">
           <button class="panel-btn" id="scalp-start-btn" onclick="scalpStart()">▶ START</button>
@@ -1431,7 +1584,7 @@
             </div>`).join('')}
         </div>
         <div class="panel-section-title">Signal Log</div>
-        <div class="scalp-log" id="scalp-log">Waiting for signals...</div>
+        <div class="scalp-log" id="scalp-log">${escapeHtml(savedLog)}</div>
         <div class="panel-section-title">Performance</div>
         <div id="scalp-perf" style="color:#444;font-size:12px;">No performance data yet.</div>`;
       scalpLoadStatus();
