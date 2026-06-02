@@ -53,7 +53,13 @@ except Exception as _scalp_import_err:
 from notifications import send_notification
 from memory_manager import get_memory_manager
 
-OWNER_MODE = os.getenv('SENTINEL_OWNER_MODE', 'false').lower() == 'true'
+# OWNER_MODE: env var takes precedence; falls back to build_info.py baked constant.
+try:
+    import build_info as _bi
+    _baked_owner = getattr(_bi, 'OWNER_MODE', False)
+except ImportError:
+    _baked_owner = False
+OWNER_MODE = os.getenv('SENTINEL_OWNER_MODE', 'false').lower() == 'true' or _baked_owner
 
 # Configure logging
 logging.basicConfig(
@@ -901,7 +907,9 @@ def api_status():
         "sentinel_web_status": sentinel_web_status,
         "consultation": consultation_status,
         "scalp": scalp_status,
-        "owner_mode": OWNER_MODE,
+        "owner_mode":   OWNER_MODE,
+        "build_type":   getattr(_bi, 'BUILD_TYPE',   'dev') if '_bi' in dir() else 'dev',
+        "include_earn": getattr(_bi, 'INCLUDE_EARN', OWNER_MODE) if '_bi' in dir() else OWNER_MODE,
     }
     return jsonify({**data, "status": "ok", "data": data, "error": None})
 

@@ -3198,12 +3198,13 @@
     }
     checkReady();
 
-    // ── Owner mode: hide EARN button for non-owner builds ─────────────────────
-    (async function applyOwnerMode() {
+    // ── Build flags: hide EARN for consumer builds ────────────────────────────
+    (async function applyBuildFlags() {
       try {
         const r = await fetch('http://127.0.0.1:5001/api/status');
         const data = await r.json();
-        if (!data.owner_mode) {
+        // Hide Earn button unless this is an owner/earn-enabled build
+        if (!data.include_earn && !data.owner_mode) {
           const earnBtn = document.querySelector('[data-panel="earn"]');
           if (earnBtn) earnBtn.style.display = 'none';
         }

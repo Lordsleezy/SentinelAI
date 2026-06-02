@@ -73,7 +73,13 @@ dist/
 build/
 out/
 backend_dist/
+backend_dist_consumer/
+backend_dist_owner/
 installer_dist/
+installer_dist_consumer/
+installer_dist_owner/
+build_tmp/
+build_info.py
 *.exe
 *.dmg
 *.AppImage
