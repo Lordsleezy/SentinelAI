@@ -511,6 +511,90 @@
       min-height: 0;
     }
 
+    /* Left panel — Chat history */
+    #left-panel-container {
+      width: 0;
+      overflow: hidden;
+      transition: width 0.3s ease;
+      border-right: 1px solid rgba(0,255,255,0.15);
+      background: #050510;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    #left-panel-container.open {
+      width: 380px;
+    }
+    #left-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(0,255,255,0.15);
+      flex-shrink: 0;
+    }
+    #chat-history {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+    }
+    #chat-history::-webkit-scrollbar { width: 4px; }
+    #chat-history::-webkit-scrollbar-track { background: #000; }
+    #chat-history::-webkit-scrollbar-thumb { background: rgba(0,255,255,0.2); border-radius: 2px; }
+    .chat-msg {
+      max-width: 95%;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .chat-msg-user {
+      align-self: flex-end;
+      background: rgba(0,255,136,0.08);
+      border: 1px solid rgba(0,255,136,0.3);
+      color: #e0e0e0;
+      text-align: right;
+    }
+    .chat-msg-sentinel {
+      align-self: flex-start;
+      background: rgba(0,212,255,0.05);
+      border: 1px solid rgba(0,212,255,0.15);
+      color: #ccc;
+    }
+    .chat-time {
+      display: block;
+      font-size: 10px;
+      color: #555;
+      margin-bottom: 3px;
+    }
+    .chat-content {
+      display: block;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #left-panel-footer {
+      padding: 10px 12px;
+      border-top: 1px solid rgba(0,255,255,0.1);
+      flex-shrink: 0;
+    }
+    #diagnose-btn {
+      width: 100%;
+      padding: 8px;
+      background: rgba(0,255,255,0.06);
+      border: 1px solid rgba(0,255,255,0.2);
+      color: #0ff;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 11px;
+      letter-spacing: 1px;
+      transition: background 0.15s;
+    }
+    #diagnose-btn:hover { background: rgba(0,255,255,0.12); }
+
     /* Panel container — slides in from right */
     #panel-container {
       width: 0;
@@ -677,6 +761,18 @@
     </div>
 
     <div id="main-area">
+      <!-- LEFT PANEL — Chat history (slides in from left) -->
+      <div id="left-panel-container">
+        <div id="left-panel-header">
+          <span style="color:#0ff;font-size:12px;font-weight:700;letter-spacing:2px;">💬 SENTINEL CHAT</span>
+          <button onclick="toggleChatPanel()" style="background:none;border:1px solid rgba(0,255,255,0.2);color:#0ff;width:24px;height:24px;border-radius:4px;cursor:pointer;font-size:12px;">✕</button>
+        </div>
+        <div id="chat-history"></div>
+        <div id="left-panel-footer">
+          <button id="diagnose-btn" onclick="sentinelDiagnose()">🔍 DIAGNOSE ERRORS</button>
+        </div>
+      </div>
+
       <!-- ORB SIDE -->
       <div id="orb-container">
         <div id="orb-root"></div>
@@ -686,7 +782,7 @@
         <div class="usage-counter" id="usage-counter"></div>
       </div>
 
-      <!-- PANEL SIDE (slides in from right) -->
+      <!-- RIGHT PANEL SIDE (slides in from right) -->
       <div id="panel-container">
         <div id="panel-header">
           <span id="panel-title">PANEL</span>
@@ -739,6 +835,7 @@
       </div>
       <!-- Inline panel dock — clicking opens a panel instead of a separate window -->
       <div id="worker-dock" style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
+        <button onclick="toggleChatPanel()" class="dock-btn" id="chat-dock-btn" data-side="left">💬 CHAT</button>
         <button onclick="openPanel('guardian')" class="dock-btn" data-panel="guardian">🛡 GUARDIAN</button>
         <button onclick="openPanel('earn')"     class="dock-btn" data-panel="earn">💰 EARN</button>
         <button onclick="openPanel('market')"   class="dock-btn" data-panel="market">📈 MARKET</button>
@@ -1935,11 +2032,116 @@
     setInterval(updateWorkerStatus, 3000);
     updateWorkerStatus();
 
+    // ── CHAT PANEL (LEFT SIDE) ────────────────────────────────────────────────
+    let chatPanelOpen = false;
+    let chatPanelMessages = [];  // {role, content, timestamp}
+
+    function toggleChatPanel() {
+      chatPanelOpen = !chatPanelOpen;
+      const container = document.getElementById('left-panel-container');
+      const btn = document.getElementById('chat-dock-btn');
+      if (chatPanelOpen) {
+        container.classList.add('open');
+        if (btn) btn.classList.add('active');
+        loadChatHistory();
+      } else {
+        container.classList.remove('open');
+        if (btn) btn.classList.remove('active');
+      }
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 350);
+    }
+
+    async function loadChatHistory() {
+      const historyEl = document.getElementById('chat-history');
+      if (!historyEl) return;
+      // Show any already-in-memory messages first
+      if (chatPanelMessages.length > 0) {
+        historyEl.innerHTML = '';
+        chatPanelMessages.forEach(m => renderChatMsg(m.role, m.content, m.timestamp, false));
+        historyEl.scrollTop = historyEl.scrollHeight;
+        return;
+      }
+      // Load from backend session memory
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/memory/recent?limit=50&type=chat');
+        if (r.ok) {
+          const d = await r.json();
+          const msgs = d.messages || d.data || [];
+          msgs.forEach(m => {
+            renderChatMsg(m.role || 'sentinel', m.content || m.message || '', m.timestamp, false);
+            chatPanelMessages.push({role: m.role || 'sentinel', content: m.content || m.message || '', timestamp: m.timestamp});
+          });
+          if (historyEl) historyEl.scrollTop = historyEl.scrollHeight;
+        }
+      } catch(_) {
+        // Backend may not have this yet — that's OK
+      }
+    }
+
+    function appendChatPanelMessage(role, content, timestamp) {
+      const time = timestamp || new Date().toLocaleTimeString();
+      chatPanelMessages.push({role, content, timestamp: time});
+      renderChatMsg(role, content, time, true);
+      // Save to backend session memory
+      try {
+        fetch('http://127.0.0.1:5001/api/memory/session', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({role, content, timestamp: new Date().toISOString()})
+        }).catch(() => {});
+      } catch(_) {}
+    }
+
+    function renderChatMsg(role, content, timestamp, scroll) {
+      const historyEl = document.getElementById('chat-history');
+      if (!historyEl) return;
+      const time = timestamp || new Date().toLocaleTimeString();
+      const div = document.createElement('div');
+      div.className = `chat-msg chat-msg-${role}`;
+      div.dataset.role = role;
+      div.dataset.timestamp = time;
+      div.innerHTML = `<span class="chat-time">${escapeHtml(time)}</span><span class="chat-content">${escapeHtml(content)}</span>`;
+      historyEl.appendChild(div);
+      if (scroll) historyEl.scrollTop = historyEl.scrollHeight;
+    }
+
+    async function sentinelDiagnose() {
+      const btn = document.getElementById('diagnose-btn');
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Diagnosing...'; }
+      try {
+        const [logsRes, errsRes] = await Promise.all([
+          fetch('http://127.0.0.1:5001/api/log/recent?limit=100').catch(() => null),
+          fetch('http://127.0.0.1:5001/api/log/recent?level=error&limit=20').catch(() => null)
+        ]);
+        const logsData = logsRes && logsRes.ok ? await logsRes.json() : { entries: [] };
+        const errsData = errsRes && errsRes.ok ? await errsRes.json() : { entries: [] };
+        const logs = (logsData.entries || logsData.data || []).map(e => `[${e.time||''}] [${e.type||''}] ${e.message||''}`).join('\n');
+        const errs = (errsData.entries || errsData.data || []).map(e => `[${e.time||''}] ${e.message||''}`).join('\n');
+        const prompt = `Review these recent log entries and errors from your own operation. Identify any failures, incomplete tasks, or loops. Report what went wrong and what you would do to fix it. Be specific about file names and error messages.\n\nLogs:\n${logs || '(empty)'}\n\nErrors:\n${errs || '(none)'}`;
+        const res = await fetch('http://127.0.0.1:5001/api/chat', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({message: prompt})
+        });
+        const d = await res.json();
+        const rawResp = d.response;
+        const text = typeof rawResp === 'string' ? rawResp : (rawResp?.response || rawResp?.text || rawResp?.message || JSON.stringify(rawResp));
+        appendChatPanelMessage('sentinel', `[SELF-DIAGNOSIS]\n${text}`);
+      } catch(e) {
+        appendChatPanelMessage('sentinel', `[SELF-DIAGNOSIS ERROR] ${e.message}`);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔍 DIAGNOSE ERRORS'; }
+      }
+    }
+
     // Input handling
     chatInput.addEventListener('keydown', async (e) => {
       if (e.key === 'Enter' && chatInput.value.trim()) {
         const query = chatInput.value.trim();
         chatInput.value = '';
+
+        // Also show in chat panel
+        appendChatPanelMessage('user', query);
 
         orbState = 'thinking';
         renderOrb();
@@ -1973,6 +2175,9 @@
           responseArea.textContent = displayText || '(no response — check Log panel)';
           responseArea.classList.add('visible');
 
+          // Also show in chat panel
+          appendChatPanelMessage('sentinel', displayText || '(no response — check Log panel)');
+
           setTimeout(() => {
             responseArea.classList.remove('visible');
             orbState = 'idle';
@@ -1981,6 +2186,7 @@
 
         } catch (err) {
           console.error('Query failed:', err);
+          appendChatPanelMessage('sentinel', `Error: ${err.message}`);
           orbState = 'idle';
           renderOrb();
         }
@@ -2210,6 +2416,7 @@
           });
 
           socket.on('forge_complete', (data) => {
+            let chatMsg = '';
             if (data.success && data.files_modified && data.files_modified.length > 0) {
               let msg = `✓ Build complete. ${data.files_modified.length} file(s) created:\n`;
               data.files_modified.forEach(f => { msg += `  📄 ${f}\n`; });
@@ -2217,6 +2424,7 @@
                 msg += `\nMain file: ${data.entry_point}`;
                 window.pendingLaunch = data.entry_point;
               }
+              chatMsg = msg;
               showChatResponse(msg);
               // Add launch button if entry_point exists
               if (data.entry_point) {
@@ -2233,10 +2441,14 @@
                 }
               }
             } else if (!data.success) {
+              chatMsg = `✗ Build stopped: ${data.error || 'Unknown error'}\n${data.message || ''}\n${data.files_modified && data.files_modified.length ? 'Partial files: ' + data.files_modified.join(', ') : 'No files created.'}\nCheck the Log tab for details.`;
               showChatResponse(`✗ Build failed.\nError: ${data.error || 'See Log panel for details.'}`);
             } else {
-              showChatResponse('✓ Done. Check Log panel for details.');
+              chatMsg = '✓ Done. Check Log panel for details.';
+              showChatResponse(chatMsg);
             }
+            // Always show build result in chat panel
+            if (chatMsg) appendChatPanelMessage('sentinel', chatMsg);
             orbState = 'idle'; renderOrb();
           });
         } catch(e) {

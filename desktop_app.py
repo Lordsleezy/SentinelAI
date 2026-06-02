@@ -1142,6 +1142,82 @@ def api_logs():
         return jsonify({"error": str(e)}), 500
 
 
+# In-memory log buffer for /api/log/recent (ring buffer, max 500 entries)
+_log_buffer = []
+_log_buffer_lock = threading.Lock()
+_LOG_BUFFER_MAX = 500
+
+def _log_buffer_append(message: str, level: str, source: str):
+    """Append to the in-memory log buffer for self-diagnosis."""
+    entry = {
+        'time': datetime.now().strftime('%H:%M:%S'),
+        'type': source,
+        'level': level,
+        'message': message,
+        'timestamp': datetime.now().isoformat()
+    }
+    with _log_buffer_lock:
+        _log_buffer.append(entry)
+        if len(_log_buffer) > _LOG_BUFFER_MAX:
+            del _log_buffer[:-_LOG_BUFFER_MAX]
+
+# Monkey-patch log() to also feed the buffer
+_orig_log = log
+def log(message: str, level: str = 'info', source: str = 'system') -> None:
+    _orig_log(message, level, source)
+    _log_buffer_append(message, level, source)
+
+
+@app.route('/api/log/recent')
+def api_log_recent():
+    """Return recent in-memory log entries for self-diagnosis."""
+    try:
+        limit = int(request.args.get('limit', 100))
+        level_filter = request.args.get('level', '').lower()
+        with _log_buffer_lock:
+            entries = list(_log_buffer[-limit:])
+        if level_filter:
+            entries = [e for e in entries if e.get('level', '').lower() == level_filter]
+        return jsonify({'entries': entries, 'count': len(entries)})
+    except Exception as e:
+        return jsonify({'entries': [], 'error': str(e)}), 500
+
+
+# In-memory chat session messages (survives the Flask process lifetime)
+_chat_session = []
+_chat_session_lock = threading.Lock()
+
+@app.route('/api/memory/session', methods=['POST'])
+def api_memory_session_write():
+    """Store a single chat exchange message to in-memory session."""
+    try:
+        data = request.get_json() or {}
+        role = data.get('role', 'sentinel')
+        content = data.get('content', '')
+        timestamp = data.get('timestamp', datetime.now().isoformat())
+        entry = {'role': role, 'content': content, 'timestamp': timestamp}
+        with _chat_session_lock:
+            _chat_session.append(entry)
+            if len(_chat_session) > 200:
+                del _chat_session[:-200]
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@app.route('/api/memory/recent')
+def api_memory_recent_chat():
+    """Return recent chat session messages."""
+    try:
+        limit = int(request.args.get('limit', 50))
+        msg_type = request.args.get('type', 'chat')
+        with _chat_session_lock:
+            msgs = list(_chat_session[-limit:])
+        return jsonify({'messages': msgs, 'count': len(msgs)})
+    except Exception as e:
+        return jsonify({'messages': [], 'error': str(e)}), 500
+
+
 @app.route('/api/earnings')
 def api_earnings():
     """Get earnings summary."""
@@ -2529,58 +2605,6 @@ def api_revenue_pipeline_clear():
 
 
 # ─── Memory Endpoints ──────────────────────────────────────────────────────────
-
-@app.route('/api/memory/recent')
-def api_memory_recent():
-    """Get recent memory entries from a subdirectory"""
-    try:
-        subdir = request.args.get('subdir', 'sessions')
-        n = int(request.args.get('n', 10))
-
-        mm = get_memory_manager()
-        entries = mm.read_recent(subdir, n)
-
-        return jsonify({"status": "ok", "data": entries, "error": None})
-    except Exception as e:
-        logger.exception("Memory recent fetch failed")
-        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
-
-
-@app.route('/api/memory/vault/search')
-def api_memory_vault_search():
-    """Search the memory vault (file-system corpus)."""
-    try:
-        query = request.args.get('q', '')
-        if not query:
-            return jsonify({"status": "error", "data": None, "error": "Query parameter 'q' required"}), 400
-
-        max_results = int(request.args.get('max_results', 20))
-
-        mm = get_memory_manager()
-        results = mm.search_vault(query, max_results)
-
-        return jsonify({"status": "ok", "data": results, "error": None})
-    except Exception as e:
-        logger.exception("Memory vault search failed")
-        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
-
-
-@app.route('/api/memory/session', methods=['POST'])
-def api_memory_session():
-    """Write a session summary to memory"""
-    try:
-        data = request.get_json() or {}
-        session_id = data.get('session_id', datetime.now().strftime("%Y%m%d_%H%M%S"))
-        summary_dict = data.get('summary', {})
-
-        mm = get_memory_manager()
-        filepath = mm.write_session(session_id, summary_dict)
-
-        return jsonify({"status": "ok", "data": {"filepath": str(filepath)}, "error": None})
-    except Exception as e:
-        logger.exception("Memory session write failed")
-        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
-
 
 # ─── Voice Endpoints (Track 8) ────────────────────────────────────────────────
 
