@@ -771,22 +771,22 @@
        DESIGN TOKENS — ChatGPT dark palette
     ════════════════════════════════════════════════════════════ */
     :root {
-      --bg-primary:     #212121;
-      --bg-secondary:   #2d2d2d;
-      --bg-tertiary:    #3d3d3d;
-      --bg-elevated:    #404040;
-      --text-primary:   #ececec;
-      --text-secondary: #b4b4b4;
-      --text-muted:     #6e6e6e;
-      --border-subtle:  rgba(255,255,255,0.1);
-      --border-normal:  rgba(255,255,255,0.15);
-      --border-strong:  rgba(255,255,255,0.25);
-      --accent:         #2563eb;
-      --accent-hover:   #1d4ed8;
-      --accent-subtle:  rgba(37,99,235,0.15);
-      --success:        #16a34a;
+      --bg-primary:     #000000;
+      --bg-secondary:   #111111;
+      --bg-tertiary:    #1c1c1c;
+      --bg-elevated:    #2a2a2a;
+      --text-primary:   #ffffff;
+      --text-secondary: #c5c5c5;
+      --text-muted:     #6e6e80;
+      --border-subtle:  rgba(255,255,255,0.08);
+      --border-normal:  rgba(255,255,255,0.12);
+      --border-strong:  rgba(255,255,255,0.22);
+      --accent:         #10a37f;
+      --accent-hover:   #0d8f6f;
+      --accent-subtle:  rgba(16,163,127,0.15);
+      --success:        #10a37f;
       --warning:        #d97706;
-      --error:          #dc2626;
+      --error:          #ef4444;
       --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       --font-mono: 'SF Mono','Cascadia Code','Consolas',monospace;
       --radius-sm:  6px;
@@ -919,16 +919,18 @@
       max-width: 88% !important;
     }
     .chat-msg-user {
-      background: var(--bg-tertiary) !important;
+      background: var(--bg-elevated) !important;
       border: 1px solid var(--border-subtle) !important;
       color: var(--text-primary) !important;
       border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg) !important;
+      align-self: flex-end !important;
     }
     .chat-msg-sentinel {
       background: transparent !important;
       border: none !important;
       color: var(--text-primary) !important;
-      padding: 8px 4px !important;
+      padding: 6px 0 !important;
+      align-self: flex-start !important;
     }
     .chat-time { color: var(--text-muted) !important; font-size: 10px !important; font-family: var(--font-sans) !important; }
 
@@ -1244,6 +1246,7 @@
         <button onclick="openPanel('scalp')"    class="dock-btn" data-panel="scalp">⚡ SCALP</button>
         <button onclick="openPanel('log')"      class="dock-btn" data-panel="log">📋 LOG</button>
         <button onclick="openPanel('memory')"   class="dock-btn" data-panel="memory">🧠 MEMORY</button>
+        <button onclick="openPanel('settings')"  class="dock-btn" data-panel="settings">⚙ SETTINGS</button>
       </div>
     </div>
   </div><!-- end #app-container -->
@@ -1798,6 +1801,7 @@
           case 'scalp':    await loadScalpPanel(content); break;
           case 'log':      await loadLogPanel(content); break;
           case 'memory':   await loadMemoryPanel(content); break;
+          case 'settings':  await loadSettingsPanel(content); break;
           default: content.innerHTML = '<div style="color:#555;padding:20px;">Unknown panel.</div>';
         }
       } catch(e) {
@@ -2151,6 +2155,159 @@
 
     async function marketRefresh() { await loadQuickTickers(); }
 
+    // ── SETTINGS PANEL ────────────────────────────────────────────────────────
+    const LOCAL_MODELS = [
+      { id: 'qwen2.5-coder:3b',  label: 'Qwen 2.5 Coder 3B',  vram: 3,  size: '2.1 GB',  speed: '⚡ Fast',    note: 'Best for low-end GPUs or CPU-only' },
+      { id: 'qwen2.5-coder:7b',  label: 'Qwen 2.5 Coder 7B',  vram: 8,  size: '4.7 GB',  speed: '🔄 Balanced', note: 'Good balance of speed and quality' },
+      { id: 'qwen2.5-coder:14b', label: 'Qwen 2.5 Coder 14B', vram: 10, size: '8.7 GB',  speed: '🧠 Smart',    note: 'Recommended for 10 GB+ VRAM' },
+      { id: 'qwen3:14b',         label: 'Qwen 3 14B',          vram: 24, size: '9.0 GB',  speed: '🚀 Best',     note: 'Requires 24 GB+ VRAM' },
+      { id: 'deepseek-coder:6.7b',label:'DeepSeek Coder 6.7B', vram: 8,  size: '3.8 GB',  speed: '🔄 Balanced', note: 'Alternative coder model' },
+      { id: 'llama3.2:3b',       label: 'Llama 3.2 3B',        vram: 3,  size: '2.0 GB',  speed: '⚡ Fast',    note: 'Great for general tasks on low VRAM' },
+    ];
+
+    async function loadSettingsPanel(container) {
+      let vram = 0, model = '', ollamaOk = false, ollamaModels = [];
+      try {
+        const s = await fetch('http://127.0.0.1:5001/api/status'); const sd = await s.json();
+        const sc = await fetch('http://127.0.0.1:5001/api/config'); const scd = await sc.json();
+        model = scd.active_model || scd.model || '';
+        vram  = scd.vram_gb || 0;
+      } catch(_) {}
+      try {
+        const o = await fetch('http://localhost:11434/api/tags'); const od = await o.json();
+        ollamaOk = true;
+        ollamaModels = (od.models || []).map(m => m.name || m.model || m);
+      } catch(_) { ollamaOk = false; }
+
+      let keys = { claude: '', openai: '', anthropic: '' };
+      try {
+        const kr = await fetch('http://127.0.0.1:5001/api/settings/keys'); const kd = await kr.json();
+        keys = { ...keys, ...kd };
+      } catch(_) {}
+
+      const modelRows = LOCAL_MODELS.map(m => {
+        const installed = ollamaModels.some(n => n.startsWith(m.id.split(':')[0]));
+        const tooHeavy  = vram > 0 && m.vram > vram;
+        const isActive  = model === m.id || model.startsWith(m.id.split(':')[0]);
+        return `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;margin-bottom:6px;
+                    background:${isActive ? 'rgba(16,163,127,0.1)' : 'var(--bg-tertiary)'};
+                    border:1px solid ${isActive ? 'rgba(16,163,127,0.4)' : 'var(--border-subtle)'};">
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-weight:600;font-size:13px;color:var(--text-primary);">${m.label}</span>
+              <span style="font-size:11px;color:var(--text-muted);">${m.speed}</span>
+              ${isActive ? '<span style="font-size:10px;background:rgba(16,163,127,0.2);color:#10a37f;padding:2px 7px;border-radius:999px;border:1px solid rgba(16,163,127,0.4);">ACTIVE</span>' : ''}
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${m.note} · ${m.size} · ${m.vram}GB VRAM min</div>
+            ${tooHeavy ? '<div style="font-size:11px;color:#ef4444;margin-top:2px;">⚠ May be too heavy for your system (' + vram + 'GB detected)</div>' : ''}
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            ${installed
+              ? `<button class="panel-btn" style="font-size:11px;padding:4px 10px;${isActive?'opacity:0.5;':''}background:rgba(16,163,127,0.15);border-color:rgba(16,163,127,0.4);color:#10a37f;"
+                   onclick="settingsSetModel('${m.id}',this)" ${isActive?'disabled':''}>
+                   ${isActive ? '✓ Active' : 'Use'}</button>`
+              : `<button class="panel-btn" style="font-size:11px;padding:4px 10px;"
+                   onclick="settingsDownloadModel('${m.id}',this)">↓ Download</button>`}
+          </div>
+        </div>`;
+      }).join('');
+
+      container.innerHTML = `
+        <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--border-subtle);">
+          API &amp; Model Settings
+        </div>
+
+        <div class="panel-section-title">API Keys</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+          <div>
+            <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">OpenAI API Key</label>
+            <div style="display:flex;gap:6px;">
+              <input id="set-openai-key" type="password" placeholder="sk-..." value="${escapeHtml(keys.openai||'')}"
+                style="flex:1;background:var(--bg-tertiary);border:1px solid var(--border-normal);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);">
+              <button class="panel-btn" style="font-size:12px;padding:6px 12px;" onclick="settingsSaveKey('openai')">Save</button>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Anthropic / Claude API Key</label>
+            <div style="display:flex;gap:6px;">
+              <input id="set-claude-key" type="password" placeholder="sk-ant-..." value="${escapeHtml(keys.claude||keys.anthropic||'')}"
+                style="flex:1;background:var(--bg-tertiary);border:1px solid var(--border-normal);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);">
+              <button class="panel-btn" style="font-size:12px;padding:6px 12px;" onclick="settingsSaveKey('claude')">Save</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-section-title" style="margin-bottom:8px;">
+          Local Models
+          <span style="font-size:10px;color:var(--text-muted);font-weight:400;float:right;">
+            Ollama: ${ollamaOk ? '<span style="color:#10a37f;">● Connected</span>' : '<span style="color:#ef4444;">● Offline</span>'}
+            ${vram > 0 ? '&nbsp;·&nbsp;'+vram+'GB VRAM' : ''}
+          </span>
+        </div>
+        <div id="settings-model-list">${modelRows}</div>
+        <div id="settings-model-status" style="font-size:12px;color:var(--text-muted);margin-top:8px;min-height:18px;"></div>`;
+    }
+
+    window.settingsSetModel = async function(modelId, btn) {
+      const orig = btn.textContent; btn.textContent = '⏳'; btn.disabled = true;
+      try {
+        await fetch('http://127.0.0.1:5001/api/settings/model', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({model: modelId})
+        });
+        document.getElementById('settings-model-status').textContent = `✓ Active model set to ${modelId}`;
+        await loadSettingsPanel(document.getElementById('panel-content'));
+      } catch(e) {
+        document.getElementById('settings-model-status').textContent = `Error: ${e.message}`;
+        btn.textContent = orig; btn.disabled = false;
+      }
+    };
+
+    window.settingsDownloadModel = async function(modelId, btn) {
+      btn.textContent = '⏳ Pulling...'; btn.disabled = true;
+      const statusEl = document.getElementById('settings-model-status');
+      if (statusEl) statusEl.textContent = `Downloading ${modelId}… This may take several minutes.`;
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/settings/model/pull', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({model: modelId})
+        });
+        const d = await r.json();
+        if (statusEl) statusEl.textContent = d.status === 'ok' ? `✓ ${modelId} downloaded.` : `Pull started. Check Log for progress.`;
+        btn.textContent = 'Pulling…';
+        // Poll until done then reload
+        const poll = setInterval(async () => {
+          try {
+            const pr = await fetch(`http://127.0.0.1:5001/api/settings/model/pull/status?model=${encodeURIComponent(modelId)}`);
+            const pd = await pr.json();
+            if (pd.done) { clearInterval(poll); await loadSettingsPanel(document.getElementById('panel-content')); }
+            else if (statusEl && pd.progress) statusEl.textContent = `Downloading ${modelId}: ${pd.progress}%`;
+          } catch(_) {}
+        }, 3000);
+      } catch(e) {
+        if (statusEl) statusEl.textContent = `Error: ${e.message}`;
+        btn.textContent = '↓ Download'; btn.disabled = false;
+      }
+    };
+
+    window.settingsSaveKey = async function(provider) {
+      const inputId = provider === 'openai' ? 'set-openai-key' : 'set-claude-key';
+      const val = (document.getElementById(inputId)||{}).value || '';
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/settings/keys', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({provider, key: val})
+        });
+        const d = await r.json();
+        const statusEl = document.getElementById('settings-model-status');
+        if (statusEl) statusEl.textContent = d.status === 'ok' ? `✓ ${provider} key saved.` : `Error saving key.`;
+      } catch(e) {
+        const statusEl = document.getElementById('settings-model-status');
+        if (statusEl) statusEl.textContent = `Error: ${e.message}`;
+      }
+    };
+
     // ── GUARDIAN PANEL ────────────────────────────────────────────────────────
     async function loadGuardianPanel(container, savedState) {
       const restoredMode = (savedState && savedState.mode) || window._guardianMode || 'defend';
@@ -2299,37 +2456,68 @@
       if (!inp || !inp.value.trim()) return;
       const q = inp.value.trim(); inp.value = '';
       _appendGuardianChatMsg('user', q);
-      // Show thinking indicator
-      _appendGuardianChatMsg('sentinel', '⟳ Processing...');
+      _appendGuardianChatMsg('sentinel', '⟳ Thinking...');
+
+      // Abort after 120s so the UI never truly locks
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 120000);
+
+      function _removeThinking() {
+        const all = document.querySelectorAll('#guardian-chat-messages .g-msg-ai');
+        if (all.length > 0) {
+          const last = all[all.length - 1];
+          if (last && (last.textContent.includes('⟳') || last.textContent.includes('Thinking'))) last.remove();
+        }
+      }
+
       try {
         const r = await fetch('http://127.0.0.1:5001/guardian/chat', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({message: q, mode: window._guardianMode})
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({message: q, mode: window._guardianMode}),
+          signal: ctrl.signal,
         });
+        clearTimeout(timer);
         const d = await r.json();
-        // Remove thinking indicator
-        const msgs = document.querySelectorAll('#guardian-chat-messages .g-msg-ai');
-        if (msgs.length > 0) {
-          const lastMsg = msgs[msgs.length - 1];
-          if (lastMsg && (lastMsg.textContent.includes('⟳') || lastMsg.textContent.includes('Processing'))) {
-            lastMsg.remove();
-          }
-        }
+        _removeThinking();
         const resp = d.response || d.message || d.result || '';
         if (resp) _appendGuardianChatMsg('sentinel', resp);
-        // Full assessment result may also come via guardian_response socket event
-      } catch(e) {
-        // Remove thinking indicator on error
-        const msgs = document.querySelectorAll('#guardian-chat-messages .g-msg-ai');
-        if (msgs.length > 0) {
-          const lastMsg = msgs[msgs.length - 1];
-          if (lastMsg && (lastMsg.textContent.includes('⟳') || lastMsg.textContent.includes('Processing'))) {
-            lastMsg.remove();
-          }
+        // If assessment started, note that results arrive via socket
+        if (d.requires_confirmation || d.scanning || d.authorized) {
+          _appendGuardianChatMsg('sentinel', '_Assessment results will appear below as each tool completes. Watch the Guardian Log for live output._');
         }
-        _appendGuardianChatMsg('error', `Error: ${e.message}`);
+      } catch(e) {
+        clearTimeout(timer);
+        _removeThinking();
+        const msg = e.name === 'AbortError'
+          ? 'Request timed out (120s). Guardian may still be working — check the Log tab.'
+          : `Error: ${e.message}`;
+        _appendGuardianChatMsg('error', msg);
       }
     };
+
+    // Wire guardian_response socket events into the chat panel
+    function _attachGuardianSocketListener() {
+      if (!window._sharedSocket) return;
+      window._sharedSocket.off('guardian_response');
+      window._sharedSocket.on('guardian_response', (data) => {
+        const msgs = document.getElementById('guardian-chat-messages');
+        if (!msgs) {
+          // Panel not open — queue it
+          if (!panelState.guardian.pendingResponses) panelState.guardian.pendingResponses = [];
+          panelState.guardian.pendingResponses.push(data);
+          return;
+        }
+        const resp = data.response || '';
+        if (resp) _appendGuardianChatMsg('sentinel', `**Assessment complete for ${data.target || 'target'}:**\n\n${resp}`);
+      });
+    }
+    // Attach once socket is ready (may be called again on panel open)
+    document.addEventListener('DOMContentLoaded', () => {
+      const _waitSocket = setInterval(() => {
+        if (window._sharedSocket) { _attachGuardianSocketListener(); clearInterval(_waitSocket); }
+      }, 500);
+    });
 
     // ── SCALP PANEL ───────────────────────────────────────────────────────────
     async function loadScalpPanel(container, savedState) {

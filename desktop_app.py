@@ -914,6 +914,123 @@ def api_status():
     return jsonify({**data, "status": "ok", "data": data, "error": None})
 
 
+@app.route('/api/config')
+def api_config():
+    """Return current model config and detected hardware."""
+    try:
+        cfg_path = Path(__file__).parent / "config" / "model_config.json"
+        cfg = {}
+        if cfg_path.exists():
+            with open(cfg_path) as f:
+                import json as _j; cfg = _j.load(f)
+        vram = 0
+        try:
+            import subprocess as _sp
+            r = _sp.run(['nvidia-smi','--query-gpu=memory.total','--format=csv,noheader,nounits'],
+                        capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                vram = round(int(r.stdout.strip().split('\n')[0]) / 1024, 1)
+        except Exception: pass
+        return jsonify({"status": "ok", "active_model": cfg.get("model", os.getenv("AIDER_MODEL","ollama/qwen2.5-coder:14b")),
+                        "vram_gb": vram, "config": cfg})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+@app.route('/api/settings/keys', methods=['GET'])
+def api_settings_keys_get():
+    """Return masked API keys."""
+    keys = {}
+    for k, env in [('openai','OPENAI_API_KEY'),('claude','ANTHROPIC_API_KEY')]:
+        v = os.getenv(env, '')
+        keys[k] = ('*' * (len(v)-4) + v[-4:]) if len(v) > 4 else (v if v else '')
+    return jsonify({"status": "ok", **keys})
+
+@app.route('/api/settings/keys', methods=['POST'])
+def api_settings_keys_post():
+    """Save an API key to the .env file."""
+    try:
+        data = request.get_json() or {}
+        provider = data.get('provider', '')
+        key = data.get('key', '').strip()
+        env_map = {'openai': 'OPENAI_API_KEY', 'claude': 'ANTHROPIC_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY'}
+        env_name = env_map.get(provider)
+        if not env_name:
+            return jsonify({"status": "error", "error": "Unknown provider"}), 200
+        env_path = Path(__file__).parent / '.env'
+        lines = env_path.read_text(encoding='utf-8').splitlines() if env_path.exists() else []
+        updated = False
+        for i, line in enumerate(lines):
+            if line.startswith(env_name + '='):
+                lines[i] = f'{env_name}={key}'; updated = True; break
+        if not updated:
+            lines.append(f'{env_name}={key}')
+        env_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        os.environ[env_name] = key
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+@app.route('/api/settings/model', methods=['POST'])
+def api_settings_model_post():
+    """Switch the active local model."""
+    try:
+        data = request.get_json() or {}
+        model_id = data.get('model', '').strip()
+        if not model_id:
+            return jsonify({"status": "error", "error": "model required"}), 200
+        cfg_path = Path(__file__).parent / "config" / "model_config.json"
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        import json as _j
+        cfg = _j.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+        cfg['model'] = model_id
+        cfg_path.write_text(_j.dumps(cfg, indent=2))
+        os.environ['AIDER_MODEL'] = f'ollama/{model_id}'
+        return jsonify({"status": "ok", "model": model_id})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+# Track pull progress in memory
+_pull_status: dict = {}
+
+@app.route('/api/settings/model/pull', methods=['POST'])
+def api_settings_model_pull():
+    """Start pulling a model from Ollama in the background."""
+    import threading, json as _j, requests as _req
+    data = request.get_json() or {}
+    model_id = data.get('model', '').strip()
+    if not model_id:
+        return jsonify({"status": "error", "error": "model required"}), 200
+    _pull_status[model_id] = {'done': False, 'progress': 0}
+
+    def _pull():
+        try:
+            log(f'Pulling Ollama model: {model_id}', 'info', 'settings')
+            resp = _req.post('http://localhost:11434/api/pull',
+                             json={'name': model_id, 'stream': True}, stream=True, timeout=1800)
+            for line in resp.iter_lines():
+                if line:
+                    try:
+                        d = _j.loads(line)
+                        total = d.get('total', 0); comp = d.get('completed', 0)
+                        pct = int(comp * 100 / total) if total else 0
+                        _pull_status[model_id] = {'done': False, 'progress': pct, 'status': d.get('status','')}
+                        emit_event('log_event', {'type':'settings','level':'info','message': f'Pulling {model_id}: {pct}%',
+                                                  'timestamp': datetime.now().isoformat()})
+                    except Exception: pass
+            _pull_status[model_id] = {'done': True, 'progress': 100}
+            log(f'Model {model_id} pulled successfully', 'success', 'settings')
+        except Exception as exc:
+            _pull_status[model_id] = {'done': True, 'progress': 0, 'error': str(exc)}
+            log(f'Model pull failed: {exc}', 'error', 'settings')
+
+    threading.Thread(target=_pull, daemon=True).start()
+    return jsonify({"status": "ok", "message": f"Pulling {model_id} in background"})
+
+@app.route('/api/settings/model/pull/status')
+def api_settings_model_pull_status():
+    model_id = request.args.get('model', '')
+    return jsonify(_pull_status.get(model_id, {'done': False, 'progress': 0}))
+
 @app.route('/api/health/live')
 def api_health_live():
     """Liveness probe — returns 200 as long as Flask is running."""

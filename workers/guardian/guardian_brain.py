@@ -297,11 +297,15 @@ Be specific and reference actual data from the output above."""
         'i approve', 'confirmed', 'yes i own', 'i have authorization',
         'authorized', 'its my', "it's my", 'i own it', 'i own this',
         'my website', 'my server', 'my system', 'my domain',
+        'yes', 'yep', 'yup', 'go ahead', 'proceed', 'do it',
+        'confirm', 'approve', 'i confirm', 'i authorize', 'i give permission',
     ]
-    # Keywords that indicate a scan request
+    # Keywords that indicate a scan/attack request
     _SCAN_KEYWORDS = [
         'scan', 'check', 'test', 'audit', 'vulnerabilities', 'pentest',
-        'assess', 'recon', 'enumerate', 'probe',
+        'assess', 'recon', 'enumerate', 'probe', 'penetrate', 'attack',
+        'exploit', 'hack', 'find vulnerabilities', 'security test',
+        'find a way', 'break into', 'get into',
     ]
 
     def chat(self, user_message: str) -> Dict:
