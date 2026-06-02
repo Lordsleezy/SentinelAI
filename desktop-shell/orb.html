@@ -679,6 +679,11 @@
     .ticker-chg.up { color: #00ff88; font-size: 11px; }
     .ticker-chg.down { color: #ff4444; font-size: 11px; }
 
+    /* Market panel tabs */
+    .mkt-tab { background: #0a0a1a; border: 1px solid rgba(0,255,255,0.2); color: rgba(0,255,255,0.6); padding: 4px 10px; cursor: pointer; font-family: monospace; font-size: 11px; border-radius: 4px; transition: all 0.15s; }
+    .mkt-tab:hover { background: rgba(0,255,255,0.08); color: #0ff; }
+    .mkt-tab.active { background: rgba(0,255,255,0.15); color: #0ff; border-color: rgba(0,255,255,0.5); }
+
     /* Guardian panel */
     .mode-selector { display: flex; gap: 6px; margin-bottom: 12px; }
     .mode-btn-p { padding: 5px 12px; border: 1px solid rgba(255,255,255,0.12); background: #111; color: #888; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 700; transition: all 0.15s; }
@@ -1517,48 +1522,186 @@
     };
 
     // ── MARKET PANEL ──────────────────────────────────────────────────────────
+    let _mktSymbol = 'BINANCE:BTCUSDT';
+    let _mktInterval = '1';
+
     async function loadMarketPanel(container) {
+      if (window._marketInterval) { clearInterval(window._marketInterval); window._marketInterval = null; }
       container.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <span style="color:#555;font-size:10px;letter-spacing:1px;">MARKET OVERVIEW</span>
-          <span id="market-refresh-time" style="color:#444;font-size:10px;"></span>
-        </div>
-        <div class="ticker-grid" id="market-tickers">
-          ${['BTC','ETH','SPY','QQQ'].map(s => `
-            <div class="ticker-card" id="ticker-${s}">
-              <div class="ticker-sym">${s}</div>
-              <div class="ticker-price" id="price-${s}">—</div>
-              <div class="ticker-chg" id="chg-${s}"></div>
-            </div>`).join('')}
-        </div>
-        <div class="panel-section-title">Portfolio</div>
-        <div id="market-portfolio" style="color:#444;font-size:12px;">Loading portfolio...</div>`;
-      marketRefresh();
-      window._marketInterval = setInterval(marketRefresh, 30000);
+        <div id="market-panel" style="display:flex;flex-direction:column;height:100%;gap:6px;padding:4px 0;">
+          <!-- Tab row -->
+          <div style="display:flex;gap:5px;flex-wrap:wrap;">
+            <button class="mkt-tab active" onclick="switchMarketTab('chart',this)">📈 Chart</button>
+            <button class="mkt-tab" onclick="switchMarketTab('crypto',this)">₿ Crypto</button>
+            <button class="mkt-tab" onclick="switchMarketTab('stocks',this)">📊 Stocks</button>
+            <button class="mkt-tab" onclick="switchMarketTab('prediction',this)">🎯 Prediction</button>
+          </div>
+          <!-- Symbol search -->
+          <div style="display:flex;gap:5px;">
+            <input id="mkt-symbol-input" type="text" placeholder="Search symbol… BTC, AAPL, SOL"
+              style="flex:1;background:#0a0a1a;border:1px solid rgba(0,255,255,0.2);color:#fff;padding:5px 9px;font-family:monospace;font-size:11px;border-radius:4px;outline:none;"
+              onkeydown="if(event.key==='Enter')loadMktSymbol()"/>
+            <button onclick="loadMktSymbol()" style="background:rgba(0,255,255,0.1);border:1px solid rgba(0,255,255,0.4);color:#0ff;padding:5px 10px;cursor:pointer;font-family:monospace;font-size:11px;border-radius:4px;">GO</button>
+          </div>
+          <!-- Timeframe buttons -->
+          <div id="mkt-timeframes" style="display:flex;gap:4px;">
+            ${[['1','1s'],['1','1m'],['5','5m'],['15','15m'],['60','1h'],['D','1d']].map(([iv,lb]) =>
+              `<button onclick="setMktTimeframe('${iv}')" style="background:#0a0a1a;border:1px solid rgba(0,255,255,0.15);color:#0ff9;padding:2px 7px;cursor:pointer;font-family:monospace;font-size:10px;border-radius:3px;">${lb}</button>`
+            ).join('')}
+          </div>
+          <!-- TradingView chart -->
+          <div id="tv-chart-container" style="flex:1;min-height:280px;border:1px solid rgba(0,255,255,0.15);border-radius:4px;overflow:hidden;"></div>
+          <!-- Quick tickers -->
+          <div id="quick-tickers" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0;font-family:monospace;font-size:11px;flex-shrink:0;"></div>
+          <!-- Prediction markets container (hidden by default) -->
+          <div id="prediction-container" style="display:none;flex:1;overflow-y:auto;"></div>
+        </div>`;
+
+      loadTVChart(_mktSymbol, _mktInterval);
+      loadQuickTickers();
+      window._marketInterval = setInterval(loadQuickTickers, 30000);
     }
 
-    async function marketRefresh() {
+    function loadTVChart(symbol, interval) {
+      _mktSymbol = symbol;
+      _mktInterval = interval;
+      const container = document.getElementById('tv-chart-container');
+      if (!container) return;
+      container.innerHTML = '';
+      const wrapper = document.createElement('div');
+      wrapper.className = 'tradingview-widget-container';
+      wrapper.style.cssText = 'height:100%;width:100%;';
+      const widgetDiv = document.createElement('div');
+      widgetDiv.className = 'tradingview-widget-container__widget';
+      widgetDiv.style.cssText = 'height:100%;width:100%;';
+      const script = document.createElement('script');
+      script.type = 'text/javascript';
+      script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+      script.async = true;
+      script.innerHTML = JSON.stringify({
+        autosize: true, symbol, interval,
+        timezone: 'America/Los_Angeles',
+        theme: 'dark', style: '1', locale: 'en',
+        backgroundColor: 'rgba(0,0,20,1)',
+        gridColor: 'rgba(0,68,255,0.06)',
+        hide_top_toolbar: false, hide_legend: false,
+        save_image: false, calendar: false, hide_volume: false,
+        support_host: 'https://www.tradingview.com'
+      });
+      wrapper.appendChild(widgetDiv);
+      wrapper.appendChild(script);
+      container.appendChild(wrapper);
+    }
+
+    window.loadMktSymbol = function() {
+      const inp = document.getElementById('mkt-symbol-input');
+      if (!inp || !inp.value.trim()) return;
+      let sym = inp.value.trim().toUpperCase();
+      const cryptos = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','MATIC','LINK'];
+      if (cryptos.includes(sym)) sym = `BINANCE:${sym}USDT`;
+      loadTVChart(sym, _mktInterval);
+      inp.value = '';
+    };
+
+    window.setMktTimeframe = function(interval) { loadTVChart(_mktSymbol, interval); };
+
+    window.switchMarketTab = function(tab, btn) {
+      document.querySelectorAll('.mkt-tab').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      const chart = document.getElementById('tv-chart-container');
+      const tfs = document.getElementById('mkt-timeframes');
+      const pred = document.getElementById('prediction-container');
+      switch(tab) {
+        case 'chart':
+          if (chart) chart.style.display = 'block';
+          if (tfs) tfs.style.display = 'flex';
+          if (pred) pred.style.display = 'none';
+          break;
+        case 'crypto':
+          loadTVChart('BINANCE:BTCUSDT', _mktInterval);
+          if (chart) chart.style.display = 'block';
+          if (tfs) tfs.style.display = 'flex';
+          if (pred) pred.style.display = 'none';
+          break;
+        case 'stocks':
+          loadTVChart('NASDAQ:AAPL', _mktInterval);
+          if (chart) chart.style.display = 'block';
+          if (tfs) tfs.style.display = 'flex';
+          if (pred) pred.style.display = 'none';
+          break;
+        case 'prediction':
+          if (chart) chart.style.display = 'none';
+          if (tfs) tfs.style.display = 'none';
+          if (pred) pred.style.display = 'block';
+          loadPredictionMarkets();
+          break;
+      }
+    };
+
+    async function loadQuickTickers() {
       try {
         const r = await fetch('http://127.0.0.1:5001/market/summary');
         const d = await r.json();
-        const prices = d.quotes || d.prices || d.data || {};
-        for (const [sym, info] of Object.entries(prices)) {
-          const priceEl = document.getElementById(`price-${sym}`);
-          const chgEl = document.getElementById(`chg-${sym}`);
-          if (priceEl) priceEl.textContent = info.price ? `$${Number(info.price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '—';
-          if (chgEl) {
-            const chg = info.change_pct || info.change_24h || info.change || 0;
-            chgEl.textContent = chg ? `${chg > 0 ? '+' : ''}${Number(chg).toFixed(2)}%` : '';
-            chgEl.className = `ticker-chg ${chg >= 0 ? 'up' : 'down'}`;
-          }
-        }
+        const quotes = d.quotes || {};
+        const container = document.getElementById('quick-tickers');
+        if (!container) return;
+        container.innerHTML = '';
+        Object.entries(quotes).forEach(([symbol, info]) => {
+          const chg = info.change_pct || info.change_24h || 0;
+          const price = info.price || 0;
+          const isPos = chg >= 0;
+          const chip = document.createElement('div');
+          chip.style.cssText = `background:#0a0a1a;border:1px solid rgba(0,255,255,0.15);border-radius:4px;padding:3px 8px;cursor:pointer;white-space:nowrap;`;
+          chip.innerHTML = `<span style="color:#0ff;">${symbol}</span> <span style="color:${isPos?'#0f0':'#f44'}">$${Number(price).toLocaleString()} ${isPos?'▲':'▼'}${Math.abs(chg).toFixed(2)}%</span>`;
+          chip.onclick = () => {
+            const tvSym = ['BTC','ETH','SOL'].includes(symbol) ? `BINANCE:${symbol}USDT` : symbol;
+            loadTVChart(tvSym, _mktInterval);
+          };
+          container.appendChild(chip);
+        });
         const t = document.getElementById('market-refresh-time');
         if (t) t.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+      } catch(e) { /* silent fail */ }
+    }
+
+    async function loadPredictionMarkets() {
+      const container = document.getElementById('prediction-container');
+      if (!container) return;
+      container.innerHTML = '<div style="color:#0ff;padding:12px;font-family:monospace;font-size:12px;">Loading prediction markets...</div>';
+      try {
+        const r = await fetch('http://127.0.0.1:5001/market/prediction');
+        const d = await r.json();
+        let html = '<div style="font-family:monospace;font-size:11px;padding:4px;">';
+        html += '<div style="color:#0ff;margin-bottom:8px;font-size:12px;font-weight:700;">🎯 POLYMARKET</div>';
+        if (d.polymarket && d.polymarket.length) {
+          d.polymarket.forEach(m => {
+            html += `<div style="background:#0a0a1a;border:1px solid rgba(0,255,255,0.12);border-radius:4px;padding:8px;margin-bottom:6px;cursor:pointer;" onclick="window.open('${escapeHtml(m.url)}','_blank')">
+              <div style="color:#ddd;margin-bottom:4px;">${escapeHtml(m.question||'')}</div>
+              <div><span style="color:#0f0;">YES ${escapeHtml(String(m.yes_price||'?'))}</span> &nbsp;·&nbsp; <span style="color:#f44;">NO ${escapeHtml(String(m.no_price||'?'))}</span> &nbsp;·&nbsp; <span style="color:#666;">Vol $${Number(m.volume||0).toLocaleString()}</span></div>
+            </div>`;
+          });
+        } else {
+          html += `<div style="color:#555;padding:6px;">${d.polymarket_error ? 'Error: '+escapeHtml(d.polymarket_error) : 'No markets loaded'}</div>`;
+        }
+        html += '<div style="color:#0ff;margin:10px 0 8px;font-size:12px;font-weight:700;">📊 KALSHI</div>';
+        if (d.kalshi && d.kalshi.length) {
+          d.kalshi.forEach(m => {
+            html += `<div style="background:#0a0a1a;border:1px solid rgba(0,255,255,0.12);border-radius:4px;padding:8px;margin-bottom:6px;">
+              <div style="color:#ddd;margin-bottom:4px;">${escapeHtml(m.title||'')}</div>
+              <div><span style="color:#0f0;">YES ${escapeHtml(String(m.yes_price||'?'))}¢</span> &nbsp;·&nbsp; <span style="color:#f44;">NO ${escapeHtml(String(m.no_price||'?'))}¢</span></div>
+            </div>`;
+          });
+        } else {
+          html += `<div style="color:#555;padding:6px;">${d.kalshi_error ? 'Error: '+escapeHtml(d.kalshi_error) : 'Kalshi markets unavailable'}</div>`;
+        }
+        html += '</div>';
+        container.innerHTML = html;
       } catch(e) {
-        const t = document.getElementById('market-refresh-time');
-        if (t) t.textContent = 'Refresh failed';
+        container.innerHTML = `<div style="color:#f44;padding:12px;font-family:monospace;font-size:12px;">Failed to load prediction markets: ${escapeHtml(e.message)}</div>`;
       }
     }
+
+    async function marketRefresh() { await loadQuickTickers(); }
 
     // ── GUARDIAN PANEL ────────────────────────────────────────────────────────
     async function loadGuardianPanel(container, savedState) {
@@ -1904,6 +2047,7 @@
             `<button class="log-filter-btn ${f==='all'?'active':''}" onclick="memorySetFilter('${f}')">${f.toUpperCase()}</button>`
           ).join('')}
         </div>
+        <div id="memory-purge-warning" style="display:none;"></div>
         <div id="memory-stats" style="font-size:11px;color:#555;margin-bottom:12px;">Loading stats...</div>
         <div class="panel-section-title">Recent Memories</div>
         <div id="memory-list" style="font-size:12px;">Loading...</div>
@@ -1953,6 +2097,39 @@
       document.querySelectorAll('#memory-filters .log-filter-btn').forEach(b =>
         b.classList.toggle('active', b.textContent.toLowerCase() === filter));
       memoryLoad(filter, document.getElementById('memory-search')?.value || '');
+
+      // Show purge warning for unconnected sources
+      const purgeWarn = document.getElementById('memory-purge-warning');
+      if (purgeWarn) {
+        if (filter === 'claude' || filter === 'chatgpt') {
+          const label = filter === 'claude' ? 'Claude' : 'ChatGPT';
+          purgeWarn.innerHTML = `
+            <div style="background:#1a0a00;border:1px solid #f804;border-radius:5px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:#f84;">
+              ⚠ ${label} not connected — these memories may be from testing.
+              <button onclick="memoryPurgeSource('${filter}')"
+                style="margin-left:8px;background:#f803;border:1px solid #f84;color:#f84;padding:2px 8px;cursor:pointer;font-family:monospace;font-size:11px;border-radius:3px;">
+                Purge ${label} memories
+              </button>
+            </div>`;
+          purgeWarn.style.display = 'block';
+        } else {
+          purgeWarn.innerHTML = '';
+          purgeWarn.style.display = 'none';
+        }
+      }
+    };
+
+    window.memoryPurgeSource = async function(source) {
+      if (!confirm(`Delete ALL memories from source: ${source}? This cannot be undone.`)) return;
+      try {
+        const r = await fetch(`http://127.0.0.1:5001/memory/purge/source/${source}`, {method: 'DELETE'});
+        const d = await r.json();
+        const purgeWarn = document.getElementById('memory-purge-warning');
+        if (purgeWarn) { purgeWarn.innerHTML = `<div style="color:#0f0;font-size:11px;padding:4px;">✓ Purged ${d.purged || 0} memories from ${source}.</div>`; }
+        setTimeout(() => memoryLoad(window._memoryFilter || 'all'), 500);
+      } catch(e) {
+        alert('Purge failed: ' + e.message);
+      }
     };
     window.memorySearch = function(query) {
       memoryLoad(window._memoryFilter || 'all', query);
@@ -2488,40 +2665,66 @@
             // If log panel is open and listening, logPanelHandler handles it
           });
 
+          // Guardian tool execution results arrive via this event (background thread)
+          socket.on('guardian_response', (data) => {
+            _appendGuardianChatMsg('sentinel', data.response || 'Assessment complete.');
+          });
+
           socket.on('forge_complete', (data) => {
             let chatMsg = '';
-            if (data.success && data.files_modified && data.files_modified.length > 0) {
-              let msg = `✓ Build complete. ${data.files_modified.length} file(s) created:\n`;
-              data.files_modified.forEach(f => { msg += `  📄 ${f}\n`; });
-              if (data.entry_point) {
-                msg += `\nMain file: ${data.entry_point}`;
-                window.pendingLaunch = data.entry_point;
-              }
-              chatMsg = msg;
-              showChatResponse(msg);
-              // Add launch button if entry_point exists
-              if (data.entry_point) {
-                const ra = document.getElementById('response-area');
-                if (ra) {
-                  const launchBtn = document.createElement('button');
-                  launchBtn.textContent = '▶ Launch';
-                  launchBtn.style.cssText = 'background:rgba(0,255,255,0.1);border:1px solid rgba(0,255,255,0.4);color:#0ff;padding:6px 14px;cursor:pointer;margin-top:10px;font-family:monospace;display:block;border-radius:4px;';
-                  launchBtn.onclick = () => {
-                    fetch('http://localhost:5001/api/launch', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:data.entry_point})});
-                    launchBtn.textContent = '▶ Launching...'; launchBtn.disabled = true;
-                  };
-                  ra.appendChild(launchBtn);
+
+            if (data.success) {
+              if (data.files_modified && data.files_modified.length > 0) {
+                chatMsg = `✓ Build complete.\n\nFiles created:\n`;
+                data.files_modified.forEach(f => { chatMsg += `  📄 ${f}\n`; });
+                if (data.entry_point) {
+                  chatMsg += `\nMain file: ${data.entry_point}`;
+                  window.pendingLaunch = data.entry_point;
                 }
+              } else if (data.output_dir) {
+                chatMsg = `✓ Build complete.\n\nOutput directory: ${data.output_dir}\nCheck the Log tab for created files.`;
+                if (data.entry_point) {
+                  chatMsg += `\nEntry point: ${data.entry_point}`;
+                  window.pendingLaunch = data.entry_point;
+                }
+              } else {
+                chatMsg = '✓ Build complete. Check the Log tab for details.';
               }
-            } else if (!data.success) {
-              chatMsg = `✗ Build stopped: ${data.error || 'Unknown error'}\n${data.message || ''}\n${data.files_modified && data.files_modified.length ? 'Partial files: ' + data.files_modified.join(', ') : 'No files created.'}\nCheck the Log tab for details.`;
-              showChatResponse(`✗ Build failed.\nError: ${data.error || 'See Log panel for details.'}`);
             } else {
-              chatMsg = '✓ Done. Check Log panel for details.';
-              showChatResponse(chatMsg);
+              chatMsg = `✗ Build stopped: ${data.error || 'Unknown error'}\n`;
+              if (data.files_modified && data.files_modified.length > 0) {
+                chatMsg += `Partial files:\n`;
+                data.files_modified.forEach(f => { chatMsg += `  📄 ${f}\n`; });
+              } else {
+                chatMsg += 'No files created.\n';
+              }
+              chatMsg += `\nCheck the LOG → AIDER filter for details.`;
             }
-            // Always show build result in chat panel
-            if (chatMsg) appendChatPanelMessage('sentinel', chatMsg);
+
+            appendChatPanelMessage('sentinel', chatMsg);
+
+            // Add launch button to last chat message if entry_point is available
+            if (data.success && data.entry_point) {
+              const msgs = document.querySelectorAll('#chat-messages .chat-msg');
+              const lastMsg = msgs[msgs.length - 1];
+              if (lastMsg) {
+                const btn = document.createElement('button');
+                btn.textContent = '▶ Launch';
+                btn.style.cssText = 'display:block;margin-top:8px;background:rgba(0,255,255,0.1);border:1px solid rgba(0,255,255,0.5);color:#0ff;padding:6px 16px;cursor:pointer;font-family:monospace;font-size:12px;border-radius:4px;';
+                btn.onclick = () => {
+                  fetch('http://localhost:5001/api/launch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({file: data.entry_point})
+                  });
+                  btn.textContent = '▶ Launching...';
+                  btn.disabled = true;
+                  setTimeout(() => { btn.textContent = '✓ Launched'; }, 2000);
+                };
+                lastMsg.appendChild(btn);
+              }
+            }
+
             orbState = 'idle'; renderOrb();
           });
         } catch(e) {

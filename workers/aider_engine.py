@@ -304,11 +304,27 @@ class AiderEngine:
         )
         _emit(self.socketio, f"Building: {description[:100]}", "info", "forge")
         result = self._run_aider(prompt, files=files, cwd=cwd)
-        # If aider didn't detect files but we know the output path, include stub
+
+        # Fallback: scan the output directory for all files if pattern detection missed them.
+        # Aider's output format varies by version — scanning the dir is the reliable fallback.
+        if output_path:
+            out_path = Path(output_path)
+            all_found: list[str] = []
+            for ext in ("*.py", "*.html", "*.js", "*.ts", "*.sh", "*.txt"):
+                for f in out_path.rglob(ext):
+                    fs = str(f)
+                    if fs not in all_found:
+                        all_found.append(fs)
+            for fs in all_found:
+                if fs not in result.files_modified:
+                    result.files_modified.append(fs)
+
+        # If stub was the only thing detected and the dir has more files, prefer the full set
         if result.success and not result.files_modified and files:
             for f in files:
                 if os.path.exists(f) and f not in result.files_modified:
                     result.files_modified.append(f)
+
         if result.files_modified and not result.entry_point:
             result.entry_point = _detect_entry_point(result.files_modified)
         return result
