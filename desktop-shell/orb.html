@@ -1198,6 +1198,61 @@
       </div>
     </div>
 
+    <!-- ── AI Account Setup Modal ── -->
+    <div id="ai-account-modal" style="display:none;position:fixed;inset:0;z-index:9000;
+         background:rgba(0,0,0,0.82);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+      <div style="background:#080812;border:1px solid rgba(0,255,136,0.3);border-radius:14px;
+                  padding:28px 32px;width:420px;max-width:96vw;max-height:90vh;overflow-y:auto;
+                  box-shadow:0 24px 64px rgba(0,0,0,0.7);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <h3 style="color:#00ff88;font-size:15px;letter-spacing:1px;">🔑 AI Account Setup</h3>
+          <button onclick="closeAiAccountModal()"
+            style="background:none;border:none;color:#555;cursor:pointer;font-size:18px;line-height:1;">✕</button>
+        </div>
+        <div style="font-size:11px;color:#666;margin-bottom:16px;">
+          Save your credentials to enable AI provider connections. Credentials are encrypted locally.
+        </div>
+
+        <label style="display:block;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Provider</label>
+        <select id="ai-provider-select" onchange="onAiProviderChange()"
+          style="width:100%;padding:8px 10px;background:#0a0a16;border:1px solid rgba(255,255,255,0.1);
+                 border-radius:6px;color:#e0e0e0;font-size:13px;margin-bottom:12px;outline:none;">
+          <option value="claude">Claude.ai</option>
+          <option value="chatgpt">ChatGPT</option>
+        </select>
+
+        <label style="display:block;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Email</label>
+        <input id="ai-email-input" type="email" placeholder="your@email.com" autocomplete="off"
+          style="width:100%;padding:8px 10px;background:#0a0a16;border:1px solid rgba(255,255,255,0.1);
+                 border-radius:6px;color:#e0e0e0;font-size:13px;margin-bottom:12px;outline:none;" />
+
+        <label style="display:block;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Password</label>
+        <input id="ai-password-input" type="password" placeholder="••••••••••••••" autocomplete="off"
+          style="width:100%;padding:8px 10px;background:#0a0a16;border:1px solid rgba(255,255,255,0.1);
+                 border-radius:6px;color:#e0e0e0;font-size:13px;margin-bottom:12px;outline:none;" />
+
+        <div id="ai-gmail-section">
+          <label style="display:block;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">
+            Gmail for 2FA <span style="color:#444;text-transform:none;letter-spacing:0;">(optional)</span>
+          </label>
+          <input id="ai-gmail-input" type="email" placeholder="you@gmail.com (for 2FA codes)" autocomplete="off"
+            style="width:100%;padding:8px 10px;background:#0a0a16;border:1px solid rgba(255,255,255,0.1);
+                   border-radius:6px;color:#e0e0e0;font-size:13px;margin-bottom:16px;outline:none;" />
+        </div>
+
+        <button onclick="saveAiAccountCredentials()" id="ai-save-btn"
+          style="width:100%;padding:12px;background:linear-gradient(135deg,#006633,#00ff88);
+                 color:#000;border:none;border-radius:8px;font-size:14px;font-weight:700;
+                 cursor:pointer;letter-spacing:0.5px;">
+          Save Credentials
+        </button>
+        <div id="ai-account-status" style="margin-top:12px;font-size:12px;text-align:center;min-height:18px;"></div>
+        <div style="margin-top:12px;font-size:10px;color:#333;text-align:center;line-height:1.5;">
+          🔒 Credentials are encrypted with a machine-specific key and stored locally only.
+        </div>
+      </div>
+    </div>
+
     <!-- BOTTOM SECTION: credential card + chat input + dock -->
     <!-- ── Credential Setup Card (shown when a worker needs a key) ── -->
     <div id="credential-card" style="display:none;margin:0 12px 8px;background:#0d1a14;
@@ -2778,11 +2833,93 @@
       } catch(e) {}
     }
 
+    // ── AI Account Setup Modal ────────────────────────────────────────────────
+
+    function openAiAccountModal(provider) {
+      const modal = document.getElementById('ai-account-modal');
+      if (!modal) return;
+      const sel = document.getElementById('ai-provider-select');
+      if (sel && provider) sel.value = provider;
+      const statusEl = document.getElementById('ai-account-status');
+      if (statusEl) { statusEl.textContent = ''; statusEl.style.color = '#888'; }
+      modal.style.display = 'flex';
+      setTimeout(() => { const em = document.getElementById('ai-email-input'); if (em) em.focus(); }, 100);
+    }
+
+    function closeAiAccountModal() {
+      const modal = document.getElementById('ai-account-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function onAiProviderChange() { /* placeholder for future per-provider UI tweaks */ }
+
+    window.saveAiAccountCredentials = async function() {
+      const provider = (document.getElementById('ai-provider-select') || {}).value || 'claude';
+      const email = (document.getElementById('ai-email-input') || {}).value || '';
+      const password = (document.getElementById('ai-password-input') || {}).value || '';
+      const gmail = (document.getElementById('ai-gmail-input') || {}).value || '';
+      const statusEl = document.getElementById('ai-account-status');
+      const btn = document.getElementById('ai-save-btn');
+
+      if (!email || !password) {
+        if (statusEl) { statusEl.textContent = '✗ Email and password are required.'; statusEl.style.color = '#ff4444'; }
+        return;
+      }
+
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+      if (statusEl) { statusEl.textContent = '⏳ Encrypting and saving...'; statusEl.style.color = '#888'; }
+
+      try {
+        const payload = {
+          user_name: '',
+          user_email: email,
+          claude_email:    provider === 'claude'  ? email    : '',
+          claude_password: provider === 'claude'  ? password : '',
+          claude_2fa_method: 'none',
+          claude_totp_secret: '',
+          chatgpt_email:    provider === 'chatgpt' ? email    : '',
+          chatgpt_password: provider === 'chatgpt' ? password : '',
+          chatgpt_2fa_method: 'none',
+          chatgpt_totp_secret: '',
+          google_email:    gmail,
+          google_password: '',
+        };
+
+        const r = await fetch('http://127.0.0.1:5001/api/login/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const d = await r.json();
+
+        if (d.status === 'ok' || d.status === 'saved') {
+          if (statusEl) { statusEl.textContent = '✓ Credentials saved.'; statusEl.style.color = '#00ff88'; }
+          log('[LOGIN] Credentials saved for ' + provider, 'success');
+          // Update connection dots
+          setTimeout(() => {
+            closeAiAccountModal();
+            loadMemoryConnectionStatus();
+          }, 1500);
+        } else {
+          if (statusEl) { statusEl.textContent = '✗ ' + (d.error || d.message || 'Save failed.'); statusEl.style.color = '#ff4444'; }
+        }
+      } catch(e) {
+        if (statusEl) { statusEl.textContent = '✗ Network error: ' + e.message; statusEl.style.color = '#ff4444'; }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save Credentials'; }
+      }
+    };
+
+    // Close modal on backdrop click
+    document.getElementById('ai-account-modal')?.addEventListener('click', function(e) {
+      if (e.target === this) closeAiAccountModal();
+    });
+
     window.connectClaude = async function() {
       const btn = document.getElementById('claude-connect-btn');
       const msg = document.getElementById('connection-message');
       if (btn) { btn.textContent = 'Connecting...'; btn.disabled = true; }
-      if (msg) { msg.style.display = 'block'; msg.style.color = '#888'; msg.textContent = 'Opening Claude.ai login...'; }
+      if (msg) { msg.style.display = 'block'; msg.style.color = '#888'; msg.textContent = 'Checking credentials...'; }
       try {
         const r = await fetch('http://127.0.0.1:5001/api/login/connect/claude', { method: 'POST' });
         const data = await r.json();
@@ -2790,9 +2927,11 @@
           if (msg) msg.textContent = '✓ Login attempt started. Check the Log for progress.';
           setTimeout(loadMemoryConnectionStatus, 3000);
         } else if (data.status === 'needs_credentials') {
-          if (msg) { msg.textContent = 'Claude credentials not set. Go to Settings to add them.'; msg.style.color = '#fa0'; }
+          // Show credential modal instead of plain warning
+          if (msg) { msg.textContent = 'Enter credentials below to connect.'; msg.style.color = '#fa0'; }
+          openAiAccountModal('claude');
         } else {
-          if (msg) { msg.textContent = data.message || 'Connection failed. Check your credentials in Settings.'; msg.style.color = '#f44'; }
+          if (msg) { msg.textContent = data.message || 'Connection failed. Check your credentials.'; msg.style.color = '#f44'; }
         }
       } catch(e) {
         if (msg) { msg.textContent = 'Connection error: ' + e.message; msg.style.color = '#f44'; }
@@ -2806,7 +2945,7 @@
       const btn = document.getElementById('chatgpt-connect-btn');
       const msg = document.getElementById('connection-message');
       if (btn) { btn.textContent = 'Connecting...'; btn.disabled = true; }
-      if (msg) { msg.style.display = 'block'; msg.style.color = '#888'; msg.textContent = 'Opening ChatGPT login...'; }
+      if (msg) { msg.style.display = 'block'; msg.style.color = '#888'; msg.textContent = 'Checking credentials...'; }
       try {
         const r = await fetch('http://127.0.0.1:5001/api/login/connect/chatgpt', { method: 'POST' });
         const data = await r.json();
@@ -2814,7 +2953,9 @@
           if (msg) msg.textContent = '✓ Login attempt started. Check the Log for progress.';
           setTimeout(loadMemoryConnectionStatus, 3000);
         } else if (data.status === 'needs_credentials') {
-          if (msg) { msg.textContent = 'ChatGPT credentials not set. Go to Settings to add them.'; msg.style.color = '#fa0'; }
+          // Show credential modal instead of plain warning
+          if (msg) { msg.textContent = 'Enter credentials below to connect.'; msg.style.color = '#fa0'; }
+          openAiAccountModal('chatgpt');
         } else {
           if (msg) { msg.textContent = data.message || 'Connection failed. Check your credentials.'; msg.style.color = '#f44'; }
         }
@@ -3559,9 +3700,52 @@
       btn.disabled = false; btn.textContent = 'Save & Run';
     };
 
+    // ── Launch keyword interception ───────────────────────────────────────────
+    const _LAUNCH_KW = ['launch it', 'run it', 'open it', 'start it', 'execute it',
+                        'launch the', 'run the', 'open the', 'start the', 'run program',
+                        'launch app', 'run app', 'launch calculator', 'run calculator'];
+
+    async function _tryLaunchFromChat(query) {
+      const lower = query.toLowerCase();
+      if (!_LAUNCH_KW.some(kw => lower.includes(kw))) return false;
+      // If pendingLaunch is set (from forge_complete socket event), use it directly
+      if (window.pendingLaunch) {
+        try {
+          const r = await fetch('http://127.0.0.1:5001/api/launch', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({file: window.pendingLaunch})
+          });
+          const d = await r.json();
+          const fname = window.pendingLaunch.split(/[\\/]/).pop();
+          showChatResponse(d.status === 'launched' ? `✓ Launching ${fname}` : `✗ ${d.error || 'Launch failed'}`);
+          return true;
+        } catch(e) {
+          showChatResponse('✗ Launch error: ' + e.message);
+          return true;
+        }
+      }
+      // Fall back to artifact registry
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/artifact/launch', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({task: ''})
+        });
+        const d = await r.json();
+        showChatResponse(d.message || (d.status === 'launched' ? '✓ Launched' : '✗ Launch failed'));
+        return true;
+      } catch(e) {
+        return false;
+      }
+    }
+
     async function sendChatWithPurchase(query) {
       orbState = 'thinking';
       renderOrb();
+
+      // Intercept launch intent before sending to backend
+      const _handled = await _tryLaunchFromChat(query);
+      if (_handled) { setTimeout(() => { orbState = 'idle'; renderOrb(); }, 3000); return; }
+
       try {
         const res = await fetch('http://127.0.0.1:5001/api/chat', {
           method: 'POST',

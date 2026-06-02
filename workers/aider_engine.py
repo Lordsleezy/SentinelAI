@@ -420,23 +420,46 @@ class AiderEngine:
         """
         Analyzes a bug bounty target.
         Writes findings to memory/vault/bounties/{title}.md
+        Emits explicit stage progress events with [EARN] prefix — NO SILENT FAILURES.
+        Hard timeout: 120 seconds total.
         """
+        import concurrent.futures
+
+        _emit(self.socketio, f"[EARN] ENTER analyze_bounty: {title}", "info", "earn")
+
         vault_dir = Path(self.work_dir) / "memory" / "vault" / "bounties"
         vault_dir.mkdir(parents=True, exist_ok=True)
 
         safe_title = "".join(c if c.isalnum() or c in "-_ " else "_" for c in title)[:50]
         findings_file = vault_dir / f"{safe_title}.md"
 
-        # Create a stub markdown file for aider to populate
-        findings_file.write_text(
-            f"# Bug Bounty Analysis: {title}\n\n"
-            f"URL: {url}\n\n"
-            f"## In-Scope Targets\n\n"
-            + "\n".join(f"- {s}" for s in scope[:10])
-            + "\n\n## Attack Surface Analysis\n\n## Recommended Attack Vectors\n\n## Recon Plan\n"
-        )
+        # ── Stage 1: Scope extraction ────────────────────────────────────────────
+        try:
+            _emit(self.socketio, f"[EARN] Stage 1/4: Extracting scope for {title}...", "info", "earn")
+            scope_str = ", ".join(scope[:5]) if scope else "Not specified"
+            _emit(self.socketio, f"[EARN] Scope extracted: {scope_str[:120]}", "info", "earn")
+        except Exception as _se:
+            scope_str = "Not specified"
+            _emit(self.socketio, f"[EARN] Stage 1 error (scope extraction): {_se}", "error", "earn")
 
-        scope_str = ", ".join(scope[:5]) if scope else "Not specified"
+        # ── Stage 2: Create analysis document stub ───────────────────────────────
+        try:
+            _emit(self.socketio, f"[EARN] Stage 2/4: Creating analysis document...", "info", "earn")
+            findings_file.write_text(
+                f"# Bug Bounty Analysis: {title}\n\n"
+                f"URL: {url}\n\n"
+                f"## In-Scope Targets\n\n"
+                + "\n".join(f"- {s}" for s in scope[:10])
+                + "\n\n## Attack Surface Analysis\n\n## Recommended Attack Vectors\n\n## Recon Plan\n"
+            )
+            _emit(self.socketio, f"[EARN] Stage 2/4: Document stub created at {findings_file.name}", "info", "earn")
+        except Exception as _de:
+            _emit(self.socketio, f"[EARN] Stage 2 error (document creation): {_de}", "error", "earn")
+            result = AiderResult(success=False, output="", error=f"Analysis failed: {_de}")
+            return result
+
+        # ── Stage 3: AI analysis via Aider (120s timeout) ───────────────────────
+        _emit(self.socketio, f"[EARN] Stage 3/4: Running AI analysis (max 120s)...", "info", "earn")
         prompt = (
             f"You are a professional bug bounty hunter. Analyze this program and complete "
             f"the security analysis document.\n\n"
@@ -445,16 +468,43 @@ class AiderEngine:
             f"sections with specific, actionable security research steps. Be technical and thorough."
         )
 
-        _emit(self.socketio, f"Analyzing bounty: {title}", "info", "earn")
-        result = self._run_aider(
-            prompt,
-            files=[str(findings_file)],
-            cwd=str(vault_dir),
-            extra_flags=["--no-git"],  # vault dir is gitignored
-        )
-        if result.success:
-            _emit(self.socketio, f"Analysis saved to {findings_file}", "success", "earn")
-        return result
+        result: Optional[AiderResult] = None
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(
+                    self._run_aider,
+                    prompt,
+                    [str(findings_file)],
+                    str(vault_dir),
+                    ["--no-git"],
+                )
+                try:
+                    result = future.result(timeout=120)
+                except concurrent.futures.TimeoutError:
+                    _emit(self.socketio, "[EARN] Analysis timed out after 120 seconds. Aborting.", "error", "earn")
+                    self.stop()
+                    result = AiderResult(success=False, output="", error="Analysis timed out after 120 seconds.")
+        except Exception as _ae:
+            _emit(self.socketio, f"[EARN] Stage 3 error (AI analysis): {_ae}", "error", "earn")
+            result = AiderResult(success=False, output="", error=f"Analysis failed: {_ae}")
+
+        # ── Stage 4: Recommendations and result ─────────────────────────────────
+        try:
+            _emit(self.socketio, f"[EARN] Stage 4/4: Compiling recommendations...", "info", "earn")
+            if result and result.success:
+                doc_text = findings_file.read_text(encoding="utf-8", errors="replace") if findings_file.exists() else ""
+                rec_lines = [ln.strip() for ln in doc_text.splitlines() if ln.strip() and not ln.startswith('#')][:10]
+                rec_preview = "\n".join(rec_lines) if rec_lines else "(see full document)"
+                _emit(self.socketio, f"[EARN] SUCCESS Analysis complete for {title}. Recommendations:\n{rec_preview}", "success", "earn")
+                _emit(self.socketio, f"[EARN] Analysis saved to {findings_file}", "success", "earn")
+            else:
+                err_msg = (result.error if result else "Unknown error")
+                _emit(self.socketio, f"[EARN] FAIL Analysis failed: {err_msg}", "error", "earn")
+        except Exception as _re:
+            _emit(self.socketio, f"[EARN] Stage 4 error (recommendations): {_re}", "error", "earn")
+
+        _emit(self.socketio, f"[EARN] EXIT analyze_bounty: {'SUCCESS' if (result and result.success) else 'FAIL'}", "info", "earn")
+        return result if result else AiderResult(success=False, output="", error="Unknown analysis failure")
 
     def stop(self) -> None:
         """Stop any running Aider process."""

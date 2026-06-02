@@ -845,6 +845,45 @@ def api_launch():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/artifact/latest', methods=['GET'])
+def api_artifact_latest():
+    """Return the most recently registered build artifact."""
+    try:
+        import artifact_registry as _ar
+        artifact = _ar.get_latest_artifact()
+        if artifact:
+            return jsonify({"status": "ok", "artifact": artifact})
+        return jsonify({"status": "none", "artifact": None})
+    except Exception as e:
+        log(f"[ARTIFACT] Latest error: {e}", 'error', 'forge')
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/artifact/launch', methods=['POST'])
+def api_artifact_launch():
+    """Launch the most recently registered artifact."""
+    try:
+        import artifact_registry as _ar
+        data = request.get_json() or {}
+        task_hint = data.get('task', '').strip()
+
+        if task_hint:
+            artifact = _ar.get_artifact_by_task(task_hint) or _ar.get_latest_artifact()
+        else:
+            artifact = _ar.get_latest_artifact()
+
+        if not artifact:
+            log("[ARTIFACT] No artifacts registered — nothing to launch", 'warning', 'forge')
+            return jsonify({"status": "error", "message": "No builds found. Build something first."})
+
+        result = _ar.launch_artifact(artifact)
+        log(f"[ARTIFACT] {result['message']}", 'success' if result['status'] == 'launched' else 'error', 'forge')
+        return jsonify(result)
+    except Exception as e:
+        log(f"[ARTIFACT] Launch error: {e}", 'error', 'forge')
+        return jsonify({"status": "error", "message": str(e)}), 200
+
+
 @app.route('/api/status')
 def api_status():
     """Get current system status."""
@@ -4137,13 +4176,26 @@ def api_chat():
                             from workers.aider_engine import AiderEngine
                             engine = AiderEngine(socketio)
                             result = engine.build_app(_desc, _odir)
+                            # Register artifact so "launch it" can find it
+                            try:
+                                import artifact_registry as _ar
+                                _ar.register_artifact(
+                                    task=_desc,
+                                    entry_point=getattr(result, 'entry_point', '') or '',
+                                    output_dir=getattr(result, 'output_dir', '') or '',
+                                    files=getattr(result, 'files_modified', []) or [],
+                                )
+                                log(f"[ARTIFACT] Registered build: {_desc[:60]}", 'info', 'forge')
+                            except Exception as _arre:
+                                logger.warning("[ARTIFACT] Register failed: %s", _arre)
                             if socketio:
                                 socketio.emit('forge_complete', {
                                     'success': getattr(result, 'success', False),
                                     'files_modified': getattr(result, 'files_modified', []),
                                     'entry_point': getattr(result, 'entry_point', ''),
+                                    'output_dir': getattr(result, 'output_dir', ''),
                                     'error': getattr(result, 'error', ''),
-                                })
+                                }, broadcast=True)
                             log(f"Build complete: {_desc[:60]}", 'info', 'aider')
                         except Exception as _be:
                             log(f"Build error: {_be}", 'error', 'aider')
@@ -4186,6 +4238,39 @@ def api_chat():
         from workers.orchestration.task_decomposer import get_decomposer, is_conversational_input
 
         lower = message.lower()
+
+        # ── Launch intent — "launch it", "run it", "open it", "start it" ─────────
+        _launch_kw = ('launch it', 'run it', 'open it', 'start it', 'launch the', 'run the',
+                      'open the', 'start the', 'execute it', 'launch calculator', 'run calculator',
+                      'launch app', 'run app', 'run program', 'launch program')
+        if any(kw in lower for kw in _launch_kw):
+            try:
+                import artifact_registry as _ar
+                # Try to extract task name from message
+                _task_hint = ''
+                for _phrase in ('launch ', 'run ', 'open ', 'start ', 'execute '):
+                    if _phrase in lower:
+                        _candidate = lower.split(_phrase, 1)[-1].strip().rstrip('.')
+                        if _candidate and _candidate not in ('it', 'the', 'app', 'program', 'this'):
+                            _task_hint = _candidate
+                            break
+                artifact = _ar.get_artifact_by_task(_task_hint) if _task_hint else _ar.get_latest_artifact()
+                if artifact:
+                    _launch_result = _ar.launch_artifact(artifact)
+                    if _launch_result['status'] == 'launched':
+                        _task_name = artifact.get('task', 'application')
+                        _resp = f"✓ Launching {_task_name}\n\n`{artifact.get('entry_point', 'entry_point')}`"
+                        log(f"[ARTIFACT] Launched via chat: {_task_name}", 'success', 'forge')
+                    else:
+                        _resp = f"✗ Launch failed: {_launch_result.get('message', 'unknown error')}"
+                        log(f"[ARTIFACT] Launch failed: {_launch_result.get('message')}", 'error', 'forge')
+                else:
+                    _resp = "No recent builds found. Build something first, then ask me to launch it."
+                    log("[ARTIFACT] No artifacts registered — cannot launch", 'warning', 'forge')
+                _save_chat_exchange(message, _resp)
+                return jsonify({"status": "ok", "worker": "forge", "response": _resp, "routed": True})
+            except Exception as _launch_err:
+                logger.warning("Launch intent handler failed: %s", _launch_err)
 
         # ── Purchase intent — find product, stage approval ───────────────────────
         _buy_kw = ['buy ', 'purchase ', 'order me ', 'i want to buy', 'i want to order',

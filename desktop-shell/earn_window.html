@@ -190,6 +190,14 @@
   </div>
 
   <div id="status-msg"></div>
+  <!-- Analysis progress panel — hidden until a job is accepted -->
+  <div id="analysis-panel" style="display:none;margin-bottom:16px;background:#0d1a14;border:1px solid rgba(0,255,136,0.25);border-radius:8px;padding:14px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#00ff88;margin-bottom:10px;">
+      ANALYSIS PROGRESS
+      <button onclick="document.getElementById('analysis-panel').style.display='none'" style="float:right;background:none;border:none;color:#444;cursor:pointer;font-size:14px;">✕</button>
+    </div>
+    <div id="analysis-log" style="max-height:200px;overflow-y:auto;font-family:monospace;font-size:11px;color:#aaa;line-height:1.7;"></div>
+  </div>
 
   <table class="jobs-table">
     <thead>
@@ -308,6 +316,44 @@
       div.textContent = String(str);
       return div.innerHTML;
     }
+
+    // ── Socket.IO: listen for [EARN] analysis progress ─────────────────────────
+    function appendAnalysisLog(msg, level) {
+      const panel = document.getElementById('analysis-panel');
+      const log = document.getElementById('analysis-log');
+      if (!panel || !log) return;
+      panel.style.display = 'block';
+      const colors = { error: '#ff4444', success: '#00ff88', warning: '#ffa500', info: '#aaa' };
+      const div = document.createElement('div');
+      div.style.color = colors[level] || '#aaa';
+      div.textContent = msg;
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    (function initEarnSocket() {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
+      script.onload = function() {
+        try {
+          const socket = window.io('http://127.0.0.1:5001', { transports: ['websocket', 'polling'] });
+          socket.on('log_event', function(data) {
+            if (data.type !== 'earn') return;
+            const msg = data.message || '';
+            const level = data.level || 'info';
+            appendAnalysisLog(msg, level);
+            // Update status-msg for key events
+            const statusEl = document.getElementById('status-msg');
+            if (msg.includes('[EARN] SUCCESS') || msg.includes('Analysis saved')) {
+              if (statusEl) { statusEl.className = 'success'; statusEl.textContent = '✓ ' + msg.replace('[EARN] ', ''); }
+            } else if (msg.includes('[EARN] FAIL') || msg.includes('Analysis failed')) {
+              if (statusEl) { statusEl.className = 'error'; statusEl.textContent = '✗ ' + msg.replace('[EARN] ', ''); }
+            }
+          });
+        } catch(e) { console.warn('[Earn] Socket.IO init failed:', e); }
+      };
+      document.head.appendChild(script);
+    })();
 
     loadJobs();
     setInterval(loadJobs, 30000);

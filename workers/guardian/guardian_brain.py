@@ -249,61 +249,174 @@ Be specific and reference actual data from the output above."""
                     'response': message,
                     'target': target,
                     'step': step,
-                })
+                }, broadcast=True)
         except Exception as e:
-            logger.error("[Guardian] Failed to emit guardian_response: %s", e)
+            logger.error("[GUARDIAN] Failed to emit guardian_response: %s", e)
 
     def _run_full_assessment(self, target: str) -> None:
         """
         Run a full security assessment in a background thread.
         Emits incremental guardian_response events after each tool so the
         user sees results as they arrive instead of waiting for Ollama.
+        Every stage is wrapped in try/except — NO SILENT FAILURES.
+        If a tool is missing, emit a skip notice and continue.
+        Final report is ALWAYS emitted even if every tool fails.
         """
         import threading
 
         def _assess():
             results: Dict[str, str] = {}
 
-            self._guardian_log(f"Starting security assessment: {target}", 'info')
+            try:
+                self._guardian_log(f"[GUARDIAN] Assessment started: {target}", 'info')
+                self._emit_guardian_response(
+                    f"🔍 **Assessment started for `{target}`**\n\nRunning 5 stages. Results appear below as each completes.",
+                    target, step='start'
+                )
 
-            # 1. HTTP headers (always available — emit immediately)
-            self._guardian_log("Step 1/4: HTTP header check...", 'info')
-            results['headers'] = self._run_curl_check(target)
-            self._emit_guardian_response(
-                f"**Step 1 — HTTP Headers for {target}:**\n```\n{results['headers'][:1500]}\n```",
-                target, step='headers'
-            )
+                # ── Stage 1: DNS / HTTP ──────────────────────────────────────────
+                try:
+                    self._guardian_log("[GUARDIAN] Stage 1/5: DNS / HTTP header check...", 'info')
+                    self._emit_guardian_response(
+                        f"**Stage 1/5 — DNS / HTTP Headers** ⟳ running...", target, step='stage1_start'
+                    )
+                    results['headers'] = self._run_curl_check(target)
+                    self._guardian_log(f"[GUARDIAN] Stage 1 complete: {len(results['headers'])} bytes", 'success')
+                    self._emit_guardian_response(
+                        f"**Stage 1/5 — DNS / HTTP Headers ✓**\n```\n{results['headers'][:1500]}\n```",
+                        target, step='headers'
+                    )
+                except Exception as _e1:
+                    results['headers'] = f"Stage 1 error: {_e1}"
+                    self._guardian_log(f"[GUARDIAN] Stage 1 error: {_e1}", 'error')
+                    self._emit_guardian_response(
+                        f"**Stage 1/5 — DNS / HTTP Headers ✗** Error: {_e1}", target, step='headers'
+                    )
 
-            # 2. Port scan
-            self._guardian_log("Step 2/4: Port scan (nmap)...", 'info')
-            results['ports'] = self._run_nmap(target)
-            self._emit_guardian_response(
-                f"**Step 2 — Port Scan:**\n```\n{results['ports'][:1500]}\n```",
-                target, step='ports'
-            )
+                # ── Stage 2: Recon ───────────────────────────────────────────────
+                try:
+                    self._guardian_log("[GUARDIAN] Stage 2/5: Recon (reconftw check)...", 'info')
+                    self._emit_guardian_response(
+                        f"**Stage 2/5 — Recon** ⟳ checking reconftw...", target, step='stage2_start'
+                    )
+                    if self.tools_available.get('reconftw'):
+                        recon_out = self._run_tool_direct('reconftw', ['-d', target, '--passive', '-o', '/tmp/recon_out'], timeout=60)
+                        results['recon'] = recon_out
+                        self._guardian_log("[GUARDIAN] Stage 2 complete", 'success')
+                        self._emit_guardian_response(
+                            f"**Stage 2/5 — Recon ✓**\n```\n{recon_out[:1500]}\n```",
+                            target, step='recon'
+                        )
+                    else:
+                        results['recon'] = 'ReconFTW not installed — skipping recon phase.'
+                        self._guardian_log("[GUARDIAN] Stage 2: ReconFTW unavailable. Skipping recon phase.", 'warning')
+                        self._emit_guardian_response(
+                            f"**Stage 2/5 — Recon ⚠ Skipped**\nReconFTW not installed. Skipping recon phase. Assessment continues.",
+                            target, step='recon'
+                        )
+                except Exception as _e2:
+                    results['recon'] = f"Stage 2 error: {_e2}"
+                    self._guardian_log(f"[GUARDIAN] Stage 2 error: {_e2}", 'error')
+                    self._emit_guardian_response(
+                        f"**Stage 2/5 — Recon ✗** Error: {_e2}. Continuing.", target, step='recon'
+                    )
 
-            # 3. Vulnerability scan
-            self._guardian_log("Step 3/4: Vulnerability scan (nuclei)...", 'info')
-            results['vulns'] = self._run_nuclei(target)
-            self._emit_guardian_response(
-                f"**Step 3 — Vulnerability Scan:**\n```\n{results['vulns'][:1500]}\n```",
-                target, step='vulns'
-            )
+                # ── Stage 3: Port Scan ───────────────────────────────────────────
+                try:
+                    self._guardian_log("[GUARDIAN] Stage 3/5: Port scan (nmap)...", 'info')
+                    self._emit_guardian_response(
+                        f"**Stage 3/5 — Port Scan** ⟳ running nmap...", target, step='stage3_start'
+                    )
+                    ports_out = self._run_nmap(target)
+                    results['ports'] = ports_out
+                    if 'not installed' in ports_out.lower() or 'not found' in ports_out.lower():
+                        self._guardian_log("[GUARDIAN] Stage 3: nmap unavailable. Skipping port scan.", 'warning')
+                        self._emit_guardian_response(
+                            f"**Stage 3/5 — Port Scan ⚠ Skipped**\nnmap not installed. Skipping port scan. Assessment continues.",
+                            target, step='ports'
+                        )
+                    else:
+                        self._guardian_log("[GUARDIAN] Stage 3 complete", 'success')
+                        self._emit_guardian_response(
+                            f"**Stage 3/5 — Port Scan ✓**\n```\n{ports_out[:1500]}\n```",
+                            target, step='ports'
+                        )
+                except Exception as _e3:
+                    results['ports'] = f"Stage 3 error: {_e3}"
+                    self._guardian_log(f"[GUARDIAN] Stage 3 error: {_e3}", 'error')
+                    self._emit_guardian_response(
+                        f"**Stage 3/5 — Port Scan ✗** Error: {_e3}. Continuing.", target, step='ports'
+                    )
 
-            # 4. Final AI analysis
-            self._guardian_log("Step 4/4: AI analysis of findings...", 'info')
-            combined = (
-                f"HTTP Headers:\n{results['headers']}\n\n"
-                f"Port Scan:\n{results['ports']}\n\n"
-                f"Vulnerability Scan:\n{results['vulns']}"
-            )
-            analysis = self._analyze_with_ollama('security assessment', target, combined)
+                # ── Stage 4: Vulnerability Scan ──────────────────────────────────
+                try:
+                    self._guardian_log("[GUARDIAN] Stage 4/5: Vulnerability scan (nuclei)...", 'info')
+                    self._emit_guardian_response(
+                        f"**Stage 4/5 — Vulnerability Scan** ⟳ running nuclei...", target, step='stage4_start'
+                    )
+                    vulns_out = self._run_nuclei(target)
+                    results['vulns'] = vulns_out
+                    if 'not installed' in vulns_out.lower() or 'not found' in vulns_out.lower():
+                        self._guardian_log("[GUARDIAN] Stage 4: nuclei unavailable. Skipping vulnerability scan.", 'warning')
+                        self._emit_guardian_response(
+                            f"**Stage 4/5 — Vulnerability Scan ⚠ Skipped**\nnuclei not installed. Skipping vulnerability scan. Assessment continues.",
+                            target, step='vulns'
+                        )
+                    else:
+                        self._guardian_log("[GUARDIAN] Stage 4 complete", 'success')
+                        self._emit_guardian_response(
+                            f"**Stage 4/5 — Vulnerability Scan ✓**\n```\n{vulns_out[:1500]}\n```",
+                            target, step='vulns'
+                        )
+                except Exception as _e4:
+                    results['vulns'] = f"Stage 4 error: {_e4}"
+                    self._guardian_log(f"[GUARDIAN] Stage 4 error: {_e4}", 'error')
+                    self._emit_guardian_response(
+                        f"**Stage 4/5 — Vulnerability Scan ✗** Error: {_e4}. Continuing.", target, step='vulns'
+                    )
 
-            self._guardian_log("Assessment complete", 'success')
-            self._emit_guardian_response(
-                f"**Assessment complete for {target}:**\n\n{analysis}",
-                target, step='final'
-            )
+                # ── Stage 5: AI Analysis ─────────────────────────────────────────
+                try:
+                    self._guardian_log("[GUARDIAN] Stage 5/5: AI analysis of all findings...", 'info')
+                    self._emit_guardian_response(
+                        f"**Stage 5/5 — AI Analysis** ⟳ analyzing findings...", target, step='stage5_start'
+                    )
+                    combined = (
+                        f"HTTP Headers:\n{results.get('headers', 'N/A')}\n\n"
+                        f"Recon:\n{results.get('recon', 'N/A')}\n\n"
+                        f"Port Scan:\n{results.get('ports', 'N/A')}\n\n"
+                        f"Vulnerability Scan:\n{results.get('vulns', 'N/A')}"
+                    )
+                    analysis = self._analyze_with_ollama('security assessment', target, combined)
+                    self._guardian_log("[GUARDIAN] Stage 5 complete. Assessment finished.", 'success')
+                    self._emit_guardian_response(
+                        f"**Stage 5/5 — AI Analysis ✓**\n\n{analysis}",
+                        target, step='analysis'
+                    )
+                except Exception as _e5:
+                    analysis = f"AI analysis error: {_e5}"
+                    self._guardian_log(f"[GUARDIAN] Stage 5 error: {_e5}", 'error')
+                    self._emit_guardian_response(
+                        f"**Stage 5/5 — AI Analysis ✗** Error: {_e5}", target, step='analysis'
+                    )
+
+                # ── Final Report ─────────────────────────────────────────────────
+                self._guardian_log(f"[GUARDIAN] Assessment complete for {target}", 'success')
+                self._emit_guardian_response(
+                    f"✅ **Assessment complete for `{target}`**\n\n"
+                    f"Stages completed: DNS/HTTP, Recon, Port Scan, Vulnerability Scan, AI Analysis.\n"
+                    f"See individual stage results above.",
+                    target, step='final'
+                )
+
+            except Exception as _top_err:
+                # Top-level safety net — always emit a final report
+                self._guardian_log(f"[GUARDIAN] Assessment failed unexpectedly: {_top_err}", 'error')
+                self._emit_guardian_response(
+                    f"⚠ **Assessment encountered an unexpected error for `{target}`**\n\nError: {_top_err}\n\n"
+                    f"Partial results may be available in the stages above.",
+                    target, step='final'
+                )
 
         threading.Thread(target=_assess, daemon=True).start()
 
@@ -419,10 +532,10 @@ Be specific and reference actual data from the output above."""
                     'level': level,
                     'message': message,
                     'timestamp': __import__('datetime').datetime.now().isoformat()
-                })
+                }, broadcast=True)
         except Exception:
             pass
-        logger.info("[Guardian/%s] %s", level, message)
+        logger.info("[GUARDIAN/%s] %s", level, message)
 
     def _execute_tool_calls(self, response: str) -> List[Dict]:
         calls = re.findall(r"TOOL_CALL:\s*(\w[\w-]*)\s+(.*?)(?=TOOL_CALL:|$)", response, re.DOTALL)
