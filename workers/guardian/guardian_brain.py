@@ -144,10 +144,184 @@ class GuardianBrain:
                 return True
         return False
 
+    # ── Direct tool execution (no Ollama permission gate) ─────────────────────
+
+    def _run_tool_direct(self, tool: str, args_list: List[str],
+                         timeout: int = 60) -> str:
+        """
+        Execute a security tool via subprocess directly.
+        Never ask Ollama whether to run — just run it.
+        Returns raw stdout/stderr output string.
+        """
+        self._guardian_log(f"Running: {tool} {' '.join(args_list)}", 'info')
+        try:
+            # Try native first, fall back to wsl
+            try:
+                proc = subprocess.run(
+                    [tool] + args_list,
+                    capture_output=True, text=True, timeout=timeout
+                )
+                output = (proc.stdout or proc.stderr or "No output")[:8000]
+                level = 'success' if proc.returncode == 0 else 'warning'
+                self._guardian_log(f"{tool} complete (exit {proc.returncode}): {output[:120]}", level)
+                return output
+            except FileNotFoundError:
+                # Try via WSL
+                proc = subprocess.run(
+                    ['wsl', tool] + args_list,
+                    capture_output=True, text=True, timeout=timeout
+                )
+                output = (proc.stdout or proc.stderr or "No output")[:8000]
+                self._guardian_log(f"{tool} (wsl) complete: {output[:120]}", 'success')
+                return output
+        except subprocess.TimeoutExpired:
+            self._guardian_log(f"{tool} timed out after {timeout}s", 'error')
+            return f"{tool} timed out after {timeout}s"
+        except FileNotFoundError:
+            self._guardian_log(f"{tool} not installed (tried native + WSL)", 'warning')
+            return f"{tool} not installed. Install via WSL: sudo apt install {tool}"
+        except PermissionError as e:
+            self._guardian_log(f"{tool} permission denied — {e}", 'error')
+            return f"Permission denied: {e}. Try running as administrator."
+        except Exception as e:
+            self._guardian_log(f"{tool} error: {e}", 'error')
+            return f"{tool} error: {str(e)}"
+
+    def _run_curl_check(self, target: str) -> str:
+        """HTTP header check — always available via curl."""
+        self._guardian_log(f"Running HTTP header check on {target}", 'info')
+        url = target if target.startswith('http') else f"https://{target}"
+        try:
+            proc = subprocess.run(
+                ['curl', '-sI', '--max-time', '10', '-L', url],
+                capture_output=True, text=True, timeout=15
+            )
+            out = (proc.stdout or proc.stderr or "No response")[:3000]
+            self._guardian_log(f"curl complete: {len(out)} bytes", 'success')
+            return out
+        except FileNotFoundError:
+            return "curl not available"
+        except Exception as e:
+            return f"curl error: {str(e)}"
+
+    def _run_nmap(self, target: str, flags: str = '-sV -T4') -> str:
+        """Port scan via nmap."""
+        self._guardian_log(f"Running port scan: nmap {flags} {target}", 'info')
+        return self._run_tool_direct('nmap', flags.split() + [target], timeout=90)
+
+    def _run_nuclei(self, target: str, severity: str = 'critical,high,medium') -> str:
+        """Vulnerability scan via nuclei."""
+        self._guardian_log(f"Running nuclei scan on {target} (severity: {severity})", 'info')
+        url = target if target.startswith('http') else f"https://{target}"
+        return self._run_tool_direct(
+            'nuclei', ['-u', url, '-severity', severity, '-silent', '-timeout', '5'],
+            timeout=120
+        )
+
+    def _analyze_with_ollama(self, tool_name: str, target: str, raw_output: str) -> str:
+        """
+        Feed raw tool output to Ollama for analysis.
+        Ollama ONLY analyzes the output — it does NOT decide whether to run tools.
+        """
+        prompt = f"""You are a cybersecurity analyst reviewing security scan results.
+
+Target: {target}
+Tool: {tool_name}
+
+Raw output:
+{raw_output[:4000]}
+
+Provide a technical analysis:
+1. Key findings (open ports, services, technologies, vulnerabilities)
+2. Risk assessment (Critical / High / Medium / Low)
+3. Specific recommendations
+4. Any immediate concerns requiring attention
+
+Be specific and reference actual data from the output above."""
+        return self._call_ollama(prompt, tier="reasoning")
+
+    def _run_full_assessment(self, target: str) -> None:
+        """
+        Run a full security assessment in a background thread.
+        Executes tools DIRECTLY, then feeds combined output to Ollama for analysis.
+        Emits guardian_response socket event with the final analysis.
+        """
+        import threading
+
+        def _assess():
+            results: Dict[str, str] = {}
+
+            self._guardian_log(f"Starting security assessment: {target}", 'info')
+
+            # 1. HTTP headers (always available)
+            self._guardian_log("Running HTTP header check...", 'info')
+            results['headers'] = self._run_curl_check(target)
+
+            # 2. Port scan
+            self._guardian_log("Running port scan...", 'info')
+            results['ports'] = self._run_nmap(target)
+
+            # 3. Vulnerability scan
+            self._guardian_log("Running vulnerability scan...", 'info')
+            results['vulns'] = self._run_nuclei(target)
+
+            # 4. Analyze all results with Ollama
+            self._guardian_log("Analyzing findings with Ollama...", 'info')
+            combined = (
+                f"HTTP Headers:\n{results['headers']}\n\n"
+                f"Port Scan:\n{results['ports']}\n\n"
+                f"Vulnerability Scan:\n{results['vulns']}"
+            )
+            analysis = self._analyze_with_ollama('security assessment', target, combined)
+
+            self._guardian_log("Assessment complete", 'success')
+
+            # Emit result via Socket.IO
+            try:
+                from desktop_app import socketio
+                if socketio:
+                    socketio.emit('guardian_response', {
+                        'response': analysis,
+                        'raw_results': {k: v[:1000] for k, v in results.items()},
+                        'target': target
+                    })
+            except Exception as e:
+                logger.error("[Guardian] Failed to emit guardian_response: %s", e)
+
+        threading.Thread(target=_assess, daemon=True).start()
+
     # ── Main chat ──────────────────────────────────────────────────────────────
 
+    # Keywords that indicate the user is confirming authorization
+    _AUTH_CONFIRMS = [
+        'i approve', 'confirmed', 'yes i own', 'i have authorization',
+        'authorized', 'its my', "it's my", 'i own it', 'i own this',
+        'my website', 'my server', 'my system', 'my domain',
+    ]
+    # Keywords that indicate a scan request
+    _SCAN_KEYWORDS = [
+        'scan', 'check', 'test', 'audit', 'vulnerabilities', 'pentest',
+        'assess', 'recon', 'enumerate', 'probe',
+    ]
+
     def chat(self, user_message: str) -> Dict:
-        # Extract IPs and hostnames
+        msg_lower = user_message.lower()
+
+        # ── Authorization confirmation ─────────────────────────────────────────
+        if any(phrase in msg_lower for phrase in self._AUTH_CONFIRMS):
+            if self.pending_confirmation:
+                target = self.pending_confirmation
+                self.confirm_authorization(target)
+                self.conversation_history.append({"role": "user", "content": user_message})
+                resp = (f"✓ Authorization confirmed for {target}.\n\n"
+                        f"Starting security assessment — results will appear here "
+                        f"as each tool completes. Check the Guardian Log for real-time progress.")
+                self.conversation_history.append({"role": "assistant", "content": resp})
+                # Fire off the assessment in a background thread
+                self._run_full_assessment(target)
+                return {"response": resp, "tool_calls": [], "mode": self.mode, "authorized": True, "target": target}
+
+        # ── Extract targets ───────────────────────────────────────────────────
         ip_pat = r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b"
         dom_pat = r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b"
         ips = re.findall(ip_pat, user_message)
@@ -158,14 +332,36 @@ class GuardianBrain:
         always_safe = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
         external = [t for t in targets if t not in always_safe]
         unauthorized = [t for t in external if not self.is_authorized(t)]
-        if unauthorized:
-            return self.request_authorization(unauthorized[0])
 
+        # ── Scan request on unauthorized target → ask for authorization ───────
+        is_scan = any(kw in msg_lower for kw in self._SCAN_KEYWORDS)
+        if unauthorized and is_scan:
+            result = self.request_authorization(unauthorized[0])
+            return {
+                "response": result["message"],
+                "requires_confirmation": True,
+                "target": unauthorized[0],
+                "tool_calls": [],
+                "mode": self.mode,
+            }
+
+        # ── Scan request on already-authorized target → execute directly ──────
+        if is_scan and external and all(self.is_authorized(t) for t in external):
+            target = external[0]
+            resp = (f"Starting security assessment of {target}. "
+                    f"Results will appear here as each tool completes. "
+                    f"Check the Guardian Log for real-time progress.")
+            self.conversation_history.append({"role": "user", "content": user_message})
+            self.conversation_history.append({"role": "assistant", "content": resp})
+            self._run_full_assessment(target)
+            return {"response": resp, "tool_calls": [], "mode": self.mode, "scanning": True}
+
+        # ── Default: pass to Ollama for general Guardian questions ────────────
         tier = self._classify_task_tier(user_message)
         self.conversation_history.append({"role": "user", "content": user_message})
 
         response = self._call_ollama(user_message, tier=tier)
-        tool_results = []
+        tool_results: List[Dict] = []
 
         if "TOOL_CALL:" in response:
             tool_results = self._execute_tool_calls(response)
