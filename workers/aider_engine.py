@@ -73,11 +73,9 @@ class AiderEngine:
     def __init__(self, socketio: Any = None, work_dir: Optional[str] = None):
         self.socketio = socketio
         self.work_dir = work_dir or str(Path(__file__).parent.parent)
-        # Prefer Anthropic if key present, otherwise Ollama
-        if os.getenv("ANTHROPIC_API_KEY"):
-            self.model = "claude-3-5-haiku-20241022"
-        else:
-            self.model = "ollama/qwen2.5-coder:14b"
+        # Always use Ollama as primary model (local, no API costs)
+        # Set AIDER_MODEL env var to override
+        self.model = os.getenv("AIDER_MODEL", "ollama/qwen2.5-coder:14b")
         self.running = False
         self.current_process: Optional[subprocess.Popen] = None
         self._lock = threading.Lock()
@@ -99,16 +97,19 @@ class AiderEngine:
             "--model", self.model,
             "--yes",                  # auto-confirm all changes
             "--no-auto-commits",      # don't auto git-commit
+            "--no-show-model-warnings",  # suppress model warning prompts
             "--message", message,
         ]
 
-        # If working directory is outside the repo or no git, add --no-git
+        # Add --no-git if the work_dir has no git repo OR caller requested it
+        extra_flags = extra_flags or []
         git_dir = Path(work_dir) / ".git"
-        if not git_dir.exists():
+        force_no_git = "--no-git" in extra_flags
+        if not git_dir.exists() or force_no_git:
             cmd.append("--no-git")
 
-        if extra_flags:
-            cmd.extend(extra_flags)
+        # Add remaining extra_flags (skip --no-git since we handled it)
+        cmd.extend(f for f in extra_flags if f != "--no-git")
 
         if files:
             cmd.extend(files)
@@ -265,7 +266,8 @@ class AiderEngine:
         result = self._run_aider(
             prompt,
             files=[str(findings_file)],
-            cwd=self.work_dir,
+            cwd=str(vault_dir),
+            extra_flags=["--no-git"],  # vault dir is gitignored
         )
         if result.success:
             _emit(self.socketio, f"Analysis saved to {findings_file}", "success", "earn")

@@ -103,3 +103,4 @@ browser_data/
 openclaw/jarvis-orb
 venv/
 memory/vault/
+.aider*

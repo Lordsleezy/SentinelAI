@@ -2838,14 +2838,25 @@ def api_orchestration_chat():
 
         # Route build requests directly to Aider
         if _is_build_request(user_request):
-            # Extract description (use full message)
             description = user_request
             import re as _re
-            name_match = _re.search(
-                r'(?:called?|named?|for)\s+([a-zA-Z0-9_\-]+)', user_request, _re.IGNORECASE
+            # Detect explicit file/path target in message
+            path_match = _re.search(
+                r'(?:save|write|put)\s+(?:it\s+)?(?:to|at|in)\s+(C:\\[^\s,\.]+|/[^\s,\.]+)',
+                user_request, _re.IGNORECASE
             )
-            proj_name = name_match.group(1) if name_match else "sentinel_project"
-            output_path = rf"C:\Users\pgg12\Desktop\{proj_name}"
+            if path_match:
+                explicit_path = path_match.group(1).strip().rstrip('.')
+                # If it looks like a file (has extension), use its parent as output_path
+                from pathlib import Path as _Path
+                ep = _Path(explicit_path)
+                output_path = str(ep.parent) if ep.suffix else explicit_path
+            else:
+                name_match = _re.search(
+                    r'(?:called?|named?|for)\s+([a-zA-Z0-9_\-]+)', user_request, _re.IGNORECASE
+                )
+                proj_name = name_match.group(1) if name_match else "sentinel_project"
+                output_path = rf"C:\Users\pgg12\Desktop\{proj_name}"
 
             def build():
                 try:
@@ -2875,6 +2886,49 @@ def api_orchestration_chat():
             )
             log(f'Response: {response_text[:100]}', 'info', 'system')
             return jsonify({"response": response_text, "worker": "aider"})
+
+        lower = user_request.lower()
+
+        # ── Real-time data — runs before pipeline ─────────────────────────────
+        if any(w in lower for w in ['weather', 'temperature', 'forecast', 'raining', 'sunny']):
+            import re as _re_wx
+            _city_match = _re_wx.search(r'(?:weather|forecast|temperature)\s+(?:in|for|at)\s+([A-Za-z\s]+?)(?:\?|$|,)', lower)
+            _lat, _lon, _city = 37.3382, -121.8863, "San Jose"
+            if _city_match:
+                _qcity = _city_match.group(1).strip()
+                _glat, _glon, _gname = geocode_city(_qcity)
+                if _glat:
+                    _lat, _lon, _city = _glat, _glon, _gname
+            wx = get_weather_data(_lat, _lon, _city)
+            if 'error' not in wx:
+                resp = (f"Current weather in {_city}: {wx['temp']}°F (feels like {wx['feels_like']}°F), "
+                        f"{wx['condition']}. Wind {wx['wind']} mph, humidity {wx['humidity']}%. "
+                        f"Today: high {wx['today_high']}°F / low {wx['today_low']}°F, {wx['rain_chance']}% chance of rain.")
+            else:
+                resp = "Could not fetch weather data right now."
+            log(f'Weather response: {resp[:80]}', 'info', 'system')
+            return jsonify({"response": resp, "worker": "general"})
+
+        if any(w in lower for w in ['what time', 'current time', "what's the time"]):
+            try:
+                import pytz as _pytz
+                from datetime import datetime as _dt2
+                tz = _pytz.timezone('America/Los_Angeles')
+                now = _dt2.now(tz)
+                resp = f"It's {now.strftime('%I:%M %p')} Pacific Time, {now.strftime('%A, %B %d, %Y')}."
+            except Exception:
+                from datetime import datetime as _dt2
+                resp = f"It's {_dt2.now().strftime('%I:%M %p')} local time."
+            return jsonify({"response": resp, "worker": "general"})
+
+        if any(w in lower for w in ['bitcoin price', 'btc price', 'what is bitcoin']):
+            btc = get_crypto_price("bitcoin")
+            if 'error' not in btc:
+                direction = "▲" if btc['change_24h'] > 0 else "▼"
+                resp = f"Bitcoin: ${btc['price']:,.2f} {direction} {abs(btc['change_24h'])}% in the last 24h."
+            else:
+                resp = "Could not fetch Bitcoin price."
+            return jsonify({"response": resp, "worker": "general"})
 
         from workers.orchestration.pipeline import get_pipeline
         from workers.orchestration.task_decomposer import is_conversational_input
