@@ -80,6 +80,9 @@ class HttpxTool:
         # httpx reads targets from stdin
         self._emit(f"Probing {len(targets)} host(s)…")
         raw_lines: List[str] = []
+        proc = None
+        per_target = max(timeout, 5) * len(targets) + 15
+        run_timeout = min(max(per_target, 30), 90)
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -89,21 +92,32 @@ class HttpxTool:
                 text=True, encoding="utf-8", errors="replace",
             )
             target_str = "\n".join(targets)
-            stdout, _ = proc.communicate(input=target_str, timeout=120)
-            for line in stdout.splitlines():
+            stdout, stderr = proc.communicate(input=target_str, timeout=run_timeout)
+            if stderr and stderr.strip():
+                self._emit(f"stderr: {stderr.strip()[:300]}", "warning")
+            for line in (stdout or "").splitlines():
                 line = line.strip()
                 if line:
                     raw_lines.append(line)
-                    self._emit(line)
+                    if line.startswith("{"):
+                        self._emit(line[:200])
 
             hosts = self._parse(raw_lines)
-            self._emit(f"Probed {len(hosts)} live host(s)", "success" if hosts else "info")
+            if not hosts:
+                self._emit(
+                    f"0 live hosts parsed from {len(targets)} target(s) "
+                    f"({len(raw_lines)} raw line(s)) — pipeline continues",
+                    "warning",
+                )
+            else:
+                self._emit(f"Probed {len(hosts)} live host(s)", "success")
             return HttpxResult(success=True, hosts=hosts, raw_output="\n".join(raw_lines))
         except subprocess.TimeoutExpired:
-            proc.kill()
-            msg = "httpx timed out (120s)"
+            if proc:
+                proc.kill()
+            msg = f"httpx timed out ({run_timeout}s)"
             self._emit(msg, "error")
-            return HttpxResult(success=False, error=msg)
+            return HttpxResult(success=False, error=msg, hosts=[])
         except Exception as e:
             self._emit(str(e), "error")
             return HttpxResult(success=False, error=str(e))

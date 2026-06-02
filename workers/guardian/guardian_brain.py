@@ -250,15 +250,11 @@ class GuardianBrain:
 
     def _call_ollama(self, prompt: str, tier: str = "fast",
                      system_override: Optional[str] = None) -> str:
-        try:
-            import httpx
-        except ImportError:
-            return "httpx not installed — cannot reach Ollama."
+        import requests as _req
 
         model = self.models.get(tier, self.models.get("fast", "qwen2.5-coder:7b"))
         system = system_override or GUARDIAN_SYSTEM_PROMPT
 
-        # Build context string from last 6 turns
         context_parts = []
         for turn in self.conversation_history[-6:]:
             role = turn.get("role", "user")
@@ -267,15 +263,17 @@ class GuardianBrain:
         full_prompt = "\n".join(context_parts + [f"USER: {prompt}"]) if context_parts else prompt
 
         try:
-            with httpx.Client(timeout=120.0) as client:
-                resp = client.post(
-                    f"{self.ollama_url}/api/generate",
-                    json={"model": model, "prompt": full_prompt, "system": system, "stream": False},
-                )
-                if resp.status_code == 200:
-                    text = resp.json().get("response", "").strip()
-                    return text or "No response from model."
-                return f"Model error: HTTP {resp.status_code}"
+            resp = _req.post(
+                f"{self.ollama_url}/api/generate",
+                json={"model": model, "prompt": full_prompt, "system": system, "stream": False},
+                timeout=90,
+            )
+            if resp.status_code == 200:
+                text = resp.json().get("response", "").strip()
+                return text or "No response from model."
+            return f"Model error: HTTP {resp.status_code}"
+        except _req.exceptions.Timeout:
+            return f"Guardian model timed out ({model}) after 90s."
         except Exception as e:
             return f"Guardian model unavailable ({model}): {e}. Is Ollama running?"
 
@@ -411,20 +409,49 @@ Be specific and reference actual data from the output above."""
         except Exception as e:
             logger.error("[GUARDIAN] Failed to emit guardian_response: %s", e)
 
+    def _stage_log(self, message: str, level: str = 'info') -> None:
+        """Pipeline log — always prefixed [GUARDIAN] for log-panel filtering."""
+        if not message.startswith('[GUARDIAN]'):
+            message = f"[GUARDIAN] {message}"
+        self._guardian_log(message, level)
+
+    def _stage_enter(self, name: str) -> None:
+        self._stage_log(f"Entering {name}")
+
+    def _stage_exit(self, name: str, detail: str = '') -> None:
+        msg = f"Exiting {name}"
+        if detail:
+            msg += f" — {detail}"
+        self._stage_log(msg, 'success')
+
+    def _stage_skip(self, name: str, reason: str) -> None:
+        self._stage_log(f"Stage skipped — {name}: {reason}", 'warning')
+
+    @staticmethod
+    def _normalize_probe_targets(target: str, subdomains: List[str]) -> List[str]:
+        """Ensure httpx/katana get URL-shaped targets, not bare hostnames only."""
+        seen: set = set()
+        out: List[str] = []
+        for raw in [target] + list(subdomains[:20]):
+            t = (raw or '').strip()
+            if not t:
+                continue
+            candidates = [t] if t.startswith(('http://', 'https://')) else [f"https://{t}", f"http://{t}"]
+            for c in candidates:
+                if c not in seen:
+                    seen.add(c)
+                    out.append(c)
+        return out or [f"https://{target}"]
+
     def _run_full_assessment(self, target: str) -> None:
         """
-        Professional 7-stage Guardian assessment using the full ProjectDiscovery
-        + OWASP tool stack.
+        Guardian pipeline (each stage logs Entering / Exiting / Stage skipped):
 
-        Stage map (with task progress %):
-          5%  — Target validation
-         15%  — Subfinder / Amass (subdomain enumeration)
-         30%  — httpx (technology + live host detection)
-         45%  — Katana (endpoint discovery)
-         60%  — Nuclei (vulnerability scan)
-         80%  — ZAP (passive scan)
-         95%  — AI analysis of all findings
-        100%  — Structured final report
+        Target Validation → Subfinder → Amass → httpx → Katana →
+        Nuclei → ZAP → AI Analysis → Final Report
+
+        Empty results (0 hosts, missing tools, errors) never stop the scan.
+        A final report is always emitted (including via finally on crash).
 
         Every stage is individually try/except-wrapped.
         Missing tools emit a skip notice and assessment continues.
@@ -434,23 +461,22 @@ Be specific and reference actual data from the output above."""
 
         def _assess():
             import uuid
-            from datetime import datetime as _dt
+            import traceback as _tb
 
             session_id = f"guardian-{target.replace('.', '-')}-{uuid.uuid4().hex[:6]}"
             results: Dict[str, Any] = {}
-
-            # ── Task Manager integration ──────────────────────────────────────
-            _task_id: str = ''
-            try:
-                from workers.task_manager import create_task, update_task, RUNNING, COMPLETED, FAILED
-                _t = create_task(f"Guardian Scan — {target}", source="guardian",
-                                 metadata={"target": target, "session_id": session_id})
-                _task_id = _t["id"]
-            except Exception:
-                pass
+            subdomains: List[str] = []
+            live_hosts: List[str] = []
+            tech_data: List[Dict] = []
+            endpoints: List[str] = []
+            nuclei_findings: List = []
+            zap_findings: List = []
+            analysis = ''
+            tools = None
+            report_emitted = False
+            _task_id = ''
 
             def _tp(pct: int, summary: str = '') -> None:
-                """Update task progress (non-fatal)."""
                 if not _task_id:
                     return
                 try:
@@ -460,341 +486,318 @@ Be specific and reference actual data from the output above."""
                 except Exception:
                     pass
 
+            def _primary_url() -> str:
+                if live_hosts:
+                    return live_hosts[0]
+                t = target.strip()
+                return t if t.startswith(('http://', 'https://')) else f"https://{t}"
+
+            def _emit_final_report(reason: str = '') -> None:
+                nonlocal report_emitted
+                if report_emitted:
+                    return
+                self._stage_log("Generating Final Report")
+                try:
+                    tool_status = tools.status_block() if tools else "Tool registry unavailable"
+                    all_vulns = len(nuclei_findings) + len(zap_findings)
+                    risk_score = _compute_risk_score(nuclei_findings, zap_findings)
+                    report = _build_final_report(
+                        target=target,
+                        session_id=session_id,
+                        headers_raw=results.get('headers', ''),
+                        subdomains=subdomains,
+                        tech_data=tech_data,
+                        endpoints=endpoints,
+                        nuclei_findings=nuclei_findings,
+                        zap_findings=zap_findings,
+                        ports_raw=results.get('ports', ''),
+                        analysis=analysis or (reason or "Assessment completed with partial data."),
+                        tool_status=tool_status,
+                        risk_score=risk_score,
+                    )
+                    if reason:
+                        report = f"**Note:** {reason}\n\n" + report
+                    self._emit_guardian_response(report, target, step='final')
+                    report_emitted = True
+                    try:
+                        rpt_dir = Path(__file__).parent.parent.parent / "memory" / "vault" / "guardian_reports"
+                        rpt_dir.mkdir(parents=True, exist_ok=True)
+                        (rpt_dir / f"{session_id}.md").write_text(report, encoding="utf-8")
+                        self._stage_log(f"Report saved: {session_id}.md", 'success')
+                    except Exception as _save_err:
+                        self._stage_log(f"Report save error: {_save_err}", 'warning')
+                    if _task_id:
+                        try:
+                            from workers.task_manager import update_task, COMPLETED
+                            update_task(_task_id, status=COMPLETED, progress=100,
+                                        result_summary=f"Report complete | {all_vulns} findings | risk={risk_score}")
+                        except Exception:
+                            pass
+                    self._stage_log(f"Assessment complete for {target}", 'success')
+                except Exception as _rpt_err:
+                    self._stage_log(f"Final report generation failed: {_rpt_err}", 'error')
+                    self._emit_guardian_response(
+                        f"⚠ **Final report error for `{target}`:** {_rpt_err}",
+                        target, step='final',
+                    )
+                    report_emitted = True
+
             try:
-                # ── Initialize tool registry ─────────────────────────────────
+                from workers.task_manager import create_task
+                _t = create_task(f"Guardian Scan — {target}", source="guardian",
+                                 metadata={"target": target, "session_id": session_id})
+                _task_id = _t["id"]
+            except Exception:
+                pass
+
+            try:
                 from workers.guardian.tools.tool_registry import ToolRegistry
                 tools = ToolRegistry(self.socketio)
                 tool_summary = tools.status_summary()
-
-                self._guardian_log(f"[GUARDIAN] Assessment started: {target}", 'info')
-                self._guardian_log(f"[GUARDIAN] Tools: {tool_summary}", 'info')
+                self._stage_log(f"Pipeline started: {target}")
+                self._stage_log(f"Tools: {tool_summary}")
                 self._emit_guardian_response(
                     f"🔍 **Assessment started for `{target}`**\n\n"
                     f"**Session:** `{session_id}`\n\n"
                     f"**Tool Status:**\n```\n{tool_summary}\n```\n\n"
-                    f"Running up to 7 stages. Results appear as each completes.",
-                    target, step='start'
+                    f"Pipeline: Target Validation → Subfinder → Amass → httpx → Katana → "
+                    f"Nuclei → ZAP → AI Analysis → Final Report",
+                    target, step='start',
                 )
-                _tp(5, "Initializing")
+                _tp(5, "Pipeline started")
 
-                # ── Stage 1: Target Validation (curl / HTTP headers) ─────────
+                # ── Target Validation ──────────────────────────────────────────
+                self._stage_enter("Target Validation")
                 try:
-                    self._guardian_log("[GUARDIAN] Stage 1/7: Target validation (HTTP headers)…", 'info')
                     self._emit_guardian_response(
-                        f"**Stage 1/7 — Target Validation** ⟳ HTTP probe…", target, step='stage1_start'
+                        f"**Target Validation** ⟳ HTTP probe…", target, step='validation',
                     )
                     headers_raw = self._run_curl_check(target)
                     results['headers'] = headers_raw
-                    self._guardian_log(f"[GUARDIAN] Stage 1 complete: {len(headers_raw)} bytes", 'success')
                     self._emit_guardian_response(
-                        f"**Stage 1/7 — Target Validation ✓**\n```\n{headers_raw[:1500]}\n```",
-                        target, step='headers'
+                        f"**Target Validation ✓**\n```\n{headers_raw[:1500]}\n```",
+                        target, step='headers',
                     )
-                    _tp(15, "Target validated")
-                except Exception as _e1:
-                    results['headers'] = f"Stage 1 error: {_e1}"
-                    self._guardian_log(f"[GUARDIAN] Stage 1 error: {_e1}", 'error')
+                    self._stage_exit("Target Validation", f"{len(headers_raw)} bytes")
+                except Exception as e:
+                    results['headers'] = str(e)
+                    self._stage_log(f"Target Validation error: {e} — continuing", 'error')
                     self._emit_guardian_response(
-                        f"**Stage 1/7 — Target Validation ✗** `{_e1}` — continuing", target, step='headers'
+                        f"**Target Validation ✗** `{e}` — continuing", target, step='headers',
                     )
-                    _tp(15, "Validation skipped")
+                _tp(12, "Target validation done")
 
-                # ── Stage 2: Subdomain Enumeration (Subfinder + Amass) ───────
-                subdomains: List[str] = []
+                # ── Subfinder ──────────────────────────────────────────────────
+                self._stage_enter("Subfinder")
                 try:
-                    self._guardian_log("[GUARDIAN] Stage 2/7: Subdomain enumeration…", 'info')
-                    self._emit_guardian_response(
-                        f"**Stage 2/7 — Subdomain Enumeration** ⟳", target, step='stage2_start'
-                    )
                     if tools.subfinder.is_available():
                         sub_res = tools.subfinder.enumerate(target, timeout=60)
                         subdomains.extend(sub_res.subdomains)
-                        results['subfinder'] = sub_res.raw_output
+                        results['subfinder'] = sub_res.raw_output or ''
+                        detail = f"{len(sub_res.subdomains)} subdomain(s)"
+                        if not sub_res.subdomains:
+                            detail = "0 subdomains (empty result)"
+                        self._stage_exit("Subfinder", detail)
                         self._emit_guardian_response(
-                            f"**Stage 2/7 — Subfinder ✓** Found {len(sub_res.subdomains)} subdomain(s)\n"
-                            f"```\n{chr(10).join(sub_res.subdomains[:30])}\n```",
-                            target, step='subfinder'
+                            f"**Subfinder ✓** {detail}", target, step='subfinder',
                         )
                     else:
-                        results['subfinder'] = 'Subfinder not installed — skipping'
+                        self._stage_skip("Subfinder", "tool not installed")
+                        results['subfinder'] = 'skipped'
                         self._emit_guardian_response(
-                            f"**Stage 2/7 — Subfinder ⚠ Skipped** (not installed)", target, step='subfinder'
+                            f"**Subfinder ⚠ Skipped** (not installed)", target, step='subfinder',
                         )
+                except Exception as e:
+                    self._stage_log(f"Subfinder error: {e} — continuing", 'error')
+                    self._stage_exit("Subfinder", f"error: {e}")
+                _tp(22, f"Subfinder: {len(subdomains)} subs")
 
+                # ── Amass ──────────────────────────────────────────────────────
+                self._stage_enter("Amass")
+                try:
                     if tools.amass.is_available():
-                        amass_res = tools.amass.enum_passive(target, timeout=90)
-                        amass_subs = [a['name'] for a in amass_res.assets]
-                        for s in amass_subs:
-                            if s not in subdomains:
-                                subdomains.append(s)
-                        results['amass'] = amass_res.raw_output
+                        amass_res = tools.amass.enum_passive(target, timeout=60)
+                        added = 0
+                        for a in amass_res.assets:
+                            name = a.get('name', '')
+                            if name and name not in subdomains:
+                                subdomains.append(name)
+                                added += 1
+                        results['amass'] = amass_res.raw_output or ''
+                        self._stage_exit("Amass", f"{added} new asset(s), total subs={len(subdomains)}")
                         self._emit_guardian_response(
-                            f"**Stage 2/7 — Amass ✓** Mapped {len(amass_subs)} asset(s)",
-                            target, step='amass'
+                            f"**Amass ✓** {added} asset(s)", target, step='amass',
                         )
                     else:
-                        results['amass'] = 'Amass not installed — skipping'
+                        self._stage_skip("Amass", "tool not installed")
+                        results['amass'] = 'skipped'
                         self._emit_guardian_response(
-                            f"**Stage 2/7 — Amass ⚠ Skipped** (not installed)", target, step='amass'
+                            f"**Amass ⚠ Skipped** (not installed)", target, step='amass',
                         )
+                except Exception as e:
+                    self._stage_log(f"Amass error: {e} — continuing", 'error')
+                    self._stage_exit("Amass", f"error: {e}")
+                _tp(32, f"Amass done, {len(subdomains)} subs")
 
-                    results['subdomains'] = subdomains
-                    _tp(30, f"Subdomains: {len(subdomains)}")
-                except Exception as _e2:
-                    self._guardian_log(f"[GUARDIAN] Stage 2 error: {_e2}", 'error')
-                    self._emit_guardian_response(
-                        f"**Stage 2/7 — Enumeration ✗** `{_e2}` — continuing", target, step='recon'
-                    )
-                    _tp(30, "Enumeration skipped")
-
-                # ── Stage 3: Technology Detection (httpx) ────────────────────
-                live_hosts: List[str] = []
-                tech_data: List[Dict] = []
+                # ── httpx ──────────────────────────────────────────────────────
+                self._stage_enter("httpx")
                 try:
-                    self._guardian_log("[GUARDIAN] Stage 3/7: Technology detection (httpx)…", 'info')
                     self._emit_guardian_response(
-                        f"**Stage 3/7 — Technology Detection** ⟳ httpx…", target, step='stage3_start'
+                        f"**httpx** ⟳ technology probe…", target, step='httpx_start',
                     )
-                    httpx_targets = [target] + subdomains[:20]
+                    probe_targets = self._normalize_probe_targets(target, subdomains)
+                    self._stage_log(f"httpx targets: {len(probe_targets)} URL(s)")
                     if tools.httpx.is_available():
-                        httpx_res = tools.httpx.probe(httpx_targets)
-                        tech_data = httpx_res.hosts
-                        live_hosts = [h['url'] for h in tech_data if h.get('status_code', 0) in range(200, 500)]
-                        results['httpx'] = httpx_res.raw_output
-                        tech_lines = [
-                            f"  {h['url']} [{h.get('status_code','')}] {', '.join(h.get('tech', []))[:60]}"
-                            for h in tech_data[:20]
+                        httpx_res = tools.httpx.probe(probe_targets, timeout=8)
+                        tech_data = httpx_res.hosts or []
+                        live_hosts = [
+                            h['url'] for h in tech_data
+                            if h.get('status_code', 0) in range(200, 500)
                         ]
+                        results['httpx'] = httpx_res.raw_output or httpx_res.error or ''
+                        if httpx_res.error:
+                            self._stage_log(f"httpx returned error flag: {httpx_res.error}", 'warning')
+                        if not live_hosts:
+                            self._stage_log(
+                                "httpx: 0 live hosts — continuing pipeline (Katana/Nuclei use primary URL)",
+                                'warning',
+                            )
+                            live_hosts = []
+                        self._stage_exit(
+                            "httpx",
+                            f"{len(tech_data)} parsed, {len(live_hosts)} live (2xx-4xx)",
+                        )
                         self._emit_guardian_response(
-                            f"**Stage 3/7 — httpx ✓** {len(tech_data)} host(s) probed, {len(live_hosts)} live\n"
-                            f"```\n{chr(10).join(tech_lines)}\n```",
-                            target, step='httpx'
+                            f"**httpx ✓** {len(tech_data)} host(s), {len(live_hosts)} live",
+                            target, step='httpx',
                         )
                     else:
-                        results['httpx'] = 'httpx not installed — skipping'
-                        live_hosts = [target]   # fall back to main target
+                        self._stage_skip("httpx", "tool not installed")
+                        results['httpx'] = 'skipped'
                         self._emit_guardian_response(
-                            f"**Stage 3/7 — httpx ⚠ Skipped** (not installed)", target, step='httpx'
+                            f"**httpx ⚠ Skipped** (not installed)", target, step='httpx',
                         )
-                    _tp(45, f"Tech detection: {len(tech_data)} hosts")
-                except Exception as _e3:
-                    live_hosts = [target]
-                    self._guardian_log(f"[GUARDIAN] Stage 3 error: {_e3}", 'error')
+                except Exception as e:
+                    self._stage_log(f"httpx error: {e} — continuing", 'error')
+                    self._stage_exit("httpx", f"error: {e}")
                     self._emit_guardian_response(
-                        f"**Stage 3/7 — Tech Detection ✗** `{_e3}` — continuing", target, step='httpx'
+                        f"**httpx ✗** `{e}` — continuing", target, step='httpx',
                     )
-                    _tp(45, "Tech detection skipped")
+                _tp(45, f"httpx: {len(live_hosts)} live")
 
-                # ── Stage 4: Endpoint Discovery (Katana) ─────────────────────
-                endpoints: List[str] = []
+                # ── Katana ─────────────────────────────────────────────────────
+                self._stage_enter("Katana")
                 try:
-                    self._guardian_log("[GUARDIAN] Stage 4/7: Endpoint discovery (Katana)…", 'info')
-                    self._emit_guardian_response(
-                        f"**Stage 4/7 — Endpoint Discovery** ⟳ Katana…", target, step='stage4_start'
-                    )
+                    crawl_url = _primary_url()
+                    self._stage_log(f"Katana crawl URL: {crawl_url}")
                     if tools.katana.is_available():
-                        katana_target = live_hosts[0] if live_hosts else target
-                        kat_res = tools.katana.crawl(katana_target, depth=3, timeout=120)
-                        endpoints = kat_res.endpoints
-                        results['katana'] = kat_res.raw_output
+                        kat_res = tools.katana.crawl(crawl_url, depth=2, timeout=60)
+                        endpoints = kat_res.endpoints or []
+                        results['katana'] = kat_res.raw_output or kat_res.error or ''
+                        self._stage_exit("Katana", f"{len(endpoints)} endpoint(s)")
                         self._emit_guardian_response(
-                            f"**Stage 4/7 — Katana ✓** Discovered {len(endpoints)} endpoint(s)\n"
-                            f"```\n{chr(10).join(endpoints[:20])}\n```",
-                            target, step='katana'
+                            f"**Katana ✓** {len(endpoints)} endpoint(s)", target, step='katana',
                         )
                     else:
-                        results['katana'] = 'Katana not installed — skipping'
+                        self._stage_skip("Katana", "tool not installed")
+                        results['katana'] = 'skipped'
                         self._emit_guardian_response(
-                            f"**Stage 4/7 — Katana ⚠ Skipped** (not installed)", target, step='katana'
+                            f"**Katana ⚠ Skipped** (not installed)", target, step='katana',
                         )
-                    _tp(55, f"Endpoints: {len(endpoints)}")
-                except Exception as _e4:
-                    self._guardian_log(f"[GUARDIAN] Stage 4 error: {_e4}", 'error')
-                    self._emit_guardian_response(
-                        f"**Stage 4/7 — Endpoint Discovery ✗** `{_e4}` — continuing", target, step='katana'
-                    )
-                    _tp(55, "Endpoint discovery skipped")
+                except Exception as e:
+                    self._stage_log(f"Katana error: {e} — continuing", 'error')
+                    self._stage_exit("Katana", f"error: {e}")
+                _tp(58, f"Katana: {len(endpoints)} endpoints")
 
-                # ── Stage 5: Vulnerability Scan (Nuclei) ─────────────────────
-                nuclei_findings = []
+                # ── Nuclei (no WSL legacy fallback — avoids 120s silent hang) ──
+                self._stage_enter("Nuclei")
                 try:
-                    self._guardian_log("[GUARDIAN] Stage 5/7: Vulnerability scan (Nuclei)…", 'info')
-                    self._emit_guardian_response(
-                        f"**Stage 5/7 — Vulnerability Scan** ⟳ Nuclei…", target, step='stage5_start'
-                    )
                     if tools.nuclei.is_available():
-                        nuclei_res = tools.nuclei.scan(target)
-                        nuclei_findings = nuclei_res.findings
-                        results['nuclei'] = nuclei_res.raw_output
-                        # Persist to Faraday store
+                        scan_url = _primary_url()
+                        self._stage_log(f"Nuclei scan URL: {scan_url}")
+                        nuclei_res = tools.nuclei.scan(scan_url)
+                        nuclei_findings = nuclei_res.findings or []
+                        results['nuclei'] = nuclei_res.raw_output or nuclei_res.error or ''
                         for f in nuclei_findings:
                             try:
                                 tools.faraday.save_finding(f, session_id)
                             except Exception:
                                 pass
-                        sev_counts = {}
-                        for f in nuclei_findings:
-                            sev_counts[f.severity] = sev_counts.get(f.severity, 0) + 1
-                        sev_str = ', '.join(f"{k}: {v}" for k, v in sev_counts.items())
-                        finding_lines = [
-                            f"  [{f.severity.upper()}] {f.template}: {f.description[:60]}"
-                            for f in nuclei_findings[:15]
-                        ]
+                        self._stage_exit("Nuclei", f"{len(nuclei_findings)} finding(s)")
                         self._emit_guardian_response(
-                            f"**Stage 5/7 — Nuclei ✓** {len(nuclei_findings)} finding(s) | {sev_str}\n"
-                            f"```\n{chr(10).join(finding_lines)}\n```",
-                            target, step='nuclei'
+                            f"**Nuclei ✓** {len(nuclei_findings)} finding(s)", target, step='nuclei',
                         )
                     else:
-                        # Fall back to legacy nuclei runner for compatibility
-                        legacy_out = self._run_nuclei(target)
-                        results['nuclei'] = legacy_out
-                        if 'not installed' in legacy_out.lower() or 'not found' in legacy_out.lower():
-                            self._emit_guardian_response(
-                                f"**Stage 5/7 — Nuclei ⚠ Skipped** (not installed)", target, step='nuclei'
-                            )
-                        else:
-                            self._emit_guardian_response(
-                                f"**Stage 5/7 — Nuclei ✓** (legacy mode)\n```\n{legacy_out[:1500]}\n```",
-                                target, step='nuclei'
-                            )
-                    _tp(65, f"Vulns: {len(nuclei_findings)}")
-                except Exception as _e5:
-                    self._guardian_log(f"[GUARDIAN] Stage 5 error: {_e5}", 'error')
-                    self._emit_guardian_response(
-                        f"**Stage 5/7 — Nuclei ✗** `{_e5}` — continuing", target, step='nuclei'
-                    )
-                    _tp(65, "Nuclei skipped")
+                        self._stage_skip("Nuclei", "tool not installed")
+                        results['nuclei'] = 'skipped'
+                        self._emit_guardian_response(
+                            f"**Nuclei ⚠ Skipped** (not installed)", target, step='nuclei',
+                        )
+                except Exception as e:
+                    self._stage_log(f"Nuclei error: {e} — continuing", 'error')
+                    self._stage_exit("Nuclei", f"error: {e}")
+                _tp(72, f"Nuclei: {len(nuclei_findings)} findings")
 
-                # ── Stage 6: ZAP Passive Scan ────────────────────────────────
-                zap_findings = []
+                # ── ZAP ────────────────────────────────────────────────────────
+                self._stage_enter("ZAP")
                 try:
-                    self._guardian_log("[GUARDIAN] Stage 6/7: ZAP passive scan…", 'info')
-                    self._emit_guardian_response(
-                        f"**Stage 6/7 — ZAP Passive Scan** ⟳", target, step='stage6_start'
-                    )
                     if tools.zap.is_available():
-                        zap_url = live_hosts[0] if live_hosts else f"https://{target}"
+                        zap_url = _primary_url()
                         zap_findings = tools.zap.passive_scan(zap_url)
-                        results['zap'] = str(len(zap_findings)) + ' ZAP findings'
-                        for zf in zap_findings:
-                            try:
-                                tools.faraday.save_finding({
-                                    'template': zf.alert,
-                                    'severity': zf.risk.lower(),
-                                    'target': zf.url,
-                                    'description': zf.description,
-                                    'source': 'zap',
-                                }, session_id)
-                            except Exception:
-                                pass
-                        zap_lines = [f"  [{zf.risk}] {zf.alert}: {zf.url[:60]}" for zf in zap_findings[:10]]
+                        results['zap'] = f"{len(zap_findings)} alerts"
+                        self._stage_exit("ZAP", f"{len(zap_findings)} alert(s)")
                         self._emit_guardian_response(
-                            f"**Stage 6/7 — ZAP ✓** {len(zap_findings)} alert(s)\n"
-                            f"```\n{chr(10).join(zap_lines)}\n```",
-                            target, step='zap'
+                            f"**ZAP ✓** {len(zap_findings)} alert(s)", target, step='zap',
                         )
                     else:
-                        results['zap'] = 'ZAP not running — skipping'
+                        self._stage_skip("ZAP", "daemon not running on :8090")
+                        results['zap'] = 'skipped'
                         self._emit_guardian_response(
-                            f"**Stage 6/7 — ZAP ⚠ Skipped** (not running on :8090 — "
-                            f"start with: `docker run -d -p 8090:8080 ghcr.io/zaproxy/zaproxy:stable zap.sh -daemon`)",
-                            target, step='zap'
+                            f"**ZAP ⚠ Skipped** (not running)", target, step='zap',
                         )
-                    _tp(80, f"ZAP: {len(zap_findings)} alerts")
-                except Exception as _e6:
-                    self._guardian_log(f"[GUARDIAN] Stage 6 error: {_e6}", 'error')
-                    self._emit_guardian_response(
-                        f"**Stage 6/7 — ZAP ✗** `{_e6}` — continuing", target, step='zap'
-                    )
-                    _tp(80, "ZAP skipped")
+                except Exception as e:
+                    self._stage_log(f"ZAP error: {e} — continuing", 'error')
+                    self._stage_exit("ZAP", f"error: {e}")
+                _tp(85, f"ZAP: {len(zap_findings)} alerts")
 
-                # ── Stage 7: AI Analysis ──────────────────────────────────────
-                analysis = ''
+                # ── AI Analysis ────────────────────────────────────────────────
+                self._stage_enter("AI Analysis")
                 try:
-                    self._guardian_log("[GUARDIAN] Stage 7/7: AI analysis of all findings…", 'info')
                     self._emit_guardian_response(
-                        f"**Stage 7/7 — AI Analysis** ⟳ analyzing all findings…", target, step='stage7_start'
+                        f"**AI Analysis** ⟳ synthesizing findings…", target, step='analysis_start',
                     )
                     combined_context = (
                         f"Target: {target}\n\n"
                         f"HTTP Headers:\n{results.get('headers', 'N/A')[:500]}\n\n"
-                        f"Subdomains found: {len(subdomains)} — {', '.join(subdomains[:10])}\n\n"
-                        f"Live hosts detected: {len(live_hosts)}\n"
-                        f"Technologies: {', '.join(set(t for h in tech_data for t in h.get('tech', [])))[:200]}\n\n"
-                        f"Endpoints discovered: {len(endpoints)}\n\n"
-                        f"Nuclei findings: {len(nuclei_findings)} — "
-                        f"{', '.join(set(f.severity for f in nuclei_findings))}\n\n"
-                        f"ZAP alerts: {len(zap_findings)}\n\n"
-                        f"Ports/Services:\n{results.get('ports', 'Not scanned')[:300]}"
+                        f"Subdomains: {len(subdomains)}\n"
+                        f"Live hosts (httpx): {len(live_hosts)}\n"
+                        f"Endpoints (Katana): {len(endpoints)}\n"
+                        f"Nuclei findings: {len(nuclei_findings)}\n"
+                        f"ZAP alerts: {len(zap_findings)}\n"
                     )
                     analysis = self._analyze_with_ollama('security assessment', target, combined_context)
-                    self._guardian_log("[GUARDIAN] Stage 7 complete", 'success')
+                    self._stage_exit("AI Analysis", f"{len(analysis)} chars")
                     self._emit_guardian_response(
-                        f"**Stage 7/7 — AI Analysis ✓**\n\n{analysis}", target, step='analysis'
+                        f"**AI Analysis ✓**\n\n{analysis[:4000]}", target, step='analysis',
                     )
-                    _tp(95, "AI analysis complete")
-                except Exception as _e7:
-                    analysis = f"AI analysis unavailable: {_e7}"
-                    self._guardian_log(f"[GUARDIAN] Stage 7 error: {_e7}", 'error')
-                    self._emit_guardian_response(
-                        f"**Stage 7/7 — AI Analysis ✗** `{_e7}`", target, step='analysis'
-                    )
-                    _tp(95, "AI analysis skipped")
+                except Exception as e:
+                    analysis = f"AI analysis unavailable: {e}"
+                    self._stage_log(f"AI Analysis error: {e} — continuing", 'error')
+                    self._stage_exit("AI Analysis", f"error: {e}")
+                _tp(95, "AI analysis done")
 
-                # ── Structured Final Report ────────────────────────────────────
-                all_vulns = len(nuclei_findings) + len(zap_findings)
-                risk_score = _compute_risk_score(nuclei_findings, zap_findings)
+                _emit_final_report()
 
-                report = _build_final_report(
-                    target=target,
-                    session_id=session_id,
-                    headers_raw=results.get('headers', ''),
-                    subdomains=subdomains,
-                    tech_data=tech_data,
-                    endpoints=endpoints,
-                    nuclei_findings=nuclei_findings,
-                    zap_findings=zap_findings,
-                    ports_raw=results.get('ports', ''),
-                    analysis=analysis,
-                    tool_status=tools.status_block(),
-                    risk_score=risk_score,
+            except Exception as top_err:
+                self._stage_log(
+                    f"Pipeline exception: {top_err}\n{_tb.format_exc()[-800:]}",
+                    'error',
                 )
-                self._guardian_log(f"[GUARDIAN] Assessment complete for {target} | "
-                                   f"findings={all_vulns} risk={risk_score}", 'success')
-                self._emit_guardian_response(report, target, step='final')
+                _emit_final_report(reason=f"Recovered after error: {top_err}")
 
-                # Persist report to disk
-                try:
-                    rpt_dir = Path(__file__).parent.parent.parent / "memory" / "vault" / "guardian_reports"
-                    rpt_dir.mkdir(parents=True, exist_ok=True)
-                    rpt_file = rpt_dir / f"{session_id}.md"
-                    rpt_file.write_text(report, encoding="utf-8")
-                    self._guardian_log(f"[GUARDIAN] Report saved: {rpt_file}", 'success')
-                except Exception as _save_err:
-                    self._guardian_log(f"[GUARDIAN] Report save error: {_save_err}", 'warning')
-
-                if _task_id:
-                    try:
-                        from workers.task_manager import update_task, COMPLETED
-                        update_task(_task_id, status=COMPLETED, progress=100,
-                                    result_summary=f"Assessment complete for {target} | {all_vulns} findings | risk={risk_score}")
-                    except Exception:
-                        pass
-
-            except Exception as _top_err:
-                self._guardian_log(f"[GUARDIAN] Assessment failed unexpectedly: {_top_err}", 'error')
-                self._emit_guardian_response(
-                    f"⚠ **Assessment encountered an unexpected error for `{target}`**\n\nError: {_top_err}\n\n"
-                    f"Partial results may be in the stages above.",
-                    target, step='final'
-                )
-                if _task_id:
-                    try:
-                        from workers.task_manager import update_task, FAILED
-                        update_task(_task_id, status=FAILED, error=str(_top_err))
-                    except Exception:
-                        pass
+            finally:
+                if not report_emitted:
+                    _emit_final_report(reason="Emergency final report (pipeline did not complete normally)")
 
         threading.Thread(target=_assess, daemon=True).start()
 

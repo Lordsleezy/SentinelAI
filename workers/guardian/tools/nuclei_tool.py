@@ -111,33 +111,34 @@ class NucleiTool:
             "-no-color",
         ]
 
-        self._emit(f"Scanning {target} with templates: {', '.join(templates)}")
+        scan_url = target if target.startswith(('http://', 'https://')) else f"https://{target}"
+        cmd[cmd.index('-u') + 1] = scan_url
+
+        self._emit(f"Scanning {scan_url} (timeout 90s)…")
         raw_lines: List[str] = []
 
         try:
-            proc = subprocess.Popen(
+            proc = subprocess.run(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                timeout=90,
             )
-            for line in iter(proc.stdout.readline, ""):
+            raw_output = (proc.stdout or "") + (proc.stderr or "")
+            for line in raw_output.splitlines():
                 line = line.rstrip()
-                if not line:
-                    continue
-                raw_lines.append(line)
-                self._emit(line)
-
-            proc.wait(timeout=300)
-            raw_output = "\n".join(raw_lines)
-            findings = self.parse_output(raw_output)
+                if line:
+                    raw_lines.append(line)
+                    if line.startswith("{"):
+                        self._emit(line[:200])
+            findings = self.parse_output("\n".join(raw_lines))
             self._emit(f"Found {len(findings)} issues", "success" if findings else "info")
-            return NucleiResult(success=True, findings=findings, raw_output=raw_output)
+            return NucleiResult(success=True, findings=findings, raw_output=raw_output[:8000])
 
         except subprocess.TimeoutExpired:
-            msg = "Nuclei scan timed out (5m)"
+            msg = "Nuclei scan timed out (90s)"
             self._emit(msg, "error")
             return NucleiResult(success=False, error=msg)
         except Exception as e:
