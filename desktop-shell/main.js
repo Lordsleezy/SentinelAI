@@ -24,9 +24,10 @@ try { fs.writeFileSync(_dbgLog, '', 'utf8'); } catch (_) {}
 // ============================================================================
 
 let orbWindow = null;          // Window 1 - The Orb
-let workerWindow = null;        // Window 2 - Contextual worker windows
-let logWindow = null;           // Log tab window
+let workerWindow = null;        // Window 2 - Contextual worker windows (legacy, unused after panel system)
+let logWindow = null;           // Log tab window (legacy)
 let splashWindow = null;
+let loginWindow = null;         // Login screen (first run / credential setup)
 let setupWizardWindow = null;   // Setup wizard window (first run only)
 let backendProcess = null;
 let ptyProcess = null;          // Terminal PTY (legacy)
@@ -34,6 +35,9 @@ let backendReady = false;
 let appReady = false;           // True once main windows have launched - guards window-all-closed
 let isQuitting = false;
 let isRestarting = false;
+
+// Buffer for backend log lines captured before orb Socket.IO connects
+const backendLogBuffer = [];
 
 // Restart rate limiting — max 5 restarts within 60 s
 const restartTimes = [];
@@ -224,6 +228,7 @@ function launchBackend() {
       cwd: backendDir,
       env: { ...process.env, SENTINEL_NO_BROWSER: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,  // prevents terminal window appearing on Windows
       detached: false
     });
 
@@ -233,16 +238,44 @@ function launchBackend() {
     }
 
     writePID(backendProcess.pid);
-    console.log(`[Backend] PID ${backendProcess.pid}`);
+    dbg(`[Backend] PID ${backendProcess.pid}`);
 
     backendProcess.stdout.on('data', (data) => {
-      const lines = data.toString().trim().split('\n');
-      lines.forEach(line => { if (line) console.log(`[Backend] ${line}`); });
+      const lines = data.toString().split('\n').filter(l => l.trim());
+      lines.forEach(line => {
+        backendLogBuffer.push({
+          type: 'system',
+          level: 'info',
+          message: line,
+          timestamp: new Date().toISOString()
+        });
+        // Forward to orb if it's already open
+        if (orbWindow && !orbWindow.isDestroyed()) {
+          orbWindow.webContents.send('backend-log', {
+            type: 'system', level: 'info', message: line,
+            timestamp: new Date().toISOString()
+          });
+        }
+      });
     });
 
     backendProcess.stderr.on('data', (data) => {
-      const lines = data.toString().trim().split('\n');
-      lines.forEach(line => { if (line) console.error(`[Backend ERR] ${line}`); });
+      const lines = data.toString().split('\n').filter(l => l.trim());
+      lines.forEach(line => {
+        const level = line.toLowerCase().includes('error') ? 'error' : 'info';
+        backendLogBuffer.push({
+          type: 'system',
+          level,
+          message: line,
+          timestamp: new Date().toISOString()
+        });
+        if (orbWindow && !orbWindow.isDestroyed()) {
+          orbWindow.webContents.send('backend-log', {
+            type: 'system', level, message: line,
+            timestamp: new Date().toISOString()
+          });
+        }
+      });
     });
 
     backendProcess.on('exit', (code, signal) => {
@@ -738,10 +771,26 @@ function createSetupWizardWindow() {
 // ============================================================================
 
 function setupIPC() {
-  // Route to a specific worker window
+  // Return buffered backend log lines and clear the buffer
+  ipcMain.handle('get-log-buffer', () => {
+    const buffer = [...backendLogBuffer];
+    backendLogBuffer.length = 0;
+    return buffer;
+  });
+
+  // Open a panel inside the orb window (replaces separate worker windows)
+  ipcMain.on('open-panel', (event, panelName) => {
+    if (orbWindow && !orbWindow.isDestroyed()) {
+      orbWindow.webContents.send('open-panel', panelName);
+    }
+  });
+
+  // Route to a specific worker window (legacy — now sends open-panel to orb)
   ipcMain.on('route-to-worker', (event, { worker, context }) => {
-    console.log(`[IPC] Routing to worker: ${worker}`);
-    createWorkerWindow(worker, context);
+    dbg(`[IPC] Routing to panel: ${worker}`);
+    if (orbWindow && !orbWindow.isDestroyed()) {
+      orbWindow.webContents.send('open-panel', worker);
+    }
   });
 
   // Terminal I/O for Forge window (node-pty integration will be added in Track 3)
@@ -777,7 +826,9 @@ function setupIPC() {
   });
 
   ipcMain.on('open-log', () => {
-    openLogWindow();
+    if (orbWindow && !orbWindow.isDestroyed()) {
+      orbWindow.webContents.send('open-panel', 'log');
+    }
   });
 
   ipcMain.on('open-forge', () => {
@@ -866,28 +917,28 @@ function buildAppMenu() {
         {
           label: 'Earn',
           accelerator: 'CmdOrCtrl+1',
-          click: () => createWorkerWindow('earn')
+          click: () => { if (orbWindow && !orbWindow.isDestroyed()) orbWindow.webContents.send('open-panel', 'earn'); }
         },
         {
           label: 'Market',
           accelerator: 'CmdOrCtrl+2',
-          click: () => createWorkerWindow('market')
+          click: () => { if (orbWindow && !orbWindow.isDestroyed()) orbWindow.webContents.send('open-panel', 'market'); }
         },
         {
           label: 'Guardian',
           accelerator: 'CmdOrCtrl+3',
-          click: () => createWorkerWindow('guardian')
+          click: () => { if (orbWindow && !orbWindow.isDestroyed()) orbWindow.webContents.send('open-panel', 'guardian'); }
         },
         {
           label: 'Scalp',
           accelerator: 'CmdOrCtrl+4',
-          click: () => createWorkerWindow('scalp')
+          click: () => { if (orbWindow && !orbWindow.isDestroyed()) orbWindow.webContents.send('open-panel', 'scalp'); }
         },
         { type: 'separator' },
         {
           label: 'Log',
           accelerator: 'CmdOrCtrl+L',
-          click: () => openLogWindow()
+          click: () => { if (orbWindow && !orbWindow.isDestroyed()) orbWindow.webContents.send('open-panel', 'log'); }
         }
       ]
     },
