@@ -756,23 +756,46 @@ async function vitalsCheck() {
   return true;
 }
 
-// createSetupWizardWindow kept for reference but no longer called on first run
+const WIZARD_DONE_FLAG = path.join(app.getPath('userData'), '.wizard_done');
+
+function isWizardNeeded() {
+  return !fs.existsSync(WIZARD_DONE_FLAG);
+}
+
+function markWizardDone() {
+  try { fs.writeFileSync(WIZARD_DONE_FLAG, '1'); } catch (_) {}
+}
+
 function createSetupWizardWindow() {
-  setupWizardWindow = new BrowserWindow({
-    width: 800,
-    height: 900,
-    title: 'SentinelAI Setup',
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true
-    }
-  });
-  if (fs.existsSync(path.join(__dirname, 'setup_wizard.html'))) {
-    setupWizardWindow.loadFile(path.join(__dirname, 'setup_wizard.html'));
-    setupWizardWindow.show();
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+    splashWindow = null;
   }
+  setupWizardWindow = new BrowserWindow({
+    width: 820,
+    height: 720,
+    minWidth: 700,
+    title: 'SentinelAI — First Run Setup',
+    frame: false,
+    resizable: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+    backgroundColor: '#0a0a0f',
+  });
+  setupWizardWindow.loadFile(path.join(__dirname, 'setup_wizard.html'));
+  setupWizardWindow.once('ready-to-show', () => setupWizardWindow.show());
   setupWizardWindow.on('closed', () => { setupWizardWindow = null; });
-  return setupWizardWindow;
+  return new Promise((resolve) => {
+    ipcMain.once('setup-wizard-done', () => {
+      markWizardDone();
+      if (setupWizardWindow && !setupWizardWindow.isDestroyed()) setupWizardWindow.close();
+      resolve();
+    });
+    // Allow skipping by closing window
+    setupWizardWindow.on('closed', () => resolve());
+  });
 }
 
 // ============================================================================
@@ -791,6 +814,16 @@ function setupIPC() {
   ipcMain.on('open-panel', (event, panelName) => {
     if (orbWindow && !orbWindow.isDestroyed()) {
       orbWindow.webContents.send('open-panel', panelName);
+    }
+  });
+
+  // Auto-update: user clicked "restart & update"
+  ipcMain.on('install-update', () => {
+    try {
+      const { autoUpdater } = require('electron-updater');
+      autoUpdater.quitAndInstall(false, true);
+    } catch (e) {
+      dbg(`[Updater] install-update failed: ${e.message}`);
     }
   });
 
@@ -1077,6 +1110,14 @@ async function startupSequence() {
     // First-run: ensure .env exists (create empty from .env.example if needed)
     await ensureEnvFile();
 
+    // First-run setup wizard — blocks until user completes or skips
+    if (isWizardNeeded()) {
+      dbg('[Startup] Showing setup wizard...');
+      updateSplash('First run — setting up Sentinel...', 93);
+      await createSetupWizardWindow();
+      dbg('[Startup] Setup wizard closed');
+    }
+
     if (!loggedIn) {
       dbg('[Startup] Showing login screen...');
       updateSplash('First run — connect your accounts...', 95);
@@ -1125,10 +1166,37 @@ async function gracefulShutdown() {
 // APP LIFECYCLE
 // ============================================================================
 
+function initAutoUpdater() {
+  try {
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.logger = null;                // keep logs silent in production
+    autoUpdater.autoDownload = true;          // download in background
+    autoUpdater.autoInstallOnAppQuit = true;  // install on next quit
+
+    autoUpdater.on('update-downloaded', () => {
+      dbg('[Updater] Update downloaded — notifying renderer');
+      if (orbWindow && !orbWindow.isDestroyed()) {
+        orbWindow.webContents.send('update-available');
+      }
+    });
+
+    autoUpdater.on('error', (err) => {
+      dbg(`[Updater] Error: ${err.message}`);
+    });
+
+    // Check immediately, then every 4 hours
+    autoUpdater.checkForUpdates().catch(() => {});
+    setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 4 * 60 * 60 * 1000);
+  } catch (e) {
+    dbg(`[Updater] electron-updater not available: ${e.message}`);
+  }
+}
+
 app.whenReady().then(() => {
   setupIPC();
   buildAppMenu();
   startupSequence();
+  initAutoUpdater();
 
   // F11 toggles fullscreen
   globalShortcut.register('F11', () => {

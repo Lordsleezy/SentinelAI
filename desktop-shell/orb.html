@@ -762,11 +762,22 @@
       transform:scaleY(.1);transform-origin:center;box-shadow:0 0 4px var(--hud-cyan);
     }
   </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.css"/>
 </head>
 <body>
   <div id="app-container">
     <div id="title-bar">
       <span class="title-text">SENTINEL AI</span>
+      <span id="trial-badge" style="display:none;font-size:10px;font-family:monospace;
+            padding:2px 8px;border-radius:3px;margin-left:10px;cursor:pointer;
+            background:rgba(255,165,0,0.15);border:1px solid rgba(255,165,0,0.4);
+            color:#ffa500;letter-spacing:1px;-webkit-app-region:no-drag;"
+            onclick="showPaywall()" title="Trial — click to activate"></span>
+      <div id="update-banner" style="display:none;font-size:10px;font-family:monospace;
+            margin-left:auto;margin-right:8px;padding:2px 10px;border-radius:3px;
+            background:rgba(0,200,255,0.12);border:1px solid rgba(0,200,255,0.4);
+            color:#00ccff;cursor:pointer;-webkit-app-region:no-drag;"
+            onclick="installUpdate()">⬇ Update ready — click to restart</div>
       <div class="win-controls">
         <button id="fullscreen-btn" onclick="toggleFullscreen()" title="Toggle Fullscreen (F11)" style="font-size:13px;">⛶</button>
         <button id="btn-minimize" title="Minimize">—</button>
@@ -1480,8 +1491,8 @@
           <td>${escapeHtml(p.name || p.program || '')}</td>
           <td><span style="font-size:10px;color:#888;">${escapeHtml(p.type || '')}</span></td>
           <td style="color:#00ff88;">${escapeHtml(String(p.max_bounty || p.reward || p.bounty || '—'))}</td>
-          <td><button class="panel-btn" style="padding:4px 8px;font-size:10px;"
-              onclick="earnAcceptWork('${escapeHtml(JSON.stringify(p).replace(/'/g,"&apos;"))}')">Accept & Work</button></td>
+          <td><button class="panel-btn" style="padding:4px 8px;font-size:10px;white-space:nowrap;"
+              onclick="earnAcceptWork('${escapeHtml(JSON.stringify(p).replace(/'/g,"&apos;"))}', this)">Accept & Work</button></td>
         </tr>`).join('');
       return `<table class="panel-table"><thead><tr><th>Program</th><th>Type</th><th>Reward</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
@@ -1501,25 +1512,76 @@
       } finally { if (btn) { btn.disabled = false; btn.textContent = '🔍 SCAN NOW'; } }
     };
 
-    window.earnAcceptWork = async function(programJson) {
+    window.earnAcceptWork = async function(programJson, btnEl) {
       let p; try { p = JSON.parse(programJson); } catch(_) { return; }
+      const btn = btnEl || event && event.target;
+      const originalText = btn ? btn.textContent : 'Accept & Work';
+      if (btn) { btn.textContent = 'Working...'; btn.disabled = true; }
+
+      // Show immediate feedback
+      showEarnNotification(`Accepting ${p.name || p.title || 'program'}...`, 'info');
+
       try {
         const r = await fetch('http://127.0.0.1:5001/earn/accept', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({program: p.name || p.program || '', program_data: p})
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            title: p.title || p.name || p.program || 'Unknown',
+            source: p.source || p.type || 'unknown',
+            url: p.url || p.program_url || '',
+            scope: p.scope || [],
+            offers_bounties: p.offers_bounties || (p.type||'').toLowerCase().includes('bounty'),
+            reward: p.reward || p.max_bounty || p.bounty || 'Varies'
+          })
         });
+
+        if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+        const ct = r.headers.get('content-type');
+        if (!ct || !ct.includes('application/json')) {
+          const text = await r.text();
+          throw new Error(`Non-JSON response: ${text.substring(0, 100)}`);
+        }
+
         const d = await r.json();
-        const listEl = document.getElementById('earn-programs-list');
-        if (listEl) {
-          const notice = document.createElement('div');
-          notice.style.cssText = 'color:#00ff88;font-size:12px;padding:8px;background:rgba(0,255,136,0.08);border-radius:4px;margin-bottom:8px;';
-          notice.textContent = `✓ Accepted ${p.name || 'program'} — Aider analysis starting. See Log panel.`;
-          listEl.insertAdjacentElement('beforebegin', notice);
+        if (d.status === 'accepted' || d.job_id) {
+          showEarnNotification(`✓ ${p.name || p.title || 'Program'} accepted. Sentinel is analyzing the target.`, 'success');
+          if (btn) {
+            btn.textContent = '✓ Accepted';
+            btn.style.background = 'rgba(0,255,136,0.1)';
+            btn.style.borderColor = 'rgba(0,255,136,0.6)';
+            btn.style.color = '#00ff88';
+          }
+        } else {
+          throw new Error(d.error || d.message || 'Unknown error from server');
         }
       } catch(e) {
-        alert('Accept error: ' + e.message);
+        showEarnNotification(`✗ Error: ${e.message}`, 'error');
+        if (btn) { btn.textContent = originalText; btn.disabled = false; }
       }
     };
+
+    function showEarnNotification(message, type) {
+      let notif = document.getElementById('earn-notification');
+      if (!notif) {
+        notif = document.createElement('div');
+        notif.id = 'earn-notification';
+        notif.style.cssText = 'padding:8px 12px;border-radius:4px;font-family:monospace;font-size:12px;margin-bottom:8px;display:none;';
+        const container = document.getElementById('panel-content');
+        if (container) container.insertBefore(notif, container.firstChild);
+      }
+      const colors = {
+        info:    { bg: '#0a0a20', border: '#0047FF', color: '#0088FF' },
+        success: { bg: '#001a00', border: '#00ff88', color: '#00ff88' },
+        error:   { bg: '#1a0000', border: '#f44', color: '#f44' }
+      };
+      const c = colors[type] || colors.info;
+      notif.style.background = c.bg;
+      notif.style.border = `1px solid ${c.border}`;
+      notif.style.color = c.color;
+      notif.textContent = message;
+      notif.style.display = 'block';
+      if (type === 'success') setTimeout(() => { notif.style.display = 'none'; }, 5000);
+    }
 
     // ── MARKET PANEL ──────────────────────────────────────────────────────────
     let _mktSymbol = 'BINANCE:BTCUSDT';
@@ -2749,6 +2811,18 @@
     }
     checkReady();
 
+    // ── Owner mode: hide EARN button for non-owner builds ─────────────────────
+    (async function applyOwnerMode() {
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/status');
+        const data = await r.json();
+        if (!data.owner_mode) {
+          const earnBtn = document.querySelector('[data-panel="earn"]');
+          if (earnBtn) earnBtn.style.display = 'none';
+        }
+      } catch (_) {}
+    })();
+
     // ── Socket.IO for real-time events ──────────────────────────────────────
     (function loadSocketIO() {
       const script = document.createElement('script');
@@ -3178,6 +3252,184 @@
       document.body.insertAdjacentHTML('beforeend', html);
       window._pendingPurchase = purchaseData;
     };
+
+    // ── Trial badge ──────────────────────────────────────────────────────────
+    async function updateTrialBadge() {
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/trial/status');
+        const d = await r.json();
+        const badge = document.getElementById('trial-badge');
+        if (!badge) return;
+        if (d.is_pro) { badge.style.display = 'none'; return; }
+        if (d.active) {
+          badge.style.display = 'inline-block';
+          badge.textContent = `TRIAL · ${d.days_remaining}d ${d.hours_remaining}h`;
+        } else if (d.expired) {
+          badge.style.display = 'inline-block';
+          badge.textContent = 'TRIAL EXPIRED';
+          badge.style.background = 'rgba(255,60,60,0.15)';
+          badge.style.borderColor = 'rgba(255,60,60,0.4)';
+          badge.style.color = '#ff6060';
+        }
+      } catch (_) {}
+    }
+    updateTrialBadge();
+    setInterval(updateTrialBadge, 60000);
+
+    // ── Paywall overlay ───────────────────────────────────────────────────────
+    window.showPaywall = function() {
+      if (document.getElementById('paywall-overlay')) return;
+      const html = `
+        <div id="paywall-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.85);
+             display:flex;align-items:center;justify-content:center;z-index:9000;">
+          <div style="background:#0d0d1a;border:1px solid rgba(0,255,136,0.3);border-radius:14px;
+               padding:36px;max-width:400px;width:90%;text-align:center;">
+            <div style="font-size:32px;margin-bottom:12px;">🛡️</div>
+            <h3 style="color:#00ff88;font-size:18px;margin-bottom:8px;">Activate SentinelAI Pro</h3>
+            <p style="color:#888;font-size:13px;margin-bottom:20px;">
+              Unlock unlimited AI access, Guardian, Forge, and all future features.
+            </p>
+            <input id="paywall-key" type="text" placeholder="Enter license key…"
+              style="width:100%;padding:10px 14px;background:#0a0a18;border:1px solid rgba(0,255,136,0.25);
+                     border-radius:6px;color:#e0e0e0;font-size:13px;margin-bottom:12px;outline:none;"/>
+            <div id="paywall-msg" style="font-size:12px;min-height:18px;margin-bottom:12px;"></div>
+            <div style="display:flex;gap:10px;">
+              <button onclick="activateFromPaywall()"
+                style="flex:2;padding:11px;background:rgba(0,255,136,0.12);border:1px solid rgba(0,255,136,0.4);
+                       color:#00ff88;border-radius:7px;cursor:pointer;font-size:13px;font-weight:600;">
+                Activate
+              </button>
+              <button onclick="document.getElementById('paywall-overlay').remove()"
+                style="flex:1;padding:11px;background:none;border:1px solid #333;color:#666;
+                       border-radius:7px;cursor:pointer;font-size:13px;">
+                Later
+              </button>
+            </div>
+          </div>
+        </div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+      document.getElementById('paywall-key').focus();
+    };
+
+    window.activateFromPaywall = async function() {
+      const key = (document.getElementById('paywall-key')?.value || '').trim();
+      const msg = document.getElementById('paywall-msg');
+      if (!key) { if (msg) { msg.textContent = 'Enter a key first.'; msg.style.color = '#ff6060'; } return; }
+      try {
+        const r = await fetch('http://127.0.0.1:5001/license/activate', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ key })
+        });
+        const d = await r.json();
+        if (msg) {
+          msg.textContent = d.success ? '✓ Activated! Reloading…' : (d.message || 'Activation failed.');
+          msg.style.color = d.success ? '#00ff88' : '#ff6060';
+        }
+        if (d.success) {
+          await updateTrialBadge();
+          setTimeout(() => document.getElementById('paywall-overlay')?.remove(), 1800);
+        }
+      } catch (e) {
+        if (msg) { msg.textContent = 'Error: ' + e.message; msg.style.color = '#ff6060'; }
+      }
+    };
+
+    // ── App tour (Driver.js — shown once after first launch) ──────────────────
+    const TOUR_KEY = 'sentinel_tour_done_v1';
+
+    function shouldShowTour() {
+      try { return !localStorage.getItem(TOUR_KEY); } catch (_) { return false; }
+    }
+
+    function markTourComplete() {
+      try { localStorage.setItem(TOUR_KEY, '1'); } catch (_) {}
+    }
+
+    function startAppTour() {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.umd.js';
+      script.onload = () => {
+        const driver = window.driver.js.driver({
+          showProgress: true,
+          animate: true,
+          overlayColor: 'rgba(0,0,0,0.75)',
+          popoverClass: 'sentinel-tour-popover',
+          steps: [
+            {
+              element: '#orb-root',
+              popover: {
+                title: 'The Sentinel Orb',
+                description: 'Your AI core. Speak or type — the orb responds, thinks, and builds.',
+                side: 'right', align: 'center'
+              }
+            },
+            {
+              element: '#chat-input',
+              popover: {
+                title: 'Chat Input',
+                description: 'Ask Sentinel to build apps, search the web, or automate tasks.',
+                side: 'top', align: 'start'
+              }
+            },
+            {
+              element: '[data-panel="guardian"]',
+              popover: {
+                title: 'Guardian',
+                description: 'AI security analyst. Scan for threats, check exposed keys, run pen-tests.',
+                side: 'top', align: 'center'
+              }
+            },
+            {
+              element: '[data-panel="market"]',
+              popover: {
+                title: 'Market Panel',
+                description: 'Live crypto signals and scalp trading intelligence.',
+                side: 'top', align: 'center'
+              }
+            },
+            {
+              element: '[data-panel="memory"]',
+              popover: {
+                title: 'Memory',
+                description: 'Sentinel remembers your conversations and connects Claude/ChatGPT.',
+                side: 'top', align: 'center'
+              }
+            },
+            {
+              element: '#tier-badge',
+              popover: {
+                title: 'Pro Tier',
+                description: 'Activate a license key to unlock unlimited Forge tasks, Guardian, and all workers.',
+                side: 'left', align: 'center'
+              }
+            },
+          ],
+          onDestroyed: markTourComplete,
+        });
+        driver.drive();
+      };
+      document.head.appendChild(script);
+    }
+
+    if (shouldShowTour()) {
+      setTimeout(startAppTour, 3000);
+    }
+
+    // ── Auto-update IPC (electron-updater notifications) ──────────────────────
+    window.installUpdate = function() {
+      try {
+        const { ipcRenderer } = require('electron');
+        ipcRenderer.send('install-update');
+      } catch (_) {}
+    };
+
+    try {
+      const { ipcRenderer: _ipc } = require('electron');
+      _ipc.on('update-available', () => {
+        const banner = document.getElementById('update-banner');
+        if (banner) banner.style.display = 'inline-block';
+      });
+    } catch (_) {}
 
     window.approvePurchase = async function() {
       const purchaseData = window._pendingPurchase || {};

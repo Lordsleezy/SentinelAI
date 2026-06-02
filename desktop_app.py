@@ -53,6 +53,8 @@ except Exception as _scalp_import_err:
 from notifications import send_notification
 from memory_manager import get_memory_manager
 
+OWNER_MODE = os.getenv('SENTINEL_OWNER_MODE', 'false').lower() == 'true'
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -899,6 +901,7 @@ def api_status():
         "sentinel_web_status": sentinel_web_status,
         "consultation": consultation_status,
         "scalp": scalp_status,
+        "owner_mode": OWNER_MODE,
     }
     return jsonify({**data, "status": "ok", "data": data, "error": None})
 
@@ -2301,20 +2304,101 @@ def api_models_unload():
         return jsonify({"status": "error", "data": None, "error": str(e)}), 500
 
 
+@app.route('/api/setup/scan', methods=['POST'])
+def api_setup_scan():
+    """Run machine scan. Returns hardware profile."""
+    try:
+        from workers.setup.machine_scanner import get_machine_scanner
+        profile = get_machine_scanner().scan()
+        return jsonify(profile)
+    except Exception as e:
+        logger.exception("api_setup_scan failed")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/setup/status')
 def api_setup_status():
+    """Returns current setup status including hardware profile and model readiness."""
     try:
-        from models import hardware_detector, model_registry, setup_wizard
-        model_registry.init_registry()
-        data = {
-            "complete": not setup_wizard.is_first_run(),
-            "hardware": hardware_detector.detect_hardware(),
-            "models": model_registry.get_all_models(),
-        }
-        return jsonify({"status": "ok", "data": data, "error": None})
+        from workers.setup.machine_scanner import get_machine_scanner
+        import requests as _req
+        scanner = get_machine_scanner()
+        profile = scanner.load_cached() or scanner.scan()
+
+        model_downloaded = False
+        try:
+            r = _req.get('http://localhost:11434/api/tags', timeout=3)
+            if r.status_code == 200:
+                models = [m['name'] for m in r.json().get('models', [])]
+                rec = profile.get('recommended_model', '')
+                model_downloaded = any(rec in m for m in models)
+        except Exception:
+            pass
+
+        setup_complete = (
+            profile.get('ollama_installed', False) and
+            profile.get('ollama_running', False) and
+            model_downloaded
+        )
+
+        return jsonify({**profile, 'model_downloaded': model_downloaded,
+                        'setup_complete': setup_complete})
     except Exception as e:
         logger.exception("api_setup_status failed")
-        return jsonify({"status": "error", "data": None, "error": str(e)}), 500
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/setup/pull-model', methods=['POST'])
+def api_setup_pull_model():
+    """Pull the recommended model via Ollama. Streams progress via Socket.IO."""
+    try:
+        from workers.setup.machine_scanner import get_machine_scanner
+        data = request.json or {}
+        cached = get_machine_scanner().load_cached() or {}
+        model = data.get('model') or cached.get('recommended_model', 'qwen2.5-coder:7b')
+
+        def pull():
+            log(f"Pulling model: {model}", 'info', 'setup')
+            try:
+                proc = subprocess.Popen(
+                    ['ollama', 'pull', model],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                )
+                for line in iter(proc.stdout.readline, ''):
+                    line = line.strip()
+                    if line:
+                        emit_event('setup_progress', {
+                            'step': 'model_download', 'message': line, 'model': model
+                        })
+                proc.wait()
+                success = proc.returncode == 0
+                emit_event('setup_progress', {
+                    'step': 'model_download',
+                    'message': f"Model {'ready' if success else 'failed'}",
+                    'complete': True, 'success': success,
+                })
+                log(f"Model pull {'complete' if success else 'failed'}: {model}",
+                    'success' if success else 'error', 'setup')
+            except Exception as exc:
+                log(f"Model pull error: {exc}", 'error', 'setup')
+
+        t = threading.Thread(target=pull, daemon=True)
+        t.start()
+        return jsonify({"status": "pulling", "model": model})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/setup/intent', methods=['POST'])
+def api_setup_intent():
+    """Save the user's primary intent from the setup wizard."""
+    try:
+        data = request.json or {}
+        intent = data.get('intent', 'all')
+        log(f"Setup intent: {intent}", 'info', 'setup')
+        return jsonify({"status": "ok", "intent": intent})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/reflection/workflows/<int:workflow_id>', methods=['POST'])
@@ -3467,6 +3551,47 @@ def api_orchestration_test():
         return jsonify({"error": str(e)}), 500
 
 
+# ─── Trial & Access Control ───────────────────────────────────────────────────
+
+from workers.licensing.trial_manager import get_trial_manager as _get_trial_mgr
+
+_trial_manager = _get_trial_mgr()
+_trial_manager.start_trial()   # no-op if already started
+
+
+def check_access() -> dict | None:
+    """
+    Returns None if the user may proceed.
+    Returns a JSON-serializable error dict if access is blocked.
+    Pro license always passes; active trial passes; expired trial blocks.
+    """
+    if license_manager.is_pro():
+        return None
+    trial = _trial_manager.get_status()
+    if trial.get('active'):
+        return None
+    if trial.get('never_started'):
+        _trial_manager.start_trial()
+        return None
+    return {
+        'blocked': True,
+        'reason': 'trial_expired',
+        'message': 'Your 7-day trial has expired. Activate a license key to continue.',
+        'trial': trial,
+    }
+
+
+@app.route('/api/trial/status', methods=['GET'])
+def api_trial_status():
+    """Return trial status + license tier."""
+    try:
+        trial = _trial_manager.get_status()
+        lic = license_manager.get_status()
+        return jsonify({**trial, 'is_pro': lic.get('is_pro', False), 'tier': lic.get('tier', 'free')})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ─── Licensing & Tier API ────────────────────────────────────────────────────
 
 @app.route('/license/status', methods=['GET'])
@@ -3770,6 +3895,10 @@ def api_chat():
     Returns: { "worker": "...", "response": "...", "intent": {...} }
     """
     try:
+        blocked = check_access()
+        if blocked:
+            return jsonify(blocked), 402
+
         data = request.get_json() or {}
         message = (data.get("message") or "").strip()
         if not message:
@@ -4852,6 +4981,17 @@ def start_backend():
         logger.info("Proactive scheduler started")
     except Exception as e:
         logger.warning(f"Proactive scheduler failed to start: {e}")
+
+    # Weekly license revalidation
+    def _weekly_revalidate():
+        import time as _t
+        _t.sleep(30)   # Initial delay — don't block startup
+        while backend_state.get("running", True):
+            license_manager.revalidate()
+            _t.sleep(7 * 24 * 3600)   # Every 7 days
+
+    threading.Thread(target=_weekly_revalidate, daemon=True, name="license-revalidate").start()
+    logger.info("License revalidation thread started")
 
     # ─────────────────────────────────────────────────────────────────────────────
 

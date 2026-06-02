@@ -285,6 +285,33 @@ class LicenseManager:
             "limits": FREE_LIMITS if not self.is_pro() else {},
         }
 
+    def revalidate(self) -> bool:
+        """Ping validation server to refresh last_validated_at. Returns True on success."""
+        key = self.license.get('key')
+        if not key or not self.is_pro():
+            return False
+        machine_id = self.get_machine_id()
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.post(
+                    VALIDATION_SERVER,
+                    json={"key": key, "machine_id": machine_id},
+                    follow_redirects=True,
+                )
+                if response.status_code == 200 and response.json().get('valid'):
+                    self.license['last_validated_at'] = datetime.utcnow().isoformat()
+                    self.save_license(self.license)
+                    logger.info("License revalidated successfully")
+                    return True
+                else:
+                    logger.warning("License revalidation rejected — downgrading to free")
+                    self.license['tier'] = 'free'
+                    self.save_license(self.license)
+                    return False
+        except Exception as e:
+            logger.warning(f"Revalidation server unreachable: {e}")
+            return self.validate_pro_offline()
+
     def validate_pro_offline(self) -> bool:
         """Check if pro license can work offline (within grace period)"""
         if not self.is_pro():

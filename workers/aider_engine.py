@@ -77,6 +77,28 @@ def _emit(socketio: Any, message: str, level: str = "info", source: str = "aider
         logger.debug("Socket.IO emit failed: %s", e)
 
 
+COMPLEXITY_KEYWORDS = [
+    'react native', 'electron', 'webpack', 'vite', 'next.js', 'nextjs',
+    'docker', 'kubernetes', 'microservice', 'distributed',
+    'blockchain', 'neural network', 'train a model',
+    'mobile app', 'ios app', 'android app', 'cross-platform',
+    'expo', 'flutter', 'react native',
+]
+
+AIDER_SYSTEM_CONTEXT = (
+    "IMPORTANT CONSTRAINTS:\n"
+    "- Create simple, working files only\n"
+    "- Maximum 3 files per task\n"
+    "- Python scripts use standard library or common packages only\n"
+    "- GUI apps use tkinter (not React, not Electron, not PyQt)\n"
+    "- Web apps use plain HTML + vanilla JS (no bundlers, no frameworks)\n"
+    "- Save all files to the specified output directory\n"
+    "- Do NOT create package.json, webpack configs, or build scripts\n"
+    "- The goal is a WORKING file the user can run immediately\n"
+    "\nTask: "
+)
+
+
 class AiderEngine:
     """
     Wraps Aider CLI as a subprocess.
@@ -268,6 +290,49 @@ class AiderEngine:
             error=error_text,
         )
 
+    # ── Complexity management ───────────────────────────────────────────────────
+
+    def is_too_complex(self, task: str) -> bool:
+        """Return True if task mentions frameworks/platforms Aider can't handle well."""
+        task_lower = task.lower()
+        return any(kw in task_lower for kw in COMPLEXITY_KEYWORDS)
+
+    def simplify_task(self, task: str) -> str:
+        """Use Ollama to rewrite an overly complex task into something Aider can finish."""
+        import requests as _req
+
+        prompt = (
+            "You are helping simplify a coding task for an AI.\n"
+            "The AI works best with simple, single-file Python or HTML tasks.\n\n"
+            f"Original task: {task}\n\n"
+            "Rewrite this as a simple task that:\n"
+            "1. Creates 1-3 files maximum\n"
+            "2. Uses Python (tkinter for GUIs) or plain HTML/JS\n"
+            "3. Does NOT use React Native, Electron packaging, or complex build systems\n"
+            "4. Is achievable in under 2 minutes\n"
+            "5. Saves output to C:\\Users\\pgg12\\Desktop\\\n\n"
+            "Return ONLY the simplified task description, nothing else.\n"
+            "If the task is already simple, return it unchanged."
+        )
+        try:
+            resp = _req.post(
+                'http://localhost:11434/api/generate',
+                json={"model": "qwen2.5-coder:7b", "prompt": prompt, "stream": False},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                simplified = resp.json().get('response', task).strip()
+                if simplified and len(simplified) > 10:
+                    if simplified != task:
+                        self._log(f"Task simplified: {simplified[:100]}", 'info')
+                    return simplified
+        except Exception:
+            pass
+        return task
+
+    def _log(self, msg: str, level: str = 'info') -> None:
+        _emit(self.socketio, msg, level, 'aider')
+
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def run_task(self, task: str, files: List[str] = None,
@@ -285,6 +350,22 @@ class AiderEngine:
         Builds a complete application from a description.
         Creates output_path directory if needed.
         """
+        # Simplify overly complex tasks before passing to Aider
+        if self.is_too_complex(description):
+            _emit(self.socketio, "Task complexity detected — simplifying...", "info", "aider")
+            description = self.simplify_task(description)
+            _emit(self.socketio, f"Simplified to: {description}", "info", "aider")
+
+        # Auto-derive output dir from task description if not provided
+        if not output_path:
+            name_match = re.search(
+                r'(?:build|create|make)\s+(?:a\s+)?(.+?)(?:\s+app|\s+program|\s+script|$)',
+                description.lower()
+            )
+            app_name = name_match.group(1).replace(' ', '_') if name_match else 'sentinel_build'
+            app_name = re.sub(r'[^a-z0-9_]', '', app_name)[:20]
+            output_path = fr'C:\Users\pgg12\Desktop\{app_name}'
+
         if output_path:
             out = Path(output_path).expanduser().resolve()
             out.mkdir(parents=True, exist_ok=True)
@@ -298,10 +379,7 @@ class AiderEngine:
             cwd = self.work_dir
             files = []
 
-        prompt = (
-            f"Build the following application. Write clean, well-commented, "
-            f"working code. Do not use markdown fences in output.\n\n{description}"
-        )
+        prompt = AIDER_SYSTEM_CONTEXT + description
         _emit(self.socketio, f"Building: {description[:100]}", "info", "forge")
         result = self._run_aider(prompt, files=files, cwd=cwd)
 
