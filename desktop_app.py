@@ -3782,42 +3782,6 @@ def api_earn_jobs():
                     "error": None})
 
 
-@app.route('/earn/accept', methods=['POST'])
-def api_earn_accept():
-    """Accept a bug-bounty / earn program and queue it for the Guardian worker."""
-    try:
-        data = request.get_json(force=True) or {}
-        title    = data.get('title') or data.get('name') or 'Unknown'
-        source   = data.get('source') or data.get('type') or 'unknown'
-        url      = data.get('url') or data.get('program_url') or ''
-        scope    = data.get('scope') or []
-        reward   = data.get('reward') or data.get('max_bounty') or 'Varies'
-
-        job_id = f"earn_{int(__import__('time').time())}"
-
-        logger.info(f"[Earn] Accepted: {title} | source={source} | reward={reward}")
-
-        # Broadcast to any connected frontend
-        emit_event('earn_update', {
-            'event': 'accepted',
-            'job_id': job_id,
-            'title': title,
-            'source': source,
-            'url': url,
-            'reward': reward,
-        })
-
-        return jsonify({
-            'status': 'accepted',
-            'job_id': job_id,
-            'title': title,
-            'message': f'Sentinel is now targeting {title}',
-        })
-    except Exception as e:
-        logger.error(f"[Earn] accept error: {e}")
-        return jsonify({'status': 'error', 'error': str(e)}), 500
-
-
 # ─── Market Summary API ───────────────────────────────────────────────────────
 
 @app.route('/market/summary')
