@@ -3256,11 +3256,16 @@
     // ── Trial badge ──────────────────────────────────────────────────────────
     async function updateTrialBadge() {
       try {
-        const r = await fetch('http://127.0.0.1:5001/api/trial/status');
-        const d = await r.json();
+        // Check owner_mode first via /api/status
+        const sr = await fetch('http://127.0.0.1:5001/api/status');
+        const st = await sr.json();
         const badge = document.getElementById('trial-badge');
         if (!badge) return;
-        if (d.is_pro) { badge.style.display = 'none'; return; }
+        if (st.owner_mode) { badge.style.display = 'none'; return; }
+
+        const r = await fetch('http://127.0.0.1:5001/api/trial/status');
+        const d = await r.json();
+        if (d.owner_mode || d.is_pro) { badge.style.display = 'none'; return; }
         if (d.active) {
           badge.style.display = 'inline-block';
           badge.textContent = `TRIAL · ${d.days_remaining}d ${d.hours_remaining}h`;
@@ -3270,6 +3275,9 @@
           badge.style.background = 'rgba(255,60,60,0.15)';
           badge.style.borderColor = 'rgba(255,60,60,0.4)';
           badge.style.color = '#ff6060';
+          showPaywall();
+        } else {
+          badge.style.display = 'none';
         }
       } catch (_) {}
     }

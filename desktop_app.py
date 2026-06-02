@@ -3563,8 +3563,11 @@ def check_access() -> dict | None:
     """
     Returns None if the user may proceed.
     Returns a JSON-serializable error dict if access is blocked.
-    Pro license always passes; active trial passes; expired trial blocks.
+    Owner mode always passes; pro license always passes; active trial passes;
+    expired trial blocks.
     """
+    if OWNER_MODE:
+        return None
     if license_manager.is_pro():
         return None
     trial = _trial_manager.get_status()
@@ -3585,6 +3588,17 @@ def check_access() -> dict | None:
 def api_trial_status():
     """Return trial status + license tier."""
     try:
+        if OWNER_MODE:
+            return jsonify({
+                'active': False,
+                'expired': False,
+                'owner_mode': True,
+                'days_remaining': 999,
+                'hours_remaining': 0,
+                'is_pro': True,
+                'tier': 'owner',
+                'message': 'Owner build - no trial',
+            })
         trial = _trial_manager.get_status()
         lic = license_manager.get_status()
         return jsonify({**trial, 'is_pro': lic.get('is_pro', False), 'tier': lic.get('tier', 'free')})
@@ -3680,6 +3694,42 @@ def api_earn_jobs():
     return jsonify({"status": "ok", "jobs": jobs,
                     "counts": {"bounty": len(results["bounty"]), "remoteok": len(results["remoteok"])},
                     "error": None})
+
+
+@app.route('/earn/accept', methods=['POST'])
+def api_earn_accept():
+    """Accept a bug-bounty / earn program and queue it for the Guardian worker."""
+    try:
+        data = request.get_json(force=True) or {}
+        title    = data.get('title') or data.get('name') or 'Unknown'
+        source   = data.get('source') or data.get('type') or 'unknown'
+        url      = data.get('url') or data.get('program_url') or ''
+        scope    = data.get('scope') or []
+        reward   = data.get('reward') or data.get('max_bounty') or 'Varies'
+
+        job_id = f"earn_{int(__import__('time').time())}"
+
+        logger.info(f"[Earn] Accepted: {title} | source={source} | reward={reward}")
+
+        # Broadcast to any connected frontend
+        emit_event('earn_update', {
+            'event': 'accepted',
+            'job_id': job_id,
+            'title': title,
+            'source': source,
+            'url': url,
+            'reward': reward,
+        })
+
+        return jsonify({
+            'status': 'accepted',
+            'job_id': job_id,
+            'title': title,
+            'message': f'Sentinel is now targeting {title}',
+        })
+    except Exception as e:
+        logger.error(f"[Earn] accept error: {e}")
+        return jsonify({'status': 'error', 'error': str(e)}), 500
 
 
 # ─── Market Summary API ───────────────────────────────────────────────────────

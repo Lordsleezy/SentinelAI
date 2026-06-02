@@ -120,14 +120,14 @@ class MachineScanner:
             return False
 
     def _recommend_model(self, vram_gb: float) -> str:
-        """Pick the best model for available VRAM."""
+        """Pick the best model for available VRAM. Leaves ~2-3 GB headroom."""
         if vram_gb >= 24:
             return 'qwen3:14b'
-        elif vram_gb >= 14:
+        elif vram_gb >= 10:   # 12 GB cards (RTX 3060 etc.) get 14b
             return 'qwen2.5-coder:14b'
-        elif vram_gb >= 8:
+        elif vram_gb >= 6:
             return 'qwen2.5-coder:7b'
-        elif vram_gb >= 5:
+        elif vram_gb >= 4:
             return 'qwen2.5-coder:3b'
         else:
             return 'qwen2.5:1.5b'

@@ -42,100 +42,52 @@
       border-radius: 14px;
       padding: 36px 40px 30px;
     }
-    .step-dots {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 28px;
-    }
-    .dot {
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.15);
-      transition: background 0.3s;
-    }
+    .step-dots { display: flex; gap: 8px; margin-bottom: 28px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.15); transition: background 0.3s; }
     .dot.active { background: #00ff88; }
     .dot.done { background: rgba(0,255,136,0.4); }
     .screen { display: none; }
     .screen.active { display: block; }
     h2 { color: #00ff88; font-size: 20px; margin-bottom: 6px; }
     .sub { color: #666; font-size: 13px; margin-bottom: 22px; }
-    .spec-row {
-      display: flex; justify-content: space-between;
-      padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
-      font-size: 13px;
-    }
+    .spec-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13px; }
     .spec-row .label { color: #888; }
     .spec-row .value { color: #e0e0e0; font-family: monospace; }
-    .rec-box {
-      margin-top: 16px; padding: 12px 16px;
-      background: rgba(0,255,136,0.06);
-      border: 1px solid rgba(0,255,136,0.2);
-      border-radius: 8px;
-      font-size: 13px;
-    }
+    .rec-box { margin-top: 16px; padding: 12px 16px; background: rgba(0,255,136,0.06); border: 1px solid rgba(0,255,136,0.2); border-radius: 8px; font-size: 13px; }
     .rec-box .model { color: #00ff88; font-family: monospace; font-size: 15px; margin-top: 4px; }
-    .prereq-item {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
-    }
+    .prereq-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
     .prereq-label { font-size: 13px; }
     .prereq-label .detail { font-size: 11px; color: #555; margin-top: 2px; }
-    .badge {
-      font-size: 11px; font-family: monospace;
-      padding: 3px 10px; border-radius: 3px;
-    }
-    .badge.ok { background: rgba(0,255,136,0.12); color: #00ff88; border: 1px solid rgba(0,255,136,0.3); }
+    .badge { font-size: 11px; font-family: monospace; padding: 3px 10px; border-radius: 3px; }
+    .badge.ok  { background: rgba(0,255,136,0.12); color: #00ff88; border: 1px solid rgba(0,255,136,0.3); }
     .badge.miss { background: rgba(255,80,80,0.1); color: #ff6060; border: 1px solid rgba(255,80,80,0.3); }
     .badge.spin { background: rgba(0,180,255,0.1); color: #0af; border: 1px solid rgba(0,180,255,0.3); }
     .prog-bar { width: 100%; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; margin-top: 12px; overflow: hidden; }
     .prog-fill { height: 100%; width: 0%; background: linear-gradient(90deg,#00ff88,#00ccff); transition: width 0.4s; }
     .prog-msg { font-size: 11px; color: #555; margin-top: 6px; font-family: monospace; min-height: 16px; }
-    .intent-grid {
-      display: grid; grid-template-columns: 1fr 1fr;
-      gap: 12px; margin-bottom: 8px;
-    }
-    .intent-card {
-      padding: 16px; border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 8px; cursor: pointer; transition: all 0.2s;
-      background: rgba(255,255,255,0.02);
-    }
+    .intent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
+    .intent-card { padding: 16px; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; cursor: pointer; transition: all 0.2s; background: rgba(255,255,255,0.02); }
     .intent-card:hover { border-color: rgba(0,255,136,0.4); background: rgba(0,255,136,0.05); }
     .intent-card.selected { border-color: #00ff88; background: rgba(0,255,136,0.1); }
-    .intent-card .icon { font-size: 24px; margin-bottom: 8px; }
+    .intent-card .icon { font-size: 20px; margin-bottom: 8px; }
     .intent-card .name { font-size: 13px; font-weight: 600; color: #ddd; }
     .intent-card .desc { font-size: 11px; color: #666; margin-top: 4px; }
     .btn-row { display: flex; gap: 10px; margin-top: 24px; }
-    .btn {
-      flex: 1; padding: 11px;
-      border-radius: 7px; cursor: pointer; font-size: 13px;
-      font-weight: 600; transition: all 0.2s; border: 1px solid;
-    }
-    .btn-primary {
-      background: rgba(0,255,136,0.12); color: #00ff88;
-      border-color: rgba(0,255,136,0.4);
-    }
+    .btn { flex: 1; padding: 11px; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s; border: 1px solid; }
+    .btn-primary { background: rgba(0,255,136,0.12); color: #00ff88; border-color: rgba(0,255,136,0.4); }
     .btn-primary:hover { background: rgba(0,255,136,0.22); }
     .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-skip {
-      background: rgba(255,255,255,0.03); color: #555;
-      border-color: rgba(255,255,255,0.08); flex: 0 0 auto; padding: 11px 20px;
-    }
+    .btn-skip { background: rgba(255,255,255,0.03); color: #555; border-color: rgba(255,255,255,0.08); flex: 0 0 auto; padding: 11px 20px; }
     .btn-skip:hover { color: #888; }
     .spinner { display: inline-block; animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .scan-anim { text-align: center; padding: 20px 0; }
-    .scan-anim .pulse {
-      width: 64px; height: 64px; border-radius: 50%;
-      border: 2px solid rgba(0,255,136,0.3);
-      border-top-color: #00ff88;
-      animation: spin 1s linear infinite;
-      margin: 0 auto 16px;
-    }
+    .scan-anim .pulse { width: 64px; height: 64px; border-radius: 50%; border: 2px solid rgba(0,255,136,0.3); border-top-color: #00ff88; animation: spin 1s linear infinite; margin: 0 auto 16px; }
     .scan-msg { color: #666; font-size: 13px; font-family: monospace; }
   </style>
 </head>
 <body>
-  <div id="titlebar"><span>SENTINELAI â€” FIRST RUN SETUP</span></div>
+  <div id="titlebar"><span>SENTINELAI &mdash; FIRST RUN SETUP</span></div>
   <div class="content">
     <div class="card">
       <div class="step-dots">
@@ -147,10 +99,10 @@
       <!-- SCREEN 0: Scanning -->
       <div class="screen active" id="screen-0">
         <h2>Scanning your machine</h2>
-        <p class="sub">Checking hardware, GPU, and installed toolsâ€¦</p>
+        <p class="sub">Checking hardware, GPU, and installed tools...</p>
         <div class="scan-anim">
           <div class="pulse"></div>
-          <p class="scan-msg" id="scan-msg">Initializing scanâ€¦</p>
+          <p class="scan-msg" id="scan-msg">Initializing scan...</p>
         </div>
       </div>
 
@@ -160,7 +112,7 @@
         <p class="sub">Here's what we found. We'll set up what's missing.</p>
         <div id="spec-rows"></div>
         <div class="rec-box">
-          Recommended model: <div class="model" id="rec-model">â€”</div>
+          Recommended model: <div class="model" id="rec-model">--</div>
         </div>
         <div style="margin-top:20px;">
           <div class="prereq-item">
@@ -168,14 +120,14 @@
               Ollama
               <div class="detail">Local AI model runtime</div>
             </div>
-            <span class="badge" id="badge-ollama">checkingâ€¦</span>
+            <span class="badge" id="badge-ollama">checking...</span>
           </div>
           <div class="prereq-item">
             <div class="prereq-label">
               AI Model
-              <div class="detail" id="model-detail">â€”</div>
+              <div class="detail" id="model-detail">--</div>
             </div>
-            <span class="badge" id="badge-model">checkingâ€¦</span>
+            <span class="badge" id="badge-model">checking...</span>
           </div>
         </div>
         <div class="prog-bar" id="dl-bar" style="display:none">
@@ -194,28 +146,28 @@
         <p class="sub">Personalises your experience. You can change this later.</p>
         <div class="intent-grid">
           <div class="intent-card" onclick="selectIntent(this,'forge')" data-intent="forge">
-            <div class="icon">âš™ï¸</div>
+            <div class="icon">[+]</div>
             <div class="name">Build Apps</div>
             <div class="desc">Code generation, automation, and deployment</div>
           </div>
           <div class="intent-card" onclick="selectIntent(this,'earn')" data-intent="earn">
-            <div class="icon">ðŸ’°</div>
+            <div class="icon">[$]</div>
             <div class="name">Bug Bounty / Earn</div>
             <div class="desc">Security research and bounty hunting</div>
           </div>
           <div class="intent-card" onclick="selectIntent(this,'guardian')" data-intent="guardian">
-            <div class="icon">ðŸ›¡ï¸</div>
+            <div class="icon">[S]</div>
             <div class="name">Security / Guardian</div>
             <div class="desc">Threat detection and system defence</div>
           </div>
           <div class="intent-card" onclick="selectIntent(this,'all')" data-intent="all">
-            <div class="icon">ðŸ¤–</div>
+            <div class="icon">[*]</div>
             <div class="name">All of the above</div>
             <div class="desc">Give me everything Sentinel can do</div>
           </div>
         </div>
         <div class="btn-row">
-          <button class="btn btn-primary" id="btn-finish" onclick="finish()" disabled>Launch Sentinel â†’</button>
+          <button class="btn btn-primary" id="btn-finish" onclick="finish()" disabled>Launch Sentinel &rarr;</button>
         </div>
       </div>
 
@@ -232,31 +184,30 @@
 
     function setDot(idx) {
       for (let i = 0; i < 3; i++) {
-        const d = document.getElementById(`dot${i}`);
+        const d = document.getElementById('dot' + i);
         d.className = 'dot' + (i < idx ? ' done' : i === idx ? ' active' : '');
       }
     }
 
     function showScreen(n) {
-      document.querySelectorAll('.screen').forEach((s, i) => {
+      document.querySelectorAll('.screen').forEach(function(s, i) {
         s.className = 'screen' + (i === n ? ' active' : '');
       });
       setDot(n);
     }
 
-    // â”€â”€ SCREEN 0: Auto-scan â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async function runScan() {
       const msg = document.getElementById('scan-msg');
-      msg.textContent = 'Scanning GPU and memoryâ€¦';
+      msg.textContent = 'Scanning GPU and memory...';
       try {
-        const r = await fetch(`${BACKEND}/api/setup/scan`, { method: 'POST' });
+        const r = await fetch(BACKEND + '/api/setup/scan', { method: 'POST' });
         scanProfile = await r.json();
-        msg.textContent = 'Scan complete âœ“';
-        await new Promise(res => setTimeout(res, 600));
+        msg.textContent = 'Scan complete';
+        await new Promise(function(res) { setTimeout(res, 600); });
         populateProfile();
         showScreen(1);
       } catch (e) {
-        msg.textContent = 'Backend not ready â€” retryingâ€¦';
+        msg.textContent = 'Backend not ready - retrying...';
         setTimeout(runScan, 2000);
       }
     }
@@ -264,14 +215,14 @@
     function populateProfile() {
       const p = scanProfile;
       const rows = [
-        ['GPU', p.gpu_name || 'Unknown'],
-        ['VRAM', p.vram_gb ? `${p.vram_gb} GB` : 'No dedicated GPU'],
-        ['RAM',  p.ram_gb  ? `${p.ram_gb} GB`  : 'Unknown'],
-        ['OS',   `${p.os || ''} ${p.architecture || ''}`],
+        ['GPU',  p.gpu_name || 'Unknown'],
+        ['VRAM', p.vram_gb ? p.vram_gb + ' GB' : 'No dedicated GPU'],
+        ['RAM',  p.ram_gb  ? p.ram_gb  + ' GB' : 'Unknown'],
+        ['OS',   (p.os || '') + ' ' + (p.architecture || '')],
       ];
-      document.getElementById('spec-rows').innerHTML = rows.map(([k,v]) =>
-        `<div class="spec-row"><span class="label">${k}</span><span class="value">${v}</span></div>`
-      ).join('');
+      document.getElementById('spec-rows').innerHTML = rows.map(function(row) {
+        return '<div class="spec-row"><span class="label">' + row[0] + '</span><span class="value">' + row[1] + '</span></div>';
+      }).join('');
 
       const rec = p.recommended_model || 'qwen2.5-coder:7b';
       document.getElementById('rec-model').textContent = rec;
@@ -281,64 +232,63 @@
       const modBadge = document.getElementById('badge-model');
 
       if (p.ollama_installed && p.ollama_running) {
-        ollBadge.textContent = 'âœ“ installed'; ollBadge.className = 'badge ok';
+        ollBadge.textContent = 'installed'; ollBadge.className = 'badge ok';
       } else {
-        ollBadge.textContent = 'âœ— missing'; ollBadge.className = 'badge miss';
+        ollBadge.textContent = 'missing'; ollBadge.className = 'badge miss';
       }
 
-      modBadge.textContent = 'checkingâ€¦'; modBadge.className = 'badge spin';
+      modBadge.textContent = 'checking...'; modBadge.className = 'badge spin';
       checkModelDownloaded(rec);
     }
 
     async function checkModelDownloaded(model) {
       try {
-        const r = await fetch(`${BACKEND}/api/setup/status`);
+        const r = await fetch(BACKEND + '/api/setup/status');
         const d = await r.json();
         const modBadge = document.getElementById('badge-model');
         const btn = document.getElementById('btn-prereq');
         if (d.model_downloaded) {
-          modBadge.textContent = 'âœ“ ready'; modBadge.className = 'badge ok';
+          modBadge.textContent = 'ready'; modBadge.className = 'badge ok';
           modelReady = true;
           btn.textContent = 'Continue'; btn.disabled = false;
         } else {
-          modBadge.textContent = 'âœ— not downloaded'; modBadge.className = 'badge miss';
+          modBadge.textContent = 'not downloaded'; modBadge.className = 'badge miss';
           btn.textContent = 'Download model'; btn.disabled = false;
         }
       } catch (_) {
-        setTimeout(() => checkModelDownloaded(model), 2000);
+        setTimeout(function() { checkModelDownloaded(model); }, 2000);
       }
     }
 
     window.handlePrereq = async function() {
       if (modelReady) { goToIntent(); return; }
       const btn = document.getElementById('btn-prereq');
-      btn.textContent = 'â³ Downloadingâ€¦'; btn.disabled = true;
+      btn.textContent = 'Downloading...'; btn.disabled = true;
 
-      const bar = document.getElementById('dl-bar');
+      const bar  = document.getElementById('dl-bar');
       const fill = document.getElementById('dl-fill');
       const msg  = document.getElementById('dl-msg');
       bar.style.display = 'block';
 
       const model = (scanProfile && scanProfile.recommended_model) || 'qwen2.5-coder:7b';
-      await fetch(`${BACKEND}/api/setup/pull-model`, {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ model })
+      await fetch(BACKEND + '/api/setup/pull-model', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: model })
       });
 
-      // Poll status until done
       let pct = 5;
-      const poll = setInterval(async () => {
+      const poll = setInterval(async function() {
         try {
-          const r = await fetch(`${BACKEND}/api/setup/status`);
+          const r = await fetch(BACKEND + '/api/setup/status');
           const d = await r.json();
           pct = Math.min(pct + 8, 95);
           fill.style.width = pct + '%';
-          msg.textContent = `Downloading ${model}â€¦ ${pct}%`;
+          msg.textContent = 'Downloading ' + model + '... ' + pct + '%';
           if (d.model_downloaded) {
             clearInterval(poll);
             fill.style.width = '100%';
-            msg.textContent = `âœ“ ${model} ready`;
-            document.getElementById('badge-model').textContent = 'âœ“ ready';
+            msg.textContent = model + ' ready';
+            document.getElementById('badge-model').textContent = 'ready';
             document.getElementById('badge-model').className = 'badge ok';
             modelReady = true;
             btn.textContent = 'Continue'; btn.disabled = false;
@@ -348,16 +298,15 @@
     };
 
     function goToIntent() {
-      fetch(`${BACKEND}/api/setup/intent`, {
-        method: 'POST', headers: {'Content-Type':'application/json'},
+      fetch(BACKEND + '/api/setup/intent', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: scanProfile && scanProfile.recommended_model })
-      }).catch(() => {});
+      }).catch(function() {});
       showScreen(2);
     }
 
-    // â”€â”€ SCREEN 2: Intent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     window.selectIntent = function(el, intent) {
-      document.querySelectorAll('.intent-card').forEach(c => c.classList.remove('selected'));
+      document.querySelectorAll('.intent-card').forEach(function(c) { c.classList.remove('selected'); });
       el.classList.add('selected');
       selectedIntent = intent;
       document.getElementById('btn-finish').disabled = false;
@@ -365,21 +314,20 @@
 
     window.finish = async function() {
       try {
-        await fetch(`${BACKEND}/api/setup/intent`, {
-          method: 'POST', headers: {'Content-Type':'application/json'},
+        await fetch(BACKEND + '/api/setup/intent', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ intent: selectedIntent })
         });
       } catch (_) {}
       ipcRenderer.send('setup-wizard-done');
     };
 
-    // Boot: wait briefly for backend then scan
     async function waitForBackend() {
       try {
-        const r = await fetch(`${BACKEND}/api/ping`);
+        const r = await fetch(BACKEND + '/api/ping');
         if (r.ok) { runScan(); return; }
       } catch (_) {}
-      document.getElementById('scan-msg').textContent = 'Waiting for backendâ€¦';
+      document.getElementById('scan-msg').textContent = 'Waiting for backend...';
       setTimeout(waitForBackend, 1500);
     }
 

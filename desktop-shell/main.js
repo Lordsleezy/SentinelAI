@@ -17,12 +17,6 @@ const fs = require('fs');
 const fetch = require('node-fetch');
 const pty = require('node-pty');
 
-// Suppress console output in production builds
-if (!process.env.SENTINEL_DEV_TOOLS) {
-  console.log = () => {};
-  // Keep console.error for critical issues
-}
-
 // ============================================================================
 // STARTUP DEBUG LOG
 // ============================================================================
