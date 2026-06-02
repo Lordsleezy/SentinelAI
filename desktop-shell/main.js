@@ -883,26 +883,77 @@ function setupIPC() {
 }
 
 // ============================================================================
-// LOG WINDOW
+// LOG WINDOW (legacy — now inline panel)
 // ============================================================================
 
 function openLogWindow() {
-  if (logWindow && !logWindow.isDestroyed()) {
-    logWindow.focus();
-    return;
+  // Log is now an inline panel — open it in the orb
+  if (orbWindow && !orbWindow.isDestroyed()) {
+    orbWindow.webContents.send('open-panel', 'log');
   }
-  logWindow = new BrowserWindow({
-    width: 900,
-    height: 600,
-    title: 'Sentinel Log',
-    backgroundColor: '#000000',
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-    },
+}
+
+// ============================================================================
+// LOGIN WINDOW
+// ============================================================================
+
+function checkLoginConfigured() {
+  return new Promise((resolve) => {
+    const http = require('http');
+    let data = '';
+    const req = http.get(`http://127.0.0.1:${BACKEND_PORT}/api/login/status`, (res) => {
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const status = JSON.parse(data);
+          resolve(status.configured === true);
+        } catch (_) { resolve(false); }
+      });
+    });
+    req.setTimeout(3000, () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
   });
-  logWindow.loadFile(path.join(__dirname, 'log_window.html'));
-  logWindow.on('closed', () => { logWindow = null; });
+}
+
+function createLoginWindow() {
+  return new Promise((resolve) => {
+    loginWindow = new BrowserWindow({
+      width: 560,
+      height: 750,
+      minWidth: 480,
+      minHeight: 600,
+      title: 'SentinelAI — Connect',
+      frame: false,
+      resizable: true,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+      },
+      backgroundColor: '#000000',
+    });
+
+    loginWindow.loadFile(path.join(__dirname, 'login_window.html'));
+    loginWindow.once('ready-to-show', () => {
+      if (splashWindow && !splashWindow.isDestroyed()) {
+        splashWindow.close(); splashWindow = null;
+      }
+      loginWindow.show();
+      loginWindow.focus();
+    });
+
+    // When user completes login, close this window and launch orb
+    ipcMain.once('login-complete', () => {
+      if (loginWindow && !loginWindow.isDestroyed()) loginWindow.close();
+      loginWindow = null;
+      resolve();
+    });
+
+    // Allow skipping login by closing window
+    loginWindow.on('closed', () => {
+      loginWindow = null;
+      resolve();
+    });
+  });
 }
 
 // ============================================================================
@@ -1002,10 +1053,21 @@ async function startupSequence() {
     updateSplash('Validating runtime health...', 82);
     await validateBackendHealth();
 
+    updateSplash('Checking identity...', 88);
+    const loggedIn = await checkLoginConfigured();
+    dbg(`[Startup] Login configured: ${loggedIn}`);
+
     updateSplash('Opening dashboard...', 92);
 
     // First-run: ensure .env exists (create empty from .env.example if needed)
     await ensureEnvFile();
+
+    if (!loggedIn) {
+      dbg('[Startup] Showing login screen...');
+      updateSplash('First run — connect your accounts...', 95);
+      await createLoginWindow();
+      dbg('[Startup] Login screen closed — opening orb');
+    }
 
     dbg('[Startup] Creating orb window...');
     createOrbWindow();

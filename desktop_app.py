@@ -39,6 +39,7 @@ from scanner import run_scan
 from openclaw_integration import OpenClawCommandRouter
 from workers.forge_worker import run_approved_forge_task
 from workers.licensing.license_manager import get_license_manager
+from workers.identity.identity_manager import get_identity_manager
 
 # Register Scalp routes
 try:
@@ -64,6 +65,9 @@ CORS(app)
 
 # License manager (initialized at startup)
 license_manager = get_license_manager()
+
+# Identity manager (credentials for Claude.ai / ChatGPT)
+identity_manager = get_identity_manager()
 
 # ─── Real-time events (Task 4) — graceful fallback to polling ──────────────────
 # When flask-socketio is installed we push events to the HUD instantly; if not,
@@ -502,6 +506,69 @@ def api_credentials_save():
 def api_ping():
     """Instant liveness probe — used by Electron readiness poll."""
     return jsonify({"ok": True, "running": backend_state.get("running", False)})
+
+
+# ── Login / Identity Routes ───────────────────────────────────────────────────
+
+@app.route('/api/login/status')
+def api_login_status():
+    """Return whether credentials are configured and connection status."""
+    configured = identity_manager.has_credentials()
+    user_name = identity_manager.get_user_name() if configured else None
+    creds = identity_manager.load_credentials() or {}
+    return jsonify({
+        "configured": configured,
+        "user_name": user_name,
+        "claude_connected": bool(creds.get("claude_email")),
+        "chatgpt_connected": bool(creds.get("chatgpt_email")),
+        "claude_2fa_method": creds.get("claude_2fa_method", "none"),
+        "chatgpt_2fa_method": creds.get("chatgpt_2fa_method", "none"),
+        "gmail_configured": False,
+        "adb_available": False,
+        "stealth_active": False,
+    })
+
+
+@app.route('/api/login/save', methods=['POST'])
+def api_login_save():
+    """Encrypt and save credentials from login screen."""
+    try:
+        data = request.json or {}
+        success = identity_manager.save_credentials(data)
+        if not success:
+            return jsonify({"error": "Failed to encrypt/save credentials"}), 500
+        log(f"Credentials saved for {data.get('user_name', 'User')}", 'success', 'identity')
+        return jsonify({
+            "status": "ok",
+            "user_name": data.get("user_name", ""),
+            "claude": bool(data.get("claude_email")),
+            "chatgpt": bool(data.get("chatgpt_email")),
+        })
+    except Exception as e:
+        log(f"Login save error: {e}", 'error', 'identity')
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/login/test', methods=['POST'])
+def api_login_test():
+    """Re-test saved credentials (placeholder — full browser test in Section 2)."""
+    creds = identity_manager.load_credentials() or {}
+    return jsonify({
+        "status": "ok",
+        "user_name": creds.get("user_name", ""),
+        "claude_configured": bool(creds.get("claude_email")),
+        "chatgpt_configured": bool(creds.get("chatgpt_email")),
+        "gmail_configured": False,
+        "adb_available": False,
+    })
+
+
+@app.route('/api/login/clear', methods=['POST'])
+def api_login_clear():
+    """Clear all saved credentials."""
+    identity_manager.clear_credentials()
+    log("Credentials cleared", 'info', 'identity')
+    return jsonify({"status": "cleared"})
 
 
 @app.route('/api/launch', methods=['POST'])

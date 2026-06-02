@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SentinelAI — Connect</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow-y: auto;
+    }
+    .card {
+      background: #080812;
+      border: 1px solid rgba(0,255,136,0.2);
+      border-radius: 14px;
+      padding: 36px 40px;
+      width: 480px;
+      max-width: 96vw;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    }
+    .logo {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .logo h1 {
+      font-size: 22px;
+      letter-spacing: 5px;
+      color: #00ff88;
+      text-shadow: 0 0 16px rgba(0,255,136,0.4);
+    }
+    .logo p {
+      font-size: 11px;
+      color: #555;
+      letter-spacing: 2px;
+      margin-top: 6px;
+    }
+    .section-title {
+      font-size: 10px;
+      color: #00ff88;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin: 20px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(0,255,136,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .skip-link {
+      font-size: 10px;
+      color: #444;
+      cursor: pointer;
+      text-decoration: underline;
+      letter-spacing: 0;
+    }
+    .skip-link:hover { color: #888; }
+    label {
+      display: block;
+      font-size: 10px;
+      color: #666;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+      margin-top: 10px;
+    }
+    input[type="text"], input[type="email"], input[type="password"], select {
+      width: 100%;
+      padding: 9px 12px;
+      background: #0a0a16;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus, select:focus { border-color: rgba(0,255,136,0.35); }
+    select { background: #0a0a16; cursor: pointer; }
+    .two-col { display: flex; gap: 10px; }
+    .two-col > div { flex: 1; }
+    .totp-field { display: none; margin-top: 6px; }
+    .totp-field.visible { display: block; }
+    .connect-btn {
+      width: 100%;
+      padding: 14px;
+      margin-top: 24px;
+      background: linear-gradient(135deg, #006633, #00ff88);
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: opacity 0.2s;
+    }
+    .connect-btn:hover { opacity: 0.9; }
+    .connect-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status-msg {
+      margin-top: 14px;
+      font-size: 12px;
+      text-align: center;
+      min-height: 18px;
+    }
+    .status-msg.success { color: #00ff88; }
+    .status-msg.error   { color: #ff4444; }
+    .status-msg.info    { color: #888; }
+    .privacy-note {
+      text-align: center;
+      font-size: 10px;
+      color: #333;
+      margin-top: 16px;
+      line-height: 1.5;
+    }
+    .spinner { display: inline-block; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .skipped-badge {
+      font-size: 10px;
+      color: #555;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 2px 8px;
+      border-radius: 3px;
+    }
+    .section-wrapper { position: relative; }
+    .section-wrapper.skipped input,
+    .section-wrapper.skipped select { opacity: 0.35; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <h1>◈ SENTINEL AI</h1>
+      <p>PERSONAL AI OPERATING SYSTEM</p>
+    </div>
+
+    <div class="section-title">Your Profile</div>
+    <label>Your Name</label>
+    <input type="text" id="user_name" placeholder="e.g. Paul" autocomplete="name">
+    <label>Your Email</label>
+    <input type="email" id="user_email" placeholder="your@email.com" autocomplete="email">
+
+    <!-- Claude.ai -->
+    <div class="section-title">
+      Claude.ai
+      <span class="skip-link" onclick="toggleSkip('claude')">Skip</span>
+    </div>
+    <div class="section-wrapper" id="claude-section">
+      <label>Email</label>
+      <input type="email" id="claude_email" placeholder="claude@email.com" autocomplete="off">
+      <label>Password</label>
+      <input type="password" id="claude_password" placeholder="••••••••••••••••" autocomplete="off">
+      <label>2FA Method</label>
+      <select id="claude_2fa_method" onchange="toggle2FA('claude')">
+        <option value="none">None</option>
+        <option value="totp">TOTP (Authenticator App)</option>
+        <option value="email">Email Code</option>
+        <option value="sms">SMS</option>
+      </select>
+      <div class="totp-field" id="claude_totp_wrap">
+        <label>TOTP Secret (32-char key from authenticator setup)</label>
+        <input type="text" id="claude_totp_secret" placeholder="BASE32SECRETKEY..." autocomplete="off" style="font-family:monospace;">
+      </div>
+    </div>
+
+    <!-- ChatGPT -->
+    <div class="section-title">
+      ChatGPT
+      <span class="skip-link" onclick="toggleSkip('chatgpt')">Skip</span>
+    </div>
+    <div class="section-wrapper" id="chatgpt-section">
+      <label>Email</label>
+      <input type="email" id="chatgpt_email" placeholder="chatgpt@email.com" autocomplete="off">
+      <label>Password</label>
+      <input type="password" id="chatgpt_password" placeholder="••••••••••••••••" autocomplete="off">
+      <label>2FA Method</label>
+      <select id="chatgpt_2fa_method" onchange="toggle2FA('chatgpt')">
+        <option value="none">None</option>
+        <option value="totp">TOTP (Authenticator App)</option>
+        <option value="email">Email Code</option>
+        <option value="sms">SMS</option>
+      </select>
+      <div class="totp-field" id="chatgpt_totp_wrap">
+        <label>TOTP Secret</label>
+        <input type="text" id="chatgpt_totp_secret" placeholder="BASE32SECRETKEY..." autocomplete="off" style="font-family:monospace;">
+      </div>
+    </div>
+
+    <!-- Google (optional, for SSO) -->
+    <div class="section-title">
+      Google (optional — for SSO)
+      <span class="skip-link" onclick="toggleSkip('google')">Skip</span>
+    </div>
+    <div class="section-wrapper skipped" id="google-section">
+      <label>Email</label>
+      <input type="email" id="google_email" placeholder="you@gmail.com" autocomplete="off">
+      <label>Password</label>
+      <input type="password" id="google_password" placeholder="••••••••••••••••" autocomplete="off">
+    </div>
+
+    <button class="connect-btn" id="connect-btn" onclick="connectAndLaunch()">
+      CONNECT &amp; LAUNCH SENTINEL
+    </button>
+
+    <div class="status-msg info" id="status-msg"></div>
+
+    <div class="privacy-note">
+      🔒 Your credentials are encrypted with a machine-specific key<br>
+      and stored locally only. Never sent to any server.
+    </div>
+  </div>
+
+  <script>
+    const skipped = { claude: false, chatgpt: false, google: true };
+
+    function toggleSkip(service) {
+      skipped[service] = !skipped[service];
+      const el = document.getElementById(`${service}-section`);
+      if (el) {
+        el.classList.toggle('skipped', skipped[service]);
+        // Find the skip link
+        const links = el.parentElement.querySelectorAll('.skip-link');
+      }
+      // Update skip link text
+      const titleEl = el ? el.previousElementSibling : null;
+      if (titleEl) {
+        const link = titleEl.querySelector('.skip-link');
+        if (link) link.textContent = skipped[service] ? 'Unskip' : 'Skip';
+        if (skipped[service]) {
+          const badge = document.createElement('span');
+          badge.className = 'skipped-badge'; badge.id = `${service}-skipped`;
+          badge.textContent = 'SKIPPED';
+          titleEl.insertBefore(badge, link);
+        } else {
+          const badge = document.getElementById(`${service}-skipped`);
+          if (badge) badge.remove();
+        }
+      }
+    }
+
+    function toggle2FA(service) {
+      const method = document.getElementById(`${service}_2fa_method`).value;
+      const wrap = document.getElementById(`${service}_totp_wrap`);
+      if (wrap) wrap.classList.toggle('visible', method === 'totp');
+    }
+
+    function setStatus(msg, type) {
+      const el = document.getElementById('status-msg');
+      el.textContent = msg;
+      el.className = `status-msg ${type}`;
+    }
+
+    function getVal(id) {
+      const el = document.getElementById(id);
+      return el ? el.value.trim() : '';
+    }
+
+    async function connectAndLaunch() {
+      const btn = document.getElementById('connect-btn');
+      btn.disabled = true;
+      setStatus('⏳ Connecting...', 'info');
+
+      const payload = {
+        user_name:            getVal('user_name'),
+        user_email:           getVal('user_email'),
+        claude_email:         skipped.claude ? '' : getVal('claude_email'),
+        claude_password:      skipped.claude ? '' : getVal('claude_password'),
+        claude_2fa_method:    skipped.claude ? 'none' : getVal('claude_2fa_method'),
+        claude_totp_secret:   skipped.claude ? '' : getVal('claude_totp_secret'),
+        chatgpt_email:        skipped.chatgpt ? '' : getVal('chatgpt_email'),
+        chatgpt_password:     skipped.chatgpt ? '' : getVal('chatgpt_password'),
+        chatgpt_2fa_method:   skipped.chatgpt ? 'none' : getVal('chatgpt_2fa_method'),
+        chatgpt_totp_secret:  skipped.chatgpt ? '' : getVal('chatgpt_totp_secret'),
+        google_email:         skipped.google ? '' : getVal('google_email'),
+        google_password:      skipped.google ? '' : getVal('google_password'),
+      };
+
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/login/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const d = await r.json();
+
+        if (d.status === 'ok' || d.status === 'saved') {
+          setStatus('✓ Connected! Launching Sentinel...', 'success');
+          // Signal Electron main process to open orb
+          try {
+            const { ipcRenderer } = require('electron');
+            ipcRenderer.send('login-complete');
+          } catch(_) {}
+          setTimeout(() => { window.close(); }, 1000);
+        } else {
+          setStatus('Error: ' + (d.error || d.message || 'Save failed'), 'error');
+          btn.disabled = false;
+        }
+      } catch(e) {
+        setStatus('Connection error: ' + e.message, 'error');
+        btn.disabled = false;
+      }
+    }
+
+    // Enter key submits
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') connectAndLaunch();
+    });
+  </script>
+</body>
+</html>
