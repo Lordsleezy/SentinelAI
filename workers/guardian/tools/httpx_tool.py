@@ -1,143 +1,102 @@
 """
-workers/guardian/tools/httpx_tool.py — ProjectDiscovery httpx wrapper
-Install: https://github.com/projectdiscovery/httpx/releases
-Use: technology detection, status codes, headers, TLS, live host discovery.
+workers/guardian/tools/httpx_tool.py — ProjectDiscovery httpx via httpx_compat.run_httpx()
+
+Does not hardcode CLI flags. Detects binary flavor (ProjectDiscovery vs Python pip httpx),
+probes -help for supported options, logs full command/stdout/stderr with [GUARDIAN] prefix.
 """
 from __future__ import annotations
 
-import json
-import shutil
-import subprocess
-from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, List, Optional
 
-_HTTPX_PATHS = [r"C:\Tools\httpx.exe", "httpx", "httpx.exe"]
+from workers.guardian.tools.httpx_compat import (
+    find_projectdiscovery_httpx,
+    run_httpx,
+)
 
 
-@dataclass
 class HttpxResult:
-    success: bool
-    hosts: List[Dict] = field(default_factory=list)
-    raw_output: str = ""
-    error: Optional[str] = None
+    """Backward-compatible result wrapper."""
+
+    def __init__(self, success: bool, hosts=None, raw_output: str = "", error: Optional[str] = None):
+        self.success = success
+        self.hosts = hosts or []
+        self.raw_output = raw_output
+        self.error = error
 
 
 class HttpxTool:
     """
-    Runs httpx for technology fingerprinting and live host discovery.
-    Parses JSON-line output into structured host records.
+    Guardian httpx integration — delegates to run_httpx() compatibility layer.
     """
 
     def __init__(self, socketio: Any = None):
         self.socketio = socketio
-        self._bin: Optional[str] = None
+        self._pd_info = None
+        self._curl_ok: Optional[bool] = None
 
-    def _get_bin(self) -> Optional[str]:
-        if self._bin:
-            return self._bin
-        for c in _HTTPX_PATHS:
-            found = shutil.which(c) or (
-                c if c.startswith("C:\\") and __import__("os").path.isfile(c) else None
-            )
-            if found:
-                self._bin = found
-                return found
-        return None
-
-    def is_available(self) -> bool:
-        return self._get_bin() is not None
-
-    def _emit(self, msg: str, level: str = "info") -> None:
+    def _guardian_log(self, msg: str, level: str = "info") -> None:
+        if not msg.startswith("[GUARDIAN]"):
+            msg = f"[GUARDIAN] {msg}"
         if self.socketio:
             try:
                 self.socketio.emit("log_event", {
-                    "type": "guardian", "level": level,
-                    "message": f"[httpx] {msg}",
+                    "type": "guardian",
+                    "level": level,
+                    "message": msg,
                     "timestamp": datetime.now().isoformat(),
                 })
             except Exception:
                 pass
 
+    def _log_fn(self) -> Callable[[str, str], None]:
+        return self._guardian_log
+
+    def is_available(self) -> bool:
+        """True if ProjectDiscovery httpx OR curl fallback exists."""
+        if self._pd_info is not None:
+            return True
+        self._pd_info = find_projectdiscovery_httpx(self._log_fn())
+        if self._pd_info:
+            return True
+        if self._curl_ok is None:
+            import shutil
+            self._curl_ok = bool(shutil.which("curl"))
+            if self._curl_ok:
+                self._guardian_log("httpx: ProjectDiscovery binary not found; curl fallback available", "warning")
+        return bool(self._curl_ok)
+
     def probe(self, targets: List[str], timeout: int = 10) -> HttpxResult:
         """
-        Probe a list of hosts/URLs.  Returns technology, status codes, TLS info.
-        targets may be hostnames, IPs, or full URLs.
+        Probe hosts/URLs. Never passes unsupported flags to the wrong httpx binary.
         """
-        bin_path = self._get_bin()
-        if not bin_path:
-            return HttpxResult(success=False, error="httpx not installed — skipping")
+        if not self.is_available():
+            return HttpxResult(success=False, error="httpx (PD) and curl unavailable — skipping")
 
-        cmd = [
-            bin_path,
-            "-json", "-silent", "-no-color",
-            "-tech-detect",        # technology fingerprint
-            "-status-code",
-            "-title",
-            "-follow-redirects",
-            "-timeout", str(timeout),
-        ]
-        # httpx reads targets from stdin
-        self._emit(f"Probing {len(targets)} host(s)…")
-        raw_lines: List[str] = []
-        proc = None
-        per_target = max(timeout, 5) * len(targets) + 15
-        run_timeout = min(max(per_target, 30), 90)
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True, encoding="utf-8", errors="replace",
+        self._guardian_log(f"httpx probing {len(targets)} target(s)", "info")
+        run = run_httpx(targets, timeout=timeout, log=self._log_fn())
+
+        if run.error and not run.hosts:
+            return HttpxResult(
+                success=False,
+                hosts=[],
+                raw_output=run.stdout,
+                error=run.error,
             )
-            target_str = "\n".join(targets)
-            stdout, stderr = proc.communicate(input=target_str, timeout=run_timeout)
-            if stderr and stderr.strip():
-                self._emit(f"stderr: {stderr.strip()[:300]}", "warning")
-            for line in (stdout or "").splitlines():
-                line = line.strip()
-                if line:
-                    raw_lines.append(line)
-                    if line.startswith("{"):
-                        self._emit(line[:200])
 
-            hosts = self._parse(raw_lines)
-            if not hosts:
-                self._emit(
-                    f"0 live hosts parsed from {len(targets)} target(s) "
-                    f"({len(raw_lines)} raw line(s)) — pipeline continues",
-                    "warning",
-                )
-            else:
-                self._emit(f"Probed {len(hosts)} live host(s)", "success")
-            return HttpxResult(success=True, hosts=hosts, raw_output="\n".join(raw_lines))
-        except subprocess.TimeoutExpired:
-            if proc:
-                proc.kill()
-            msg = f"httpx timed out ({run_timeout}s)"
-            self._emit(msg, "error")
-            return HttpxResult(success=False, error=msg, hosts=[])
-        except Exception as e:
-            self._emit(str(e), "error")
-            return HttpxResult(success=False, error=str(e))
+        if not run.hosts:
+            self._guardian_log(
+                f"httpx: 0 hosts parsed ({len(run.stdout)} stdout bytes) — pipeline continues",
+                "warning",
+            )
+        elif run.used_fallback:
+            self._guardian_log(f"httpx curl fallback: {len(run.hosts)} host(s)", "success")
+        else:
+            self._guardian_log(f"httpx: {len(run.hosts)} host(s) from ProjectDiscovery", "success")
 
-    def _parse(self, lines: List[str]) -> List[Dict]:
-        hosts = []
-        for line in lines:
-            if not line.startswith("{"):
-                continue
-            try:
-                d = json.loads(line)
-                hosts.append({
-                    "url":          d.get("url", ""),
-                    "status_code":  d.get("status-code", 0),
-                    "title":        d.get("title", ""),
-                    "tech":         d.get("tech", []),
-                    "tls":          d.get("tls", {}),
-                    "webserver":    d.get("webserver", ""),
-                    "content_type": d.get("content-type", ""),
-                })
-            except json.JSONDecodeError:
-                continue
-        return hosts
+        return HttpxResult(
+            success=True,
+            hosts=run.hosts,
+            raw_output=run.stdout or run.stderr,
+            error=run.error,
+        )

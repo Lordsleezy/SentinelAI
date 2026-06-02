@@ -221,6 +221,20 @@ def test_tool(tool_name: str, tool_cls_getter, test_num: int):
         err_record(f"TEST {test_num} — {tool_name}", e)
 
 
+def test_httpx_compat():
+    print("\n--- httpx compatibility ---", flush=True)
+    from workers.guardian.tools.httpx_compat import run_httpx, find_projectdiscovery_httpx
+    logs = []
+    def log(m, l="info"):
+        logs.append(m)
+    r = run_httpx(["https://example.com"], timeout=5, log=log)
+    no_bad_flag = "no such option" not in (r.stderr or "").lower()
+    record("httpx compat - no invalid -s/-silent error", no_bad_flag, (r.stderr or "")[:120])
+    record("httpx compat - returns hosts or fallback", r.success and (r.hosts or r.used_fallback))
+    has_guardian_log = any("[GUARDIAN] httpx command:" in x for x in logs)
+    record("httpx compat - logs command line", has_guardian_log or r.used_fallback)
+
+
 def test_tools():
     from workers.guardian.tools.nuclei_tool   import NucleiTool
     from workers.guardian.tools.subfinder_tool import SubfinderTool
@@ -232,6 +246,7 @@ def test_tools():
     test_tool("Nuclei",    lambda: NucleiTool(),    5)
     test_tool("Subfinder", lambda: SubfinderTool(),  6)
     test_tool("httpx",     lambda: HttpxTool(),      7)
+    test_httpx_compat()
     test_tool("Katana",    lambda: KatanaTool(),     8)
     test_tool("ZAP",       lambda: ZAPTool(),        9)
     test_tool("Amass",     lambda: AmassTool(),     10)
