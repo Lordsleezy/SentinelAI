@@ -3648,7 +3648,7 @@ def api_chat():
         if _pending:
             if any(w in _msg_lower for w in _APPROVE_WORDS):
                 _clear_pending_task()
-                log(f"Task approved: {_pending.get('description', '')[:80]}", 'info', 'chat')
+                log(f"Task approved: {_pending.get('description', '')[:80]}", 'info', 'system')
                 _task_type = _pending.get('type', '')
                 if _task_type == 'build':
                     _task_desc = _pending.get('description', 'the task')
@@ -3672,16 +3672,14 @@ def api_chat():
                     _resp = f"✓ Approved. Building **{_task_desc}** now. Watch the LOG tab → AIDER filter for progress."
                 else:
                     _resp = f"✓ Approved. Working on it now."
-                log(f"SENTINEL: {_resp}", 'info', 'chat')
                 _save_chat_exchange(message, _resp)
                 return jsonify({"status": "ok", "worker": "aider", "response": _resp, "routed": True})
 
             if any(w in _msg_lower for w in _DENY_WORDS):
                 _task_desc = _pending.get('description', 'the task')
                 _clear_pending_task()
-                log(f"Task denied: {_task_desc[:80]}", 'info', 'chat')
+                log(f"Task denied: {_task_desc[:80]}", 'info', 'system')
                 _resp = f"Cancelled. Let me know if you'd like to try something different."
-                log(f"SENTINEL: {_resp}", 'info', 'chat')
                 _save_chat_exchange(message, _resp)
                 return jsonify({"status": "ok", "worker": "system", "response": _resp, "routed": True})
         # ── END APPROVE/DENY ─────────────────────────────────────────────────────
@@ -3813,6 +3811,7 @@ def api_chat():
                             f"Tomorrow: {wx['tomorrow_high']}°F / {wx['tomorrow_low']}°F.")
             else:
                 response = "Could not fetch weather data right now."
+            _save_chat_exchange(message, response)
             return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
 
         if any(w in lower for w in ['bitcoin', 'btc price', 'bitcoin price']):
@@ -3822,6 +3821,7 @@ def api_chat():
                 response = f"Bitcoin: ${btc['price']:,.2f} {direction} {abs(btc['change_24h'])}% in the last 24h."
             else:
                 response = "Could not fetch Bitcoin price right now."
+            _save_chat_exchange(message, response)
             return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
 
         if any(w in lower for w in ['ethereum', 'eth price', 'ethereum price']):
@@ -3831,6 +3831,7 @@ def api_chat():
                 response = f"Ethereum: ${eth['price']:,.2f} {direction} {abs(eth['change_24h'])}% in the last 24h."
             else:
                 response = "Could not fetch Ethereum price right now."
+            _save_chat_exchange(message, response)
             return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
 
         if any(w in lower for w in ['stock price', 'spy', 'qqq', 'nasdaq', 's&p', 'market today']):
@@ -3841,6 +3842,7 @@ def api_chat():
                             f"QQQ ${qqq_q['price']} ({'+' if qqq_q['change_pct'] > 0 else ''}{qqq_q['change_pct']}%)")
             else:
                 response = "Could not fetch market data right now."
+            _save_chat_exchange(message, response)
             return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
 
         if any(w in lower for w in ['news', 'headlines', "what's happening", 'latest news']):
@@ -3849,6 +3851,7 @@ def api_chat():
                 response = "Latest headlines:\n" + "\n".join([f"• {h['title']}" for h in headlines])
             else:
                 response = "Could not fetch news right now."
+            _save_chat_exchange(message, response)
             return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
 
         if any(w in lower for w in ['what time', 'current time', "what's the time"]):
@@ -3862,6 +3865,7 @@ def api_chat():
                 from datetime import datetime as _dt
                 now = _dt.now()
                 response = f"It's {now.strftime('%I:%M %p')} local time."
+            _save_chat_exchange(message, response)
             return jsonify({"status": "ok", "worker": "general", "response": response, "routed": True})
 
         # ── Project planner — complex multi-file builds ───────────────────────────
@@ -3903,7 +3907,6 @@ def api_chat():
                     'files': plan.files,
                     'created_at': datetime.now().isoformat(),
                 })
-                log(f"SENTINEL: {resp_text[:200]}", 'info', 'chat')
                 _save_chat_exchange(message, resp_text)
                 return jsonify({
                     "status": "ok", "worker": "consultation",
@@ -3927,9 +3930,11 @@ def api_chat():
                 result = consultant.consult_for_guidance(message)
                 src_label = {"chatgpt": "ChatGPT", "claude": "Claude",
                              "ollama_fallback": "Ollama"}.get(result.source, result.source)
+                _resp_text = f"[Source: {src_label}]\n\n{result.answer}"
+                _save_chat_exchange(message, _resp_text)
                 return jsonify({
                     "status": "ok", "worker": "consultation",
-                    "response": f"[Source: {src_label}]\n\n{result.answer}",
+                    "response": _resp_text,
                     "consultation_source": result.source,
                     "routed": True,
                 })
@@ -3981,7 +3986,6 @@ def api_chat():
                 'description': message,
                 'created_at': datetime.now().isoformat(),
             })
-            log(f"SENTINEL: {_plan_text[:200]}", 'info', 'chat')
             _save_chat_exchange(message, _plan_text)
             return jsonify({
                 "status": "ok",
@@ -3994,9 +3998,7 @@ def api_chat():
 
         if _pre_worker:
             response_text = _WORKER_RESPONSES.get(_pre_worker, f"Routing to {_pre_worker} worker...")
-            log(f"SENTINEL: {response_text[:300]}", 'info', 'chat')
-            with _chat_session_lock:
-                _chat_session.append({'role': 'sentinel', 'content': response_text, 'timestamp': datetime.now().isoformat()})
+            _save_chat_exchange(message, response_text)
             return jsonify({
                 "status": "ok",
                 "worker": _pre_worker,
