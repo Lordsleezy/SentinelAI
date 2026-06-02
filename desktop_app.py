@@ -523,6 +523,31 @@ def api_login_status():
     configured = identity_manager.has_credentials()
     user_name = identity_manager.get_user_name() if configured else None
     creds = identity_manager.load_credentials() or {}
+
+    # Check stealth availability
+    stealth_active = False
+    try:
+        from workers.identity.stealth_browser import StealthBrowser
+        stealth_active = StealthBrowser().verify_stealth()
+    except Exception:
+        pass
+
+    # Check Gmail configuration
+    gmail_configured = False
+    try:
+        from workers.identity.gmail_handler import GmailHandler
+        gmail_configured = GmailHandler().is_configured()
+    except Exception:
+        pass
+
+    # Check ADB availability
+    adb_available = False
+    try:
+        from workers.identity.adb_handler import ADBHandler
+        adb_available = ADBHandler().is_available()
+    except Exception:
+        pass
+
     return jsonify({
         "configured": configured,
         "user_name": user_name,
@@ -530,9 +555,9 @@ def api_login_status():
         "chatgpt_connected": bool(creds.get("chatgpt_email")),
         "claude_2fa_method": creds.get("claude_2fa_method", "none"),
         "chatgpt_2fa_method": creds.get("chatgpt_2fa_method", "none"),
-        "gmail_configured": False,
-        "adb_available": False,
-        "stealth_active": False,
+        "gmail_configured": gmail_configured,
+        "adb_available": adb_available,
+        "stealth_active": stealth_active,
     })
 
 
@@ -558,15 +583,32 @@ def api_login_save():
 
 @app.route('/api/login/test', methods=['POST'])
 def api_login_test():
-    """Re-test saved credentials (placeholder — full browser test in Section 2)."""
+    """Re-test saved credentials."""
     creds = identity_manager.load_credentials() or {}
+
+    gmail_configured = False
+    try:
+        from workers.identity.gmail_handler import GmailHandler
+        gmail_configured = GmailHandler().is_configured()
+    except Exception:
+        pass
+
+    adb_available = False
+    try:
+        from workers.identity.adb_handler import ADBHandler
+        adb_available = ADBHandler().is_available()
+    except Exception:
+        pass
+
     return jsonify({
         "status": "ok",
         "user_name": creds.get("user_name", ""),
         "claude_configured": bool(creds.get("claude_email")),
         "chatgpt_configured": bool(creds.get("chatgpt_email")),
-        "gmail_configured": False,
-        "adb_available": False,
+        "claude_2fa_method": creds.get("claude_2fa_method", "none"),
+        "chatgpt_2fa_method": creds.get("chatgpt_2fa_method", "none"),
+        "gmail_configured": gmail_configured,
+        "adb_available": adb_available,
     })
 
 
