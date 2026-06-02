@@ -768,8 +768,8 @@
           <button onclick="toggleChatPanel()" style="background:none;border:1px solid rgba(0,255,255,0.2);color:#0ff;width:24px;height:24px;border-radius:4px;cursor:pointer;font-size:12px;">✕</button>
         </div>
         <div id="chat-history"></div>
-        <div id="left-panel-footer">
-          <button id="diagnose-btn" onclick="sentinelDiagnose()">🔍 DIAGNOSE ERRORS</button>
+        <div id="left-panel-footer" style="padding:8px 12px;border-top:1px solid rgba(0,255,255,0.1);font-size:10px;color:#444;text-align:center;">
+          Chat history is logged to the LOG panel under CHAT filter
         </div>
       </div>
 
@@ -1728,8 +1728,8 @@
         </div>
         <div id="log-panel-filter">
           <span style="font-size:10px;color:#555;margin-right:4px;">FILTER:</span>
-          ${['all','forge','earn','system','guardian','aider','errors'].map(f =>
-            `<button class="log-filter-btn ${f==='all'?'active':''}" onclick="logSetFilter('${f}')">${f.toUpperCase()}</button>`
+          ${['all','chat','forge','earn','system','guardian','aider','errors'].map(f =>
+            `<button class="log-filter-btn ${f==='all'?'active':''}" onclick="logSetFilter('${f}')" style="${f==='chat'?'border-color:rgba(0,212,255,0.5);color:#00d4ff;':''}">${f.toUpperCase()}</button>`
           ).join('')}
         </div>
         <div id="log-panel-xterm"></div>`;
@@ -2133,35 +2133,6 @@
       div.innerHTML = `<span class="chat-time">${escapeHtml(time)}</span><span class="chat-content">${escapeHtml(content)}</span>`;
       historyEl.appendChild(div);
       if (scroll) historyEl.scrollTop = historyEl.scrollHeight;
-    }
-
-    async function sentinelDiagnose() {
-      const btn = document.getElementById('diagnose-btn');
-      if (btn) { btn.disabled = true; btn.textContent = '⏳ Diagnosing...'; }
-      try {
-        const [logsRes, errsRes] = await Promise.all([
-          fetch('http://127.0.0.1:5001/api/log/recent?limit=100').catch(() => null),
-          fetch('http://127.0.0.1:5001/api/log/recent?level=error&limit=20').catch(() => null)
-        ]);
-        const logsData = logsRes && logsRes.ok ? await logsRes.json() : { entries: [] };
-        const errsData = errsRes && errsRes.ok ? await errsRes.json() : { entries: [] };
-        const logs = (logsData.entries || logsData.data || []).map(e => `[${e.time||''}] [${e.type||''}] ${e.message||''}`).join('\n');
-        const errs = (errsData.entries || errsData.data || []).map(e => `[${e.time||''}] ${e.message||''}`).join('\n');
-        const prompt = `Review these recent log entries and errors from your own operation. Identify any failures, incomplete tasks, or loops. Report what went wrong and what you would do to fix it. Be specific about file names and error messages.\n\nLogs:\n${logs || '(empty)'}\n\nErrors:\n${errs || '(none)'}`;
-        const res = await fetch('http://127.0.0.1:5001/api/chat', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({message: prompt})
-        });
-        const d = await res.json();
-        const rawResp = d.response;
-        const text = typeof rawResp === 'string' ? rawResp : (rawResp?.response || rawResp?.text || rawResp?.message || JSON.stringify(rawResp));
-        appendChatPanelMessage('sentinel', `[SELF-DIAGNOSIS]\n${text}`);
-      } catch(e) {
-        appendChatPanelMessage('sentinel', `[SELF-DIAGNOSIS ERROR] ${e.message}`);
-      } finally {
-        if (btn) { btn.disabled = false; btn.textContent = '🔍 DIAGNOSE ERRORS'; }
-      }
     }
 
     // Input handling

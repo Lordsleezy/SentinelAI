@@ -3507,6 +3507,8 @@ def api_capability_list():
 
 def _save_chat_exchange(user_msg: str, sentinel_response: str) -> None:
     """Save a complete chat exchange to memory and chat session buffer."""
+    # Log response to chat source (visible in Log panel CHAT filter)
+    log(f"SENTINEL: {sentinel_response[:300]}", 'info', 'chat')
     # Save to chat session (for UI history)
     with _chat_session_lock:
         _chat_session.append({'role': 'sentinel', 'content': sentinel_response, 'timestamp': datetime.now().isoformat()})
@@ -3623,6 +3625,8 @@ def api_chat():
                 memory_v2.remember(message, source="user", topic=message[:80])
             except Exception as _mem_err:
                 logger.debug("Memory context lookup failed: %s", _mem_err)
+        # Log user message to chat source (visible in Log panel CHAT filter)
+        log(f"USER: {message}", 'info', 'chat')
         # Save to in-memory chat session
         with _chat_session_lock:
             _chat_session.append({'role': 'user', 'content': message, 'timestamp': datetime.now().isoformat()})
@@ -3882,6 +3886,9 @@ def api_chat():
 
         if _pre_worker:
             response_text = _WORKER_RESPONSES.get(_pre_worker, f"Routing to {_pre_worker} worker...")
+            log(f"SENTINEL: {response_text[:300]}", 'info', 'chat')
+            with _chat_session_lock:
+                _chat_session.append({'role': 'sentinel', 'content': response_text, 'timestamp': datetime.now().isoformat()})
             return jsonify({
                 "status": "ok",
                 "worker": _pre_worker,
