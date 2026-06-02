@@ -84,15 +84,17 @@ class HttpxTool:
                 error=run.error,
             )
 
-        if not run.hosts:
+        n = len(run.hosts)
+        self._guardian_log(f"httpx parsed hosts: {n}", "success" if n else "warning")
+        if not n and (run.stdout or "").strip():
             self._guardian_log(
-                f"httpx: 0 hosts parsed ({len(run.stdout)} stdout bytes) — pipeline continues",
+                f"httpx: 0 hosts parsed ({len(run.stdout)} stdout chars) — pipeline continues",
                 "warning",
             )
         elif run.used_fallback:
-            self._guardian_log(f"httpx curl fallback: {len(run.hosts)} host(s)", "success")
-        else:
-            self._guardian_log(f"httpx: {len(run.hosts)} host(s) from ProjectDiscovery", "success")
+            self._guardian_log(f"httpx curl fallback: {n} host(s)", "success")
+        elif n:
+            self._guardian_log(f"httpx: {n} host(s) from ProjectDiscovery", "success")
 
         return HttpxResult(
             success=True,

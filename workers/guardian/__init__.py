@@ -1,1 +1,1 @@
-# Guardian — authorized penetration testing and security research assistant
+# Guardian — penetration testing and security research assistant

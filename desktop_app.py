@@ -1464,7 +1464,9 @@ def api_forge_request():
 
         def run():
             try:
-                forge_result, _art = _run_forge_build(task, output_dir)
+                from workers.task_manager import TaskContext
+                with TaskContext(f"Build {task[:60]}", source="forge") as ctx:
+                    forge_result, _art = _run_forge_build(task, output_dir, sentinel_task_id=ctx.task_id)
                 result_ok = forge_result.success
                 log(
                     'Task complete' if result_ok else f'Task failed: {forge_result.error}',
@@ -3699,27 +3701,96 @@ _BUILD_KEYWORDS = [
 def _run_forge_build(description: str, output_dir=None, sentinel_task_id: str = ''):
     """
     Execute build via ForgeBuildEngine (builder router + verification + artifact).
-    Callable from approved chat builds, /api/forge/request, or orchestration.
+
+    Emits forge_complete only after generation, verification, artifact registration,
+    and launch metadata are saved. No work runs after Build Complete.
     """
+    from builders.build_tracker import begin_build, finish_build, mark_launch_ready, update_build
+    from builders.common.logging_util import log_builder
     from builders.forge_engine import ForgeBuildEngine
-    from builders.router import route_build
+    from builders.router import engine_for_route, route_build
     from workers.artifacts.artifact_registry import register_artifact
 
-    route_build(description, socketio)
+    build_type = route_build(description, socketio)
+
+    title = description[:60] if description else "Build"
+    if sentinel_task_id:
+        begin_build(
+            sentinel_task_id,
+            title,
+            description,
+            build_type.value,
+            engine_for_route(build_type),
+        )
+
+    set_worker("forge", "running", current_task=title, activity="Planning")
 
     def _on_progress(pct: int, msg: str) -> None:
         if not sentinel_task_id:
             return
         try:
             from workers.task_manager import update_task, RUNNING
-            update_task(sentinel_task_id, status=RUNNING, progress=pct, result_summary=msg)
+            b = update_build(current_stage=msg, progress_percent=pct)
+            files = (b or {}).get("files_created") or []
+            update_task(
+                sentinel_task_id,
+                status=RUNNING,
+                progress=pct,
+                result_summary=msg,
+                current_stage=msg,
+                files_created=files if files else None,
+            )
         except Exception:
             pass
 
     engine = ForgeBuildEngine(socketio)
-    result = engine.build(description, output_dir, on_progress=_on_progress)
+    try:
+        result = engine.build(
+            description, output_dir, on_progress=_on_progress, build_type=build_type,
+        )
+    except Exception as exc:
+        finish_build(False, str(exc))
+        set_worker("forge", "error", current_task=None, activity=str(exc))
+        if socketio:
+            socketio.emit('forge_complete', {
+                'success': False,
+                'files_modified': [],
+                'entry_point': None,
+                'output_dir': None,
+                'error': str(exc),
+                'task_id': sentinel_task_id,
+            })
+        raise
 
-    ver_status = "verified" if result.verified else ("failed" if result.verification else "unknown")
+    if not result.success or not result.verified:
+        err = result.error or (result.verification.message if result.verification else "Verification failed")
+        log_builder(f"Build failed: {err}", "error", socketio)
+        finish_build(False, err)
+        set_worker("forge", "error", current_task=None, activity=err)
+        if socketio:
+            socketio.emit('forge_complete', {
+                'success': False,
+                'files_modified': result.files,
+                'entry_point': result.entry_point,
+                'output_dir': result.output_dir,
+                'error': err,
+                'task_id': sentinel_task_id,
+                'verification_status': 'failed',
+            })
+        return result, {}
+
+    # ── Stage 5/5: Register artifact + launch metadata ───────────────────────
+    log_builder("Stage 5/5 Registering artifact", "info", socketio)
+    update_build(current_stage="Registering artifact", progress_percent=92)
+    if sentinel_task_id:
+        try:
+            from workers.task_manager import update_task, RUNNING
+            update_task(sentinel_task_id, status=RUNNING, progress=92,
+                         current_stage="Registering artifact")
+        except Exception:
+            pass
+
+    ver_status = "verified"
     art = register_artifact(
         task=description[:120],
         entry_point=result.entry_point,
@@ -3733,24 +3804,32 @@ def _run_forge_build(description: str, output_dir=None, sentinel_task_id: str = 
         verification_status=ver_status,
         build_logs=result.build_logs,
     )
+    mark_launch_ready(art.get("id", ""))
+    log_builder("Launch Ready", "success", socketio)
+    update_build(current_stage="Launch Ready", progress_percent=100)
+
+    finish_build(True)
+    set_worker("forge", "idle", current_task=None, activity="Build complete")
+
     log(
         f"[FORGE] {result.builder} ({result.project_type}) — {ver_status} — {result.output_dir}",
-        'success' if result.success else 'error',
+        'success',
         'forge',
     )
     if socketio:
         socketio.emit('forge_complete', {
-            'success': result.success,
+            'success': True,
             'files_modified': result.files,
             'entry_point': result.entry_point,
             'output_dir': result.output_dir,
-            'error': result.error or '',
+            'error': '',
             'task_id': sentinel_task_id,
             'artifact_id': art.get('id'),
             'builder': result.builder,
             'project_type': result.project_type,
             'verification_status': ver_status,
             'launch_command': result.launch_command,
+            'build_complete': True,
         })
     return result, art
 
@@ -3796,7 +3875,9 @@ def api_orchestration_chat():
 
             def build():
                 try:
-                    _run_forge_build(description, output_path)
+                    from workers.task_manager import TaskContext
+                    with TaskContext(f"Build {description[:60]}", source="forge") as ctx:
+                        _run_forge_build(description, output_path, sentinel_task_id=ctx.task_id)
                 except Exception as exc:
                     log(f'Build error: {exc}', 'error', 'forge')
                     emit_event('forge_complete', {
@@ -3810,7 +3891,7 @@ def api_orchestration_chat():
 
             response_text = (
                 f"On it. Building {description[:80]} now. "
-                f"Watch the Log tab for live progress."
+                f"Watch the Log tab → BUILDER filter for live stages."
             )
             log(f'Response: {response_text[:100]}', 'info', 'system')
             return jsonify({"response": response_text, "worker": "aider"})
@@ -4158,36 +4239,238 @@ def api_license_check(feature_name):
 
 @app.route('/earn/jobs')
 def api_earn_jobs():
-    """Multi-source earn jobs: bounty programs + remote jobs."""
+    """Multi-source earn jobs: bounty programs + remote jobs.
+
+    Query params:
+      refresh=1  — fetch upstream (respects 24h cache unless force=1)
+      force=1    — bypass cache completely
+      limit=N    — max bounty programs (default 50)
+    """
     import threading
 
-    results = {"bounty": [], "remoteok": [], "error": None}
+    refresh = request.args.get("refresh", "").lower() in ("1", "true", "yes")
+    force = request.args.get("force", "").lower() in ("1", "true", "yes")
+    try:
+        limit = max(1, min(200, int(request.args.get("limit", 50))))
+    except (TypeError, ValueError):
+        limit = 50
+
+    results = {"bounty": [], "remoteok": [], "discovery": None, "error": None}
+    discovery_box: dict = {}
 
     def _fetch_bounty():
         try:
-            from workers.earn.sources.bounty_targets import scan
-            results["bounty"] = scan(limit=15)
+            from workers.earn.program_discovery import discover_programs
+            programs, meta = discover_programs(
+                limit=limit,
+                force_refresh=force,
+                refresh=refresh and not force,
+                socketio=socketio,
+            )
+            results["bounty"] = programs
+            discovery_box["meta"] = meta.to_dict()
         except Exception as exc:
-            logger.debug("bounty_targets scan failed: %s", exc)
+            logger.exception("earn discovery failed: %s", exc)
+            results["error"] = str(exc)
 
     def _fetch_remoteok():
         try:
-            from workers.earn.sources.remoteok_scanner import scan
-            results["remoteok"] = scan(limit=15)
+            from workers.earn.sources.remoteok_scanner import scan as scan_remote
+            results["remoteok"] = scan_remote(limit=15)
         except Exception as exc:
             logger.debug("remoteok scan failed: %s", exc)
 
     t1 = threading.Thread(target=_fetch_bounty, daemon=True)
     t2 = threading.Thread(target=_fetch_remoteok, daemon=True)
-    t1.start(); t2.start()
-    t1.join(timeout=12); t2.join(timeout=12)
+    t1.start()
+    t2.start()
+    t1.join(timeout=45)
+    t2.join(timeout=12)
 
-    # Scanners already return normalized dicts — combine directly
     jobs = results["bounty"] + results["remoteok"]
+    disc = discovery_box.get("meta") or {}
 
-    return jsonify({"status": "ok", "jobs": jobs,
-                    "counts": {"bounty": len(results["bounty"]), "remoteok": len(results["remoteok"])},
-                    "error": None})
+    return jsonify({
+        "status": "ok",
+        "jobs": jobs,
+        "counts": {
+            "bounty": len(results["bounty"]),
+            "remoteok": len(results["remoteok"]),
+            "discovered_total": disc.get("discovered_total"),
+            "bounty_eligible_total": disc.get("bounty_eligible_total"),
+        },
+        "discovery": disc,
+        "error": results["error"],
+    })
+
+
+@app.route('/api/earn/diagnostics', methods=['GET'])
+def api_earn_diagnostics():
+    """Earn discovery diagnostics for the diagnostics panel."""
+    try:
+        from workers.earn.program_discovery import get_discovery_diagnostics
+        return jsonify({"status": "ok", **get_discovery_diagnostics()})
+    except Exception as e:
+        logger.exception("earn diagnostics failed")
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/earn/discovery/dashboard', methods=['GET'])
+def api_earn_discovery_dashboard():
+    """Full Earn Discovery Dashboard payload (500+ programs, overview, metrics)."""
+    try:
+        refresh = request.args.get("refresh", "").lower() in ("1", "true", "yes")
+        force = request.args.get("force", "").lower() in ("1", "true", "yes")
+        from workers.earn.dashboard_service import fetch_dashboard_programs, log_dashboard_event
+
+        if force:
+            log_dashboard_event("Force refresh — bypassing cache", socketio)
+        elif refresh:
+            log_dashboard_event("Discovery Started", socketio)
+
+        programs, overview, extra = fetch_dashboard_programs(
+            refresh=refresh or force,
+            force=force,
+            socketio=socketio,
+        )
+
+        if refresh or force:
+            disc = extra.get("discovery") or {}
+            earn_log_msg = (
+                f"Source: {(disc.get('source') or 'API').upper()} · "
+                f"Programs Discovered: {disc.get('discovered_total') or len(programs)} · "
+                f"Duration: {round((disc.get('duration_ms') or 0) / 1000, 1)}s"
+            )
+            from workers.earn.earn_diagnostics import earn_log
+            earn_log(socketio, earn_log_msg)
+
+        log_dashboard_event("Dashboard Loaded", socketio)
+        return jsonify({
+            "status": "ok",
+            "programs": programs,
+            "overview": overview,
+            "metrics": extra.get("metrics"),
+            "discovery": extra.get("discovery"),
+        })
+    except Exception as e:
+        logger.exception("earn dashboard failed")
+        return jsonify({"status": "error", "error": str(e), "programs": []}), 200
+
+
+@app.route('/api/earn/discovery/program/<handle>', methods=['GET'])
+def api_earn_discovery_program(handle: str):
+    """Program details for dashboard side panel."""
+    try:
+        from workers.earn.dashboard_service import get_program_detail, log_dashboard_event
+        detail = get_program_detail(handle)
+        log_dashboard_event(f"Program Selected: {handle}", socketio)
+        return jsonify({"status": "ok", "program": detail})
+    except Exception as e:
+        logger.exception("earn program detail failed")
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/earn/discovery/log', methods=['POST'])
+def api_earn_discovery_log():
+    """Client-side dashboard interaction logs → [EARN] log stream."""
+    try:
+        data = request.get_json() or {}
+        msg = (data.get("message") or "").strip()
+        if not msg:
+            return jsonify({"status": "error", "error": "message required"}), 400
+        from workers.earn.earn_diagnostics import earn_log
+        earn_log(socketio, msg, data.get("level", "info"))
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+# ─── Earn Research Mode API ───────────────────────────────────────────────────
+
+@app.route('/api/earn/research/start', methods=['POST'])
+def api_earn_research_start():
+    """Accept program → analyze scope → launch research pipeline (no auto-submit)."""
+    try:
+        program_data = request.get_json() or {}
+        if not program_data.get("handle") and not program_data.get("program") and not program_data.get("title"):
+            return jsonify({"status": "error", "error": "program data required"}), 200
+        from workers.earn.research.pipeline import run_research_pipeline
+        session = run_research_pipeline(program_data, socketio=socketio, background=True)
+        log(f'Earn research started: {session.program_title} ({session.id})', 'info', 'earn')
+        return jsonify({
+            "status": "ok",
+            "session_id": session.id,
+            "message": f"Research pipeline started for {session.program_title}",
+        })
+    except Exception as e:
+        logger.exception("earn research start failed")
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/earn/research/sessions', methods=['GET'])
+def api_earn_research_sessions():
+    try:
+        from workers.earn.research.store import list_sessions
+        return jsonify({"status": "ok", "sessions": list_sessions()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e), "sessions": []}), 200
+
+
+@app.route('/api/earn/research/<session_id>', methods=['GET'])
+def api_earn_research_session(session_id):
+    try:
+        from workers.earn.research.pipeline import get_research_session
+        session = get_research_session(session_id)
+        if not session:
+            return jsonify({"status": "error", "error": "session not found"}), 200
+        return jsonify({"status": "ok", "session": session.to_dict()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/earn/research/<session_id>/finding/<finding_id>/status', methods=['POST'])
+def api_earn_research_finding_status(session_id, finding_id):
+    """Update finding workflow status (human review — no submission)."""
+    try:
+        from workers.earn.research.pipeline import get_research_session
+        from workers.earn.research.store import save_session
+        data = request.get_json() or {}
+        status = data.get("status", "").strip()
+        session = get_research_session(session_id)
+        if not session:
+            return jsonify({"status": "error", "error": "session not found"}), 200
+        updated = False
+        for f in session.potential_findings:
+            if f.get("id") == finding_id:
+                f["status"] = status
+                if status == "Validated":
+                    f["workflow_stage"] = "human_review"
+                updated = True
+                break
+        if not updated:
+            return jsonify({"status": "error", "error": "finding not found"}), 200
+        save_session(session)
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/earn/research/<session_id>/evidence', methods=['POST'])
+def api_earn_research_evidence(session_id):
+    try:
+        from workers.earn.research.pipeline import get_research_session
+        from workers.earn.research.store import add_evidence
+        data = request.get_json() or {}
+        kind = data.get("kind", "note")
+        content = data.get("content", "")
+        filename = data.get("filename") or f"evidence_{kind}.txt"
+        session = get_research_session(session_id)
+        if not session:
+            return jsonify({"status": "error", "error": "session not found"}), 200
+        item = add_evidence(session, kind, content, filename)
+        return jsonify({"status": "ok", "evidence": item.to_dict()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
 
 
 # ─── Market Summary API ───────────────────────────────────────────────────────
@@ -4443,7 +4726,10 @@ def api_chat():
                                 ctx.fail(str(_be))
                                 log(f"Build error: {_be}", 'error', 'forge')
                     threading.Thread(target=_run_approved_build, daemon=True).start()
-                    _resp = f"✓ Approved. Building **{_task_desc}** now. Watch the LOG tab → AIDER filter for progress."
+                    _resp = (
+                        f"✓ Approved. Building **{_task_desc}** now. "
+                        f"Watch the LOG tab → **BUILDER** filter for live stages."
+                    )
                 else:
                     _resp = f"✓ Approved. Working on it now."
                 _save_chat_exchange(message, _resp)
@@ -4457,6 +4743,23 @@ def api_chat():
                 _save_chat_exchange(message, _resp)
                 return jsonify({"status": "ok", "worker": "system", "response": _resp, "routed": True})
         # ── END APPROVE/DENY ─────────────────────────────────────────────────────
+
+        # ── Active work status (build > guardian > earn) ─────────────────────────
+        try:
+            from workers.active_work import get_active_work_response, is_status_query
+            if is_status_query(message):
+                active = get_active_work_response()
+                if active:
+                    _resp = active
+                else:
+                    _resp = (
+                        "No active build, Guardian scan, or Earn analysis right now. "
+                        "Start a build or check the **Tasks** tab for recent work."
+                    )
+                _save_chat_exchange(message, _resp)
+                return jsonify({"status": "ok", "worker": "system", "response": _resp, "routed": True})
+        except Exception as _st_err:
+            logger.debug("Status query handler failed: %s", _st_err)
 
         # Enrich message with relevant memory context then save to chat session
         _enriched_message = message
@@ -4499,12 +4802,22 @@ def api_chat():
                             _task_hint = _candidate
                             break
                 artifact = (get_artifact_by_task(_task_hint) if _task_hint else None) or get_latest_artifact()
+                _launch_result: dict = {}
                 if artifact:
                     _launch_result = _launch_art(artifact)
+                    _cmd = _launch_result.get('command') or artifact.get('launch_command', '')
                     if _launch_result.get('ok'):
                         _task_name = artifact.get('task', 'application')
-                        _resp = f"✓ Launching {_task_name}\n\n`{artifact.get('entry_point', '')}`"
+                        _resp = (
+                            f"✓ Launching {_task_name}\n\n"
+                            f"Builder: {artifact.get('builder_used') or 'unknown'}\n"
+                            f"Command: `{_cmd}`\n\n"
+                            f"{_launch_result.get('message', 'Launch successful')}"
+                        )
                         log(f"[ARTIFACT] Launched via chat: {_task_name}", 'success', 'forge')
+                    elif _launch_result.get("needs_install"):
+                        _resp = _launch_result.get("error", "Godot required. Install now?")
+                        log("[ARTIFACT] Launch blocked — Godot install required", 'warning', 'forge')
                     else:
                         _resp = f"✗ Launch failed: {_launch_result.get('error', 'unknown error')}"
                         log(f"[ARTIFACT] Launch failed: {_launch_result.get('error')}", 'error', 'forge')
@@ -4512,7 +4825,10 @@ def api_chat():
                     _resp = "No recent builds found. Build something first, then ask me to launch it."
                     log("[ARTIFACT] No artifacts registered — cannot launch", 'warning', 'forge')
                 _save_chat_exchange(message, _resp)
-                return jsonify({"status": "ok", "worker": "forge", "response": _resp, "routed": True})
+                out = {"status": "ok", "worker": "forge", "response": _resp, "routed": True}
+                if artifact and _launch_result.get("needs_install"):
+                    out["launch"] = _launch_result
+                return jsonify(out)
             except Exception as _launch_err:
                 logger.warning("Launch intent handler failed: %s", _launch_err)
 
@@ -4781,14 +5097,16 @@ def api_chat():
             _pre_worker = "home"
 
         if _pre_worker == 'forge':
-            # Show a simple plan and ask for APPROVE/DENY
-            from builders.router import classify_build
-            _btype = classify_build(message).value
+            from builders.router import classify_build, engine_for_route, stack_for_route
+            _bt = classify_build(message)
+            _stack = ", ".join(stack_for_route(_bt))
             _plan_text = (
                 f"📋 Build Plan\n\n"
                 f"Task: {message}\n"
-                f"Builder route: **{_btype}** (Aider fallback if needed)\n\n"
-                f"Stages: Planning → Generating → Testing → Verifying → Launch\n\n"
+                f"Route: **{_bt.value}**\n"
+                f"Engine: **{engine_for_route(_bt)}**\n"
+                f"Stack: {_stack}\n\n"
+                f"Stages: Planning → Generating → Testing → Verifying → Register → Launch Ready\n\n"
                 f"Reply APPROVE to start building, or DENY to cancel."
             )
             _task_id = _store_pending_task({
@@ -4921,7 +5239,12 @@ def api_earn_accept():
             try:
                 from workers.aider_engine import AiderEngine
                 engine = AiderEngine(socketio)
-                engine.analyze_bounty(job_title, job_url, job_scope)
+                engine.analyze_bounty(
+                    job_title,
+                    job_url,
+                    job_scope,
+                    program_data=job_data,
+                )
             except Exception as exc:
                 log(f'Bounty analysis failed: {exc}', 'error', 'earn')
 
@@ -5133,9 +5456,280 @@ def get_guardian_brain():
 @app.route('/guardian/status', methods=['GET'])
 def api_guardian_status():
     try:
-        return jsonify({"status": "ok", **get_guardian_brain().get_status()})
+        from workers.guardian.tools.tool_registry import get_tool_diagnostics
+        payload = get_guardian_brain().get_status()
+        payload["tool_diagnostics"] = get_tool_diagnostics()
+        return jsonify({"status": "ok", **payload})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/guardian/tools/status', methods=['GET'])
+@app.route('/guardian/tools/status', methods=['GET'])
+def api_guardian_tools_status():
+    """Guardian Tool Status — registry + legacy diagnostics."""
+    try:
+        from workers.guardian.tools.tool_registry import get_tool_diagnostics
+        from workers.guardian.guardian_tool_registry_store import get_registry_list
+        tools = get_registry_list()
+        if not tools:
+            tools = get_tool_diagnostics()
+        else:
+            for t in tools:
+                t.setdefault("installed", t.get("install_status") == "installed")
+                t.setdefault("label", (t.get("name") or "").title())
+                t.setdefault("status_line", "✓ Installed" if t.get("installed") else "✗ Missing")
+        return jsonify({"status": "ok", "tools": tools, "registry": tools})
+    except Exception as e:
+        logger.error("Guardian tools status error: %s", e, exc_info=True)
+        return jsonify({"status": "error", "error": str(e), "tools": []}), 200
+
+
+@app.route('/api/build/status', methods=['GET'])
+def api_build_status():
+    """Active forge build progress for status commands and HUD."""
+    try:
+        from builders.build_tracker import get_active_build
+        b = get_active_build()
+        if b:
+            return jsonify({"status": "ok", "active": True, "build": b})
+        return jsonify({"status": "ok", "active": False, "build": None})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/builder/status', methods=['GET'])
+def api_builder_status():
+    """Builder runtime status panel (GAME Godot, WEB npm, …)."""
+    try:
+        from builders.builder_status import get_builder_status
+        return jsonify({"status": "ok", "panels": get_builder_status()})
+    except Exception as e:
+        logger.error("Builder status error: %s", e, exc_info=True)
+        return jsonify({"status": "error", "error": str(e), "panels": []}), 200
+
+
+@app.route('/api/builder/runtime/godot/install', methods=['POST'])
+def api_builder_godot_install():
+    try:
+        from builders.runtime.godot_runtime import install_godot
+        result = install_godot(log_fn=lambda msg, level="info": log(msg, level, "forge"))
+        if result.get("ok") and socketio:
+            socketio.emit("builder_runtime_updated", {"tool": "godot", **result})
+        return jsonify({"status": "ok" if result.get("ok") else "error", **result})
+    except Exception as e:
+        logger.exception("Godot install failed")
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/builder/runtime/godot/browse', methods=['POST'])
+def api_builder_godot_browse():
+    try:
+        from builders.runtime.godot_runtime import browse_godot_exe
+        result = browse_godot_exe()
+        if result.get("ok") and socketio:
+            socketio.emit("builder_runtime_updated", {"tool": "godot", **result})
+        return jsonify({"status": "ok" if result.get("ok") else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/builder/runtime/godot/register', methods=['POST'])
+def api_builder_godot_register():
+    try:
+        from builders.runtime.godot_runtime import register_godot_path
+        data = request.get_json() or {}
+        path = (data.get("path") or "").strip()
+        if not path:
+            return jsonify({"status": "error", "error": "path required"}), 200
+        result = register_godot_path(path)
+        if result.get("ok") and socketio:
+            socketio.emit("builder_runtime_updated", {"tool": "godot", **result})
+        return jsonify({"status": "ok" if result.get("ok") else "error", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/guardian/runtime', methods=['GET'])
+@app.route('/guardian/runtime', methods=['GET'])
+def api_guardian_runtime():
+    try:
+        from workers.guardian.runtime_manager import get_brain_status, list_ollama_models
+        brain = get_brain_status()
+        return jsonify({
+            "status": "ok",
+            "runtime": brain,
+            "brain": brain,
+            "models": brain.get("installed_models") or list_ollama_models(),
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/guardian/runtime/model', methods=['POST'])
+def api_guardian_runtime_model():
+    try:
+        from workers.guardian.runtime_manager import get_brain_status, save_models_config
+        data = request.get_json() or {}
+        model = (data.get("model") or data.get("selected_model") or "").strip()
+        if not model:
+            return jsonify({"status": "error", "error": "model required"}), 200
+        save_models_config({"selected_model": model})
+        return jsonify({"status": "ok", "runtime": get_brain_status(), "brain": get_brain_status()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/guardian/runtime/install', methods=['POST'])
+def api_guardian_runtime_install():
+    try:
+        from workers.guardian.runtime_manager import pull_model, get_brain_status
+        data = request.get_json() or {}
+        model = (data.get("model") or "dolphin3:8b").strip()
+        result = pull_model(model)
+        return jsonify({"status": "ok" if result.get("ok") else "error", **result, "brain": get_brain_status()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/guardian/bootstrap/status', methods=['GET'])
+def api_guardian_bootstrap_status():
+    try:
+        from workers.guardian.guardian_tool_registry_store import refresh_registry, get_registry_list
+        reg = refresh_registry()
+        return jsonify({"status": "ok", "registry": reg, "tools": get_registry_list()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/guardian/findings/center', methods=['GET'])
+def api_guardian_findings_center():
+    try:
+        from workers.guardian.findings_center import get_session, list_sessions
+        sid = request.args.get("session_id", "").strip()
+        if sid:
+            return jsonify({"status": "ok", "center": get_session(sid)})
+        return jsonify({"status": "ok", "sessions": list_sessions()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/guardian/settings/trusted-targets', methods=['GET'])
+def api_guardian_trusted_list():
+    try:
+        from workers.guardian.guardian_trusted_targets import list_trusted, get_settings
+        return jsonify({"status": "ok", "targets": list_trusted(), "settings": get_settings()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/guardian/settings/trusted-targets', methods=['POST'])
+def api_guardian_trusted_approve():
+    try:
+        from workers.guardian.guardian_trusted_targets import approve, revoke
+        data = request.get_json() or {}
+        target = (data.get("target") or "").strip()
+        if not target:
+            return jsonify({"status": "error", "error": "target required"}), 200
+        if data.get("revoke"):
+            revoke(target)
+            return jsonify({"status": "ok", "revoked": target})
+        entry = approve(target, ttl_days=data.get("ttl_days"), note=data.get("note", ""))
+        return jsonify({"status": "ok", "target": target, "entry": entry})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/guardian/findings', methods=['GET'])
+def api_guardian_findings():
+    try:
+        from workers.guardian.guardian_findings_db import GuardianFindingsDB
+        db = GuardianFindingsDB()
+        target = request.args.get("target")
+        severity = request.args.get("severity")
+        session_id = request.args.get("session_id")
+        rows = db.search(target=target, severity=severity, session_id=session_id)
+        return jsonify({"status": "ok", "findings": rows, "count": len(rows)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e), "findings": []}), 200
+
+
+@app.route('/api/guardian/offensive-lab/status', methods=['GET'])
+def api_guardian_offensive_lab_status():
+    try:
+        from workers.guardian.guardian_offensive_lab import load_lab_config, is_lab_authorized
+        cfg = load_lab_config()
+        target = (request.args.get("target") or "").strip()
+        auth = {"ok": False, "reason": "no target"}
+        if target:
+            ok, reason = is_lab_authorized(target, attack_mode=True)
+            auth = {"ok": ok, "reason": reason}
+        return jsonify({
+            "status": "ok",
+            "config": cfg,
+            "authorization_probe": auth,
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/guardian/offensive-lab/acknowledge', methods=['POST'])
+def api_guardian_offensive_lab_acknowledge():
+    """Operator confirms closed-lab-only ethical use."""
+    try:
+        from workers.guardian.guardian_offensive_lab import acknowledge_closed_lab, load_lab_config
+        cfg = acknowledge_closed_lab()
+        return jsonify({"status": "ok", "offensive_lab": cfg, "config": load_lab_config()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/guardian/crypto-intel', methods=['GET'])
+def api_guardian_crypto_intel():
+    try:
+        from workers.guardian.guardian_crypto_intel import get_roadmap
+        return jsonify({"status": "ok", **get_roadmap().to_dict()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/guardian/bootstrap', methods=['POST'])
+def api_guardian_bootstrap():
+    """Run Guardian Bootstrap Manager (all core + extended tools)."""
+    try:
+        from workers.guardian.bootstrap_manager import run_bootstrap
+        force = bool((request.get_json() or {}).get("force"))
+        result = run_bootstrap(
+            force=force,
+            download=True,
+            log_fn=lambda msg, level="info": log(msg, level, "guardian"),
+        )
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        logger.error("Guardian bootstrap error: %s", e, exc_info=True)
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+def _sentinel_security_gate(module, permission, message="", tool=None, args=""):
+    """AI safety + zero-trust gate (API layer only — no workflow/UI changes)."""
+    try:
+        from sentinel_security.orchestrator import get_security
+        sec = get_security()
+        blocked = (
+            sec.gate_tool(module, tool or "", args or "", message)
+            if tool
+            else sec.gate_request(module, permission, message)
+        )
+        if blocked:
+            return jsonify({
+                "status": "blocked",
+                "error": "Blocked by Sentinel security policy",
+                "reasons": blocked.reasons,
+                "risk_level": blocked.risk_level,
+            }), 403
+    except Exception as exc:
+        logger.debug("Security gate skipped: %s", exc)
+    return None
 
 
 @app.route('/guardian/chat', methods=['POST'])
@@ -5145,6 +5739,9 @@ def api_guardian_chat():
         message = (data.get('message') or '').strip()
         if not message:
             return jsonify({"status": "error", "error": "No message provided"}), 200
+        gate = _sentinel_security_gate("guardian", "network", message)
+        if gate:
+            return gate
         log(f'Guardian query: {message[:100]}', 'info', 'guardian')
         result = get_guardian_brain().chat(message)
         resp_text = str(result.get("response", ""))
@@ -5203,6 +5800,9 @@ def api_guardian_tool_run():
         target = data.get('target', '').strip()
         if not tool:
             return jsonify({"status": "error", "error": "tool required"}), 200
+        gate = _sentinel_security_gate("guardian", "network", tool=tool, args=f"{args} {target}")
+        if gate:
+            return gate
         result = get_guardian_brain().run_tool(tool, args, target)
         return jsonify(result)
     except Exception as e:
@@ -5243,6 +5843,52 @@ def api_guardian_cves():
         limit = int(request.args.get('limit', 10))
         cves = get_guardian_brain().get_cves(product=product, severity=severity, limit=limit)
         return jsonify({"status": "ok", "cves": cves, "count": len(cves)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/security/health', methods=['GET'])
+@app.route('/security/health', methods=['GET'])
+def api_security_health():
+    """Sentinel Security Health report (internal audit — no UI)."""
+    try:
+        from sentinel_security.guardian_internal_audit import run_internal_audit
+        report = run_internal_audit()
+        return jsonify({"status": "ok", "score": report.score, "report": report.to_markdown(), "findings": [
+            {"category": f.category, "severity": f.severity, "summary": f.summary}
+            for f in report.findings
+        ]})
+    except Exception as e:
+        logger.exception("security health failed")
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/security/audit', methods=['GET'])
+def api_security_audit():
+    """Full security architecture audit payload."""
+    try:
+        from sentinel_security.orchestrator import get_security
+        return jsonify({"status": "ok", **get_security().full_audit_report()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/security/audit-log', methods=['GET'])
+def api_security_audit_log():
+    """Searchable immutable audit log."""
+    try:
+        from sentinel_security.orchestrator import get_security
+        event_type = request.args.get("event_type")
+        module = request.args.get("module")
+        limit = min(int(request.args.get("limit", 200)), 1000)
+        entries = get_security().audit.search(
+            event_type=event_type, module=module, limit=limit,
+        )
+        return jsonify({
+            "status": "ok",
+            "chain_valid": get_security().audit.verify_chain(),
+            "entries": entries,
+        })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 200
 
@@ -5554,6 +6200,53 @@ def start_backend():
     backend_state["running"] = True
     backend_state["startup_complete"] = True
     logger.info("Backend started on http://127.0.0.1:5001")
+
+    # Guardian bundled toolchain bootstrap (verify / repair core tools)
+    def _guardian_bootstrap_thread():
+        import time as _gt
+        _gt.sleep(2)
+        try:
+            from workers.guardian.bootstrap_manager import run_bootstrap, should_run_bootstrap
+
+            def _blog(msg, level="info"):
+                log(msg, level, "guardian")
+
+            if should_run_bootstrap():
+                run_bootstrap(force=False, download=True, log_fn=_blog)
+            else:
+                from workers.guardian.guardian_tool_registry_store import refresh_registry
+                refresh_registry()
+        except Exception as e:
+            logger.warning("Guardian bootstrap failed: %s", e)
+
+    threading.Thread(target=_guardian_bootstrap_thread, daemon=True, name="guardian-bootstrap").start()
+
+    def _security_bootstrap_thread():
+        import time as _st
+        _st.sleep(1)
+        try:
+            from sentinel_security.orchestrator import get_security
+            summary = get_security().bootstrap()
+            logger.info(
+                "[SECURITY] Stack ready — integrity=%s local_first=%s",
+                summary.get("integrity_ok"),
+                summary.get("local_first_passed"),
+            )
+        except Exception as e:
+            logger.warning("Security bootstrap failed: %s", e)
+
+    threading.Thread(target=_security_bootstrap_thread, daemon=True, name="security-bootstrap").start()
+
+    def _godot_bootstrap_thread():
+        import time as _gt
+        _gt.sleep(3)
+        try:
+            from builders.runtime.godot_runtime import bootstrap_godot_runtime
+            bootstrap_godot_runtime(log_fn=lambda msg, level="info": log(msg, level, "forge"))
+        except Exception as e:
+            logger.warning("Godot runtime bootstrap failed: %s", e)
+
+    threading.Thread(target=_godot_bootstrap_thread, daemon=True, name="godot-bootstrap").start()
 
     # Initialize Memory V2 (3-layer hot/warm/cold)
     global memory_v2

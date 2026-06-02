@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -117,3 +117,133 @@ class ToolRegistry:
 
     def has_recon(self) -> bool:
         return self.subfinder.is_available() or self.amass.is_available()
+
+
+def _probe_roadmap_binary(tool_id: str, label: str, exe_names: Optional[List[str]] = None) -> Dict[str, object]:
+    """Probe bundled → system paths for roadmap / optional modules."""
+    import shutil
+    from pathlib import Path
+
+    from workers.guardian.bundled_toolchain import _path_is_bundled, iter_candidate_paths, resolve_tool_binary
+
+    exe_names = exe_names or [f"{tool_id}.exe", tool_id]
+    resolved = resolve_tool_binary(tool_id)
+    path: Optional[str] = resolved.path if resolved else None
+
+    if not path:
+        for name in exe_names:
+            w = shutil.which(name)
+            if w:
+                path = w
+                break
+            try:
+                for p, _src in iter_candidate_paths(tool_id):
+                    if Path(p).is_file():
+                        path = p
+                        break
+            except Exception:
+                pass
+            if path:
+                break
+
+    installed = bool(path and Path(path).is_file())
+    if installed and path and _path_is_bundled(path):
+        status_line, src = "✓ Bundled", "bundled"
+    elif installed:
+        status_line, src = "✓ System", "system"
+    else:
+        status_line, src = "✗ Missing", None
+
+    return {
+        "id": tool_id,
+        "label": label,
+        "installed": installed,
+        "bundled": src == "bundled",
+        "system": src == "system",
+        "source": src,
+        "path": path,
+        "status_line": status_line,
+        "roadmap": True,
+    }
+
+
+def get_tool_diagnostics() -> List[Dict[str, object]]:
+    """
+    Read-only install probe for the Guardian Tool Status panel.
+    Shows ✓ Bundled / ✓ System / ✗ Missing per tool (core + roadmap modules).
+    """
+    from workers.guardian.bundled_toolchain import CORE_TOOL_IDS, diagnose_core_tool, diagnose_optional_tool
+    from workers.guardian.tools.amass_tool import AmassTool
+    from workers.guardian.tools.zap_tool import ZAPTool
+
+    amass = AmassTool(None)
+    zap = ZAPTool(None)
+
+    def _amass_path() -> Optional[str]:
+        getter = getattr(amass, "_get_bin", None)
+        return getter() if getter else None
+
+    zap_ok = zap.is_available()
+    zap_path = f"{zap.base}/JSON/core/view/version/" if zap_ok else None
+
+    rows: List[Dict[str, object]] = [diagnose_core_tool(tid) for tid in CORE_TOOL_IDS]
+    rows.append(
+        diagnose_optional_tool(
+            "amass", "Amass",
+            is_available=amass.is_available(),
+            path=_amass_path(),
+        )
+    )
+    rows.append(
+        diagnose_optional_tool(
+            "zap", "ZAP",
+            is_available=zap_ok,
+            path=zap_path,
+        )
+    )
+
+    rows.append(_probe_roadmap_binary("gowitness", "gowitness"))
+
+    try:
+        from workers.guardian import guardian_threat_intel
+        ti_ok = bool(guardian_threat_intel)
+    except Exception:
+        ti_ok = False
+
+    rows.append({
+        "id": "reconftw",
+        "label": "ReconFTW",
+        "installed": False,
+        "bundled": False,
+        "system": False,
+        "source": None,
+        "path": None,
+        "status_line": "✗ Missing",
+        "roadmap": True,
+        "note": "Optional orchestration script",
+    })
+    rows.append({
+        "id": "threat_intel",
+        "label": "Threat Intel (OTX / AbuseIPDB / KEV)",
+        "installed": ti_ok,
+        "bundled": False,
+        "system": ti_ok,
+        "source": "module" if ti_ok else None,
+        "path": "workers/guardian/guardian_threat_intel.py" if ti_ok else None,
+        "status_line": "✓ Module" if ti_ok else "✗ Missing",
+        "version": "v3",
+        "health": "ok" if ti_ok else "missing",
+        "roadmap": False,
+    })
+    rows.append({
+        "id": "crypto_intel",
+        "label": "Crypto Intel",
+        "installed": False,
+        "bundled": False,
+        "system": False,
+        "source": None,
+        "path": None,
+        "status_line": "Phase 6 — planned",
+        "roadmap": True,
+    })
+    return rows

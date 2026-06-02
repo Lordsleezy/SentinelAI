@@ -63,6 +63,14 @@ class NucleiTool:
     def _get_bin(self) -> Optional[str]:
         if self._bin:
             return self._bin
+        try:
+            from workers.guardian.bundled_toolchain import resolve_tool_binary
+            resolved = resolve_tool_binary("nuclei")
+            if resolved:
+                self._bin = resolved.path
+                return self._bin
+        except Exception:
+            pass
         for candidate in _NUCLEI_PATHS:
             found = shutil.which(candidate) or (
                 candidate if candidate.startswith("C:\\") and __import__("os").path.isfile(candidate) else None
@@ -88,28 +96,34 @@ class NucleiTool:
                 pass
 
     def scan(self, target: str, templates: Optional[List[str]] = None,
-             severity: Optional[List[str]] = None) -> NucleiResult:
+             severity: Optional[List[str]] = None,
+             tags: Optional[str] = None) -> NucleiResult:
         """
         Run nuclei scan against target.
         Default templates: cves, vulnerabilities, exposures.
         Default severity: critical, high, medium.
+        Optional tags: comma-separated Nuclei tags (overrides -t when set).
         """
         bin_path = self._get_bin()
         if not bin_path:
             return NucleiResult(success=False, error="Nuclei not installed")
 
-        templates = templates or ["cves", "vulnerabilities", "exposures"]
         severity = severity or ["critical", "high", "medium"]
 
         cmd = [
             bin_path,
             "-u", target,
-            "-t", ",".join(templates),
             "-severity", ",".join(severity),
             "-json",
             "-silent",
             "-no-color",
         ]
+        if tags:
+            cmd.extend(["-tags", tags])
+            self._emit(f"Scanning with tags: {tags[:60]}…")
+        else:
+            templates = templates or ["cves", "vulnerabilities", "exposures"]
+            cmd.extend(["-t", ",".join(templates)])
 
         scan_url = target if target.startswith(('http://', 'https://')) else f"https://{target}"
         cmd[cmd.index('-u') + 1] = scan_url

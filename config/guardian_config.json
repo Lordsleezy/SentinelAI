@@ -13,7 +13,27 @@
     "default": "fast"
   },
   "ollama_url": "http://localhost:11434",
-  "require_target_confirmation": true,
+  "require_target_confirmation": false,
   "log_all_actions": true,
-  "wsl_available": true
+  "wsl_available": true,
+  "offensive_lab": {
+    "enabled": true,
+    "closed_lab_acknowledged": true,
+    "require_attack_mode": true,
+    "allow_trusted_public_targets": true,
+    "credential_audit": {
+      "enabled": true,
+      "max_attempts_per_service": 24,
+      "max_duration_sec": 90,
+      "services": ["ssh", "ftp", "http-get"]
+    },
+    "network_penetration": {
+      "enabled": true,
+      "top_ports": 1000
+    },
+    "backdoor_detection": {
+      "enabled": true,
+      "nuclei_tags": "backdoor,webshell,malware,persistence"
+    }
+  }
 }

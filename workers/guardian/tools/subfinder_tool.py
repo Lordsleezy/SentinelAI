@@ -35,6 +35,14 @@ class SubfinderTool:
     def _get_bin(self) -> Optional[str]:
         if self._bin:
             return self._bin
+        try:
+            from workers.guardian.bundled_toolchain import resolve_tool_binary
+            resolved = resolve_tool_binary("subfinder")
+            if resolved:
+                self._bin = resolved.path
+                return self._bin
+        except Exception:
+            pass
         for c in _SUBFINDER_PATHS:
             found = shutil.which(c) or (
                 c if c.startswith("C:\\") and __import__("os").path.isfile(c) else None

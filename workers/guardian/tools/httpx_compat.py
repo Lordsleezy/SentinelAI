@@ -21,7 +21,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger("sentinel.guardian.httpx")
 
-# Prefer explicit PD installs before PATH (PATH often has Python httpx)
+# User-installed paths (after Sentinel bundled — see bundled_toolchain)
 _CANDIDATE_PATHS = [
     r"C:\Tools\httpx.exe",
     r"C:\Program Files\httpx\httpx.exe",
@@ -158,8 +158,17 @@ def probe_binary(path: str) -> HttpxBinaryInfo:
 
 
 def _discover_candidates() -> List[str]:
+    """Bundled → user paths → PATH (ProjectDiscovery httpx only)."""
     seen: Set[str] = set()
     paths: List[str] = []
+    try:
+        from workers.guardian.bundled_toolchain import iter_candidate_paths
+        for path, _source in iter_candidate_paths("httpx"):
+            if path not in seen:
+                seen.add(path)
+                paths.append(path)
+    except Exception:
+        pass
     for p in _CANDIDATE_PATHS:
         if Path(p).is_file() and p not in seen:
             seen.add(p)
@@ -231,26 +240,188 @@ def _build_pd_command(info: HttpxBinaryInfo, timeout: int) -> List[str]:
     return cmd
 
 
+_URL_IN_TEXT_RE = re.compile(r"https?://[^\s\]\)\"'<>]+", re.I)
+_PLAIN_STATUS_RE = re.compile(r"(https?://\S+).*?\[(\d+)\]")
+_PLAIN_URL_LINE_RE = re.compile(r"^https?://\S+", re.I)
+
+
+def _host_record(url: str, status_code: int = 0, **extra: object) -> Dict:
+    return {
+        "url": url,
+        "status_code": status_code,
+        "title": extra.get("title", ""),
+        "tech": extra.get("tech", []),
+        "tls": extra.get("tls", {}),
+        "webserver": extra.get("webserver", ""),
+        "content_type": extra.get("content_type", ""),
+    }
+
+
+def _record_from_json_obj(d: Dict) -> Optional[Dict]:
+    if not isinstance(d, dict):
+        return None
+    url = (
+        d.get("url")
+        or d.get("final-url")
+        or d.get("final_url")
+        or d.get("input")
+        or d.get("host")
+        or ""
+    )
+    if isinstance(url, dict):
+        url = url.get("url") or ""
+    url = str(url).strip()
+    if not url:
+        return None
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+    try:
+        code = int(d.get("status-code", d.get("status_code", d.get("status", 0))) or 0)
+    except (TypeError, ValueError):
+        code = 0
+    tech = d.get("tech") or d.get("technologies") or []
+    return _host_record(
+        url,
+        code,
+        title=d.get("title", ""),
+        tech=tech if isinstance(tech, list) else [tech] if tech else [],
+        tls=d.get("tls", {}),
+        webserver=d.get("webserver", d.get("server", "")),
+        content_type=d.get("content-type", d.get("content_type", "")),
+    )
+
+
 def _parse_json_lines(stdout: str) -> List[Dict]:
     hosts: List[Dict] = []
+    seen: Set[str] = set()
     for line in stdout.splitlines():
         line = line.strip()
-        if not line.startswith("{"):
+        if not line:
             continue
+        if not line.startswith("{"):
+            # JSONL with leading whitespace or log prefix
+            idx = line.find("{")
+            if idx < 0:
+                continue
+            line = line[idx:]
         try:
             d = json.loads(line)
-            hosts.append({
-                "url":          d.get("url", ""),
-                "status_code":  d.get("status-code", d.get("status_code", 0)),
-                "title":        d.get("title", ""),
-                "tech":         d.get("tech", []),
-                "tls":          d.get("tls", {}),
-                "webserver":    d.get("webserver", ""),
-                "content_type": d.get("content-type", d.get("content_type", "")),
-            })
         except json.JSONDecodeError:
             continue
+        rec = _record_from_json_obj(d)
+        if rec and rec["url"] not in seen:
+            seen.add(rec["url"])
+            hosts.append(rec)
     return hosts
+
+
+def _parse_json_array(stdout: str) -> List[Dict]:
+    try:
+        data = json.loads(stdout.strip())
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        if isinstance(data, dict):
+            rec = _record_from_json_obj(data)
+            return [rec] if rec else []
+        return []
+    hosts: List[Dict] = []
+    seen: Set[str] = set()
+    for item in data:
+        rec = _record_from_json_obj(item)
+        if rec and rec["url"] not in seen:
+            seen.add(rec["url"])
+            hosts.append(rec)
+    return hosts
+
+
+def _parse_plain_status(stdout: str) -> List[Dict]:
+    hosts: List[Dict] = []
+    seen: Set[str] = set()
+    for line in stdout.splitlines():
+        m = _PLAIN_STATUS_RE.search(line)
+        if not m:
+            continue
+        url = m.group(1).rstrip(".,;")
+        if url in seen:
+            continue
+        seen.add(url)
+        hosts.append(_host_record(url, int(m.group(2))))
+    return hosts
+
+
+def _parse_plain_url_lines(stdout: str) -> List[Dict]:
+    """ProjectDiscovery httpx -silent / default: one URL per line."""
+    hosts: List[Dict] = []
+    seen: Set[str] = set()
+    for line in stdout.splitlines():
+        raw = line.strip()
+        if not raw or raw.startswith("#") or raw.startswith("["):
+            continue
+        url = ""
+        if _PLAIN_URL_LINE_RE.match(raw):
+            url = raw.split()[0].rstrip(".,;")
+        elif " " not in raw and "." in raw and not raw.startswith("{"):
+            url = f"https://{raw.split()[0].rstrip('.,;')}"
+        if url and url not in seen:
+            seen.add(url)
+            hosts.append(_host_record(url, 0))
+    return hosts
+
+
+def _extract_urls_regex(text: str) -> List[str]:
+    seen: Set[str] = set()
+    out: List[str] = []
+    for m in _URL_IN_TEXT_RE.finditer(text or ""):
+        u = m.group(0).rstrip(".,;)")
+        if u and u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def parse_httpx_stdout(stdout: str) -> Tuple[List[Dict], str]:
+    """
+    Parse ProjectDiscovery httpx output (JSONL, JSON array, plain URLs, plain+status).
+    Returns (hosts, mode_name).
+    """
+    if not stdout or not stdout.strip():
+        return [], "empty"
+
+    stripped = stdout.strip()
+
+    if stripped.startswith("["):
+        arr = _parse_json_array(stdout)
+        if arr:
+            return arr, "json_array"
+
+    jsonl = _parse_json_lines(stdout)
+    if jsonl:
+        return jsonl, "jsonl"
+
+    plain_st = _parse_plain_status(stdout)
+    if plain_st:
+        return plain_st, "plain_status"
+
+    plain_urls = _parse_plain_url_lines(stdout)
+    if plain_urls:
+        return plain_urls, "plain_text"
+
+    urls = _extract_urls_regex(stdout)
+    if urls:
+        return [_host_record(u, 0) for u in urls], "regex_fallback"
+
+    return [], "none"
+
+
+def _ensure_hosts_from_stdout(stdout: str, hosts: List[Dict], mode: str) -> Tuple[List[Dict], str]:
+    """If structured parse found nothing but stdout contains URLs, regex fallback."""
+    if hosts:
+        return hosts, mode
+    urls = _extract_urls_regex(stdout)
+    if not urls:
+        return hosts, mode
+    return [_host_record(u, 0) for u in urls], "regex_fallback"
 
 
 def _curl_fallback(targets: List[str], timeout: int, log: LogFn) -> HttpxRunResult:
@@ -363,14 +534,20 @@ def run_httpx(
         _log("[GUARDIAN] httpx rejected flags — trying curl fallback", "warning")
         return _curl_fallback(targets, timeout, _log)
 
-    hosts = _parse_json_lines(stdout or "")
-    if not hosts and stdout:
-        # Plain-text lines: URL [status]
-        for line in (stdout or "").splitlines():
-            m = re.search(r"(https?://\S+).*?\[(\d+)\]", line)
-            if m:
-                hosts.append({"url": m.group(1), "status_code": int(m.group(2)),
-                              "title": "", "tech": [], "tls": {}, "webserver": "", "content_type": ""})
+    raw_bytes = len((stdout or "").encode("utf-8", errors="replace"))
+    _log(f"[GUARDIAN] raw stdout bytes: {raw_bytes}", "info")
+
+    hosts, mode = parse_httpx_stdout(stdout or "")
+    hosts, mode = _ensure_hosts_from_stdout(stdout or "", hosts, mode)
+
+    _log(f"[GUARDIAN] parser mode selected: {mode}", "info")
+    _log(f"[GUARDIAN] hosts parsed: {len(hosts)}", "info")
+    _log(f"[GUARDIAN] httpx parsed hosts: {len(hosts)}", "success" if hosts else "warning")
+    if mode == "regex_fallback" and hosts:
+        _log(
+            f"[GUARDIAN] parser fallback: extracted {len(hosts)} URL(s) from stdout (structured parse was empty)",
+            "warning",
+        )
 
     return HttpxRunResult(
         success=True,

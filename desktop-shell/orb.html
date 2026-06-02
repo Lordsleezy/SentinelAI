@@ -684,23 +684,72 @@
     .mkt-tab:hover { background: rgba(0,255,255,0.08); color: #0ff; }
     .mkt-tab.active { background: rgba(0,255,255,0.15); color: #0ff; border-color: rgba(0,255,255,0.5); }
 
-    /* Guardian panel */
-    .mode-selector { display: flex; gap: 6px; margin-bottom: 12px; }
-    .mode-btn-p { padding: 5px 12px; border: 1px solid rgba(255,255,255,0.12); background: #111; color: #888; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 700; transition: all 0.15s; }
-    .mode-btn-p.active-defend { background: rgba(0,170,255,.15); color: #00aaff; border-color: rgba(0,170,255,.4); }
-    .mode-btn-p.active-attack { background: rgba(255,68,68,.15); color: #ff4444; border-color: rgba(255,68,68,.4); }
-    .mode-btn-p.active-forensics { background: rgba(170,102,255,.15); color: #aa66ff; border-color: rgba(170,102,255,.4); }
-    #guardian-chat-messages { min-height: 200px; max-height: 300px; overflow-y: auto; margin-bottom: 10px; background: #0a0a0f; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 10px; font-size: 12px; line-height: 1.5; }
-    .g-msg-user { color: #ccc; margin-bottom: 8px; }
-    .g-msg-ai { color: #00ff88; margin-bottom: 10px; padding: 6px 10px; border-left: 2px solid rgba(0,255,136,0.4); background: rgba(0,255,136,0.03); border-radius: 0 4px 4px 0; }
-    .g-msg-ai .g-content p { margin: 4px 0; }
-    .g-msg-ai .g-content ul, .g-msg-ai .g-content ol { padding-left: 16px; margin: 4px 0; }
-    .g-msg-ai .g-content code { background: rgba(0,0,0,0.4); padding: 1px 4px; border-radius: 3px; font-size: 11px; }
-    .g-msg-ai .g-content pre { background: #000; padding: 6px; border-radius: 4px; overflow-x: auto; }
-    .g-msg-ai .g-content h1, .g-msg-ai .g-content h2, .g-msg-ai .g-content h3 { color: #00ff88; margin: 6px 0 3px; }
-    .g-time { font-size: 10px; color: #444; margin-right: 6px; }
-    #guardian-input-row { display: flex; gap: 8px; }
-    #guardian-input { flex: 1; padding: 8px 10px; background: #0a0a0f; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; color: #e0e0e0; font-size: 12px; outline: none; }
+    /* Guardian — professional AI copilot theme (orb unchanged) */
+    .guardian-pro { display: flex; flex-direction: column; height: 100%; min-height: 420px; background: #0B0B0B; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+    .guardian-pro-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 4px 10px; border-bottom: 1px solid #232323; }
+    .guardian-pro-header h2 { margin: 0; font-size: 15px; font-weight: 600; color: #F5F5F5; letter-spacing: -0.02em; }
+    .guardian-pro-settings-btn { background: #141414; border: 1px solid #232323; color: #A0A0A0; padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 12px; }
+    .guardian-pro-settings-btn:hover { color: #F5F5F5; border-color: #333; }
+    .guardian-pro-mode { display: flex; gap: 6px; padding: 8px 0; flex-wrap: wrap; }
+    .mode-btn-p { padding: 5px 10px; border: 1px solid #232323; background: #141414; color: #A0A0A0; border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 500; transition: all 0.15s; font-family: inherit; }
+    .mode-btn-p.active-defend { background: #1a1a1a; color: #F5F5F5; border-color: #444; }
+    .mode-btn-p.active-attack { background: #1a1a1a; color: #F5F5F5; border-color: #555; }
+    .mode-btn-p.active-forensics { background: #1a1a1a; color: #D0D0D0; border-color: #444; }
+    #guardian-chat-messages { flex: 1; min-height: 280px; max-height: calc(100vh - 280px); overflow-y: auto; padding: 12px 4px; font-size: 13px; line-height: 1.55; }
+    .g-msg-user { color: #F5F5F5; margin-bottom: 14px; max-width: 92%; margin-left: auto; text-align: right; }
+    .g-msg-user .g-content { display: inline-block; background: #141414; border: 1px solid #232323; padding: 10px 12px; border-radius: 12px 12px 2px 12px; text-align: left; }
+    .g-msg-ai { color: #F5F5F5; margin-bottom: 14px; max-width: 95%; }
+    .g-msg-ai .g-content { background: #141414; border: 1px solid #232323; padding: 10px 12px; border-radius: 12px 12px 12px 2px; }
+    .g-msg-ai .g-content p { margin: 6px 0; color: #E8E8E8; }
+    .g-msg-ai .g-content ul, .g-msg-ai .g-content ol { padding-left: 18px; margin: 6px 0; color: #D0D0D0; }
+    .g-msg-ai .g-content code { background: #0B0B0B; padding: 2px 5px; border-radius: 4px; font-size: 12px; color: #D0D0D0; }
+    .g-msg-ai .g-content pre { background: #0B0B0B; border: 1px solid #232323; padding: 8px; border-radius: 8px; overflow-x: auto; font-size: 11px; }
+    .g-msg-ai .g-content h1, .g-msg-ai .g-content h2, .g-msg-ai .g-content h3 { color: #F5F5F5; margin: 8px 0 4px; font-weight: 600; }
+    .g-msg-ai .g-label { font-size: 11px; color: #A0A0A0; margin-bottom: 4px; font-weight: 500; }
+    .g-time { display: none; }
+    .guardian-pro-input-row { display: flex; gap: 8px; padding: 10px 0 4px; border-top: 1px solid #232323; }
+    #guardian-input { flex: 1; padding: 11px 14px; background: #141414; border: 1px solid #232323; border-radius: 10px; color: #F5F5F5; font-size: 13px; outline: none; font-family: inherit; }
+    #guardian-input:focus { border-color: #444; }
+    .guardian-pro-send { background: #F5F5F5; color: #0B0B0B; border: none; padding: 10px 16px; border-radius: 10px; font-weight: 600; font-size: 12px; cursor: pointer; font-family: inherit; }
+    .guardian-pro-send:hover { background: #D0D0D0; }
+    #guardian-settings-drawer { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 10000; align-items: stretch; justify-content: flex-end; }
+    #guardian-settings-drawer.open { display: flex; }
+    .guardian-settings-panel { width: min(420px, 92vw); background: #141414; border-left: 1px solid #232323; overflow-y: auto; padding: 16px; }
+    .guardian-settings-panel h3 { margin: 0 0 12px; font-size: 14px; color: #F5F5F5; font-weight: 600; }
+    .guardian-settings-section { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #232323; }
+    .guardian-settings-section h4 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #A0A0A0; font-weight: 600; }
+    .guardian-tool-row { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; font-size: 12px; border-bottom: 1px solid #1a1a1a; font-family: inherit; }
+    .guardian-tool-name { color: #D0D0D0; }
+    .guardian-tool-state.ok { color: #A0A0A0; }
+    .guardian-tool-state.miss { color: #888; }
+    .guardian-brain-card { background: #0B0B0B; border: 1px solid #232323; border-radius: 8px; padding: 12px; font-size: 12px; color: #D0D0D0; line-height: 1.5; }
+    .guardian-brain-card strong { color: #F5F5F5; }
+    .gts-sub { font-size: 10px; color: #888; margin: 8px 0 4px; }
+
+    #builder-status-panel { margin-bottom: 10px; background: #0a0a0f; border: 1px solid rgba(0,255,136,0.12); border-radius: 6px; padding: 10px; }
+    #builder-status-panel .bs-title { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: rgba(0,255,136,0.5); margin-bottom: 8px; }
+    .builder-type-block { margin-bottom: 8px; }
+    .builder-type-name { font-size: 11px; color: #888; font-weight: 700; margin-bottom: 3px; }
+    .builder-status-line { font-family: monospace; font-size: 11px; padding: 2px 0; }
+    .builder-status-line.ok { color: #00ff88; }
+    .builder-status-line.miss { color: #ff6666; }
+    #godot-install-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 9999;
+      align-items: center; justify-content: center;
+    }
+    #godot-install-overlay.visible { display: flex; }
+    #godot-install-dialog {
+      background: #0d0d14; border: 1px solid rgba(0,255,255,0.35); border-radius: 8px;
+      padding: 20px 24px; max-width: 400px; font-family: monospace; color: #e0e0e0;
+    }
+    #godot-install-dialog h3 { margin: 0 0 12px; color: #0ff; font-size: 14px; }
+    .godot-install-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+    .godot-install-btns button {
+      padding: 8px 14px; font-size: 12px; cursor: pointer; border-radius: 4px; font-family: monospace;
+    }
+    .godot-btn-install { background: rgba(0,255,136,0.15); border: 1px solid rgba(0,255,136,0.5); color: #00ff88; }
+    .godot-btn-browse { background: rgba(0,255,255,0.1); border: 1px solid rgba(0,255,255,0.4); color: #0ff; }
+    .godot-btn-cancel { background: transparent; border: 1px solid #444; color: #888; }
 
     /* Scalp panel */
     .signal-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 14px; }
@@ -1060,6 +1109,47 @@
     .mkt-tab { font-family: var(--font-sans) !important; background: transparent !important; border: 1px solid var(--border-subtle) !important; color: var(--text-muted) !important; border-radius: var(--radius-full) !important; }
     .mkt-tab:hover { background: var(--bg-tertiary) !important; color: var(--text-primary) !important; }
     .mkt-tab.active { background: var(--accent-subtle) !important; color: #93c5fd !important; border-color: var(--accent) !important; }
+
+    /* ── Earn Discovery Dashboard ── */
+    .earn-dash { font-size: 11px; color: var(--text-secondary); }
+    .earn-dash-overview { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+    .earn-dash-card { background: #0a0a0f; border: 1px solid rgba(0,255,136,0.12); border-radius: 6px; padding: 8px 10px; }
+    .earn-dash-card .label { font-size: 9px; color: #555; text-transform: uppercase; letter-spacing: 0.06em; }
+    .earn-dash-card .value { font-size: 13px; color: #00ff88; font-weight: 600; margin-top: 2px; }
+    .earn-dash-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+    .earn-dash-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+    .earn-dash-toolbar input[type="search"] {
+      flex: 1; min-width: 140px; padding: 6px 10px; background: #0a0a0f; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px; color: #e0e0e0; font-size: 11px;
+    }
+    .earn-dash-filter, .earn-dash-sort { padding: 4px 8px; font-size: 10px; border-radius: 4px; cursor: pointer;
+      background: transparent; border: 1px solid rgba(255,255,255,0.08); color: #888; }
+    .earn-dash-filter.active, .earn-dash-sort.active { border-color: rgba(0,255,136,0.4); color: #00ff88; }
+    .earn-dash-layout { display: flex; gap: 10px; min-height: 320px; }
+    .earn-dash-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .earn-dash-table-wrap { flex: 1; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; overflow: hidden; }
+    .earn-dash-table-header { display: grid; grid-template-columns: 1.4fr 0.7fr 0.9fr 0.45fr 0.35fr 0.35fr 0.35fr 0.7fr 0.5fr;
+      gap: 4px; padding: 6px 8px; background: #0d0d12; font-size: 9px; color: #666; text-transform: uppercase;
+      border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .earn-dash-table-viewport { height: 280px; overflow-y: auto; overflow-x: hidden; background: #000; }
+    .earn-dash-row { display: grid; grid-template-columns: 1.4fr 0.7fr 0.9fr 0.45fr 0.35fr 0.35fr 0.35fr 0.7fr 0.5fr;
+      gap: 4px; padding: 0 8px; height: 36px; align-items: center; font-size: 10px; cursor: pointer;
+      border-bottom: 1px solid rgba(255,255,255,0.03); }
+    .earn-dash-row:hover { background: rgba(0,255,136,0.06); }
+    .earn-dash-row.selected { background: rgba(0,207,255,0.1); border-left: 2px solid #00cfff; }
+    .earn-dash-row .chk { color: #00ff88; }
+    .earn-dash-row .chk.off { color: #333; }
+    .earn-dash-detail { width: 220px; flex-shrink: 0; background: #0a0a0f; border: 1px solid rgba(0,207,255,0.15);
+      border-radius: 6px; padding: 10px; overflow-y: auto; max-height: 360px; font-size: 10px; line-height: 1.5; }
+    .earn-dash-detail h4 { margin: 0 0 8px; color: #00cfff; font-size: 12px; }
+    .earn-dash-rec { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); }
+    .earn-dash-count { font-size: 10px; color: #555; margin-bottom: 6px; }
+    .earn-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+    .earn-tab { padding: 5px 12px; font-size: 10px; border-radius: 4px; cursor: pointer; border: 1px solid rgba(255,255,255,0.08); color: #888; background: transparent; }
+    .earn-tab.active { border-color: rgba(0,255,136,0.4); color: #00ff88; }
+    .earn-research-panel { font-size: 11px; max-height: 420px; overflow-y: auto; }
+    .earn-research-card { background: #0a0a0f; border: 1px solid rgba(0,207,255,0.12); border-radius: 6px; padding: 8px; margin-bottom: 8px; }
+    .earn-research-finding { border-left: 2px solid rgba(255,200,0,0.4); padding-left: 8px; margin: 6px 0; }
 
     /* ── Earn panel ── */
     .earn-accept-btn, .panel-btn[onclick*="earnAccept"] {
@@ -1744,7 +1834,7 @@
     // ── PANEL STATE STORE — persists content when switching panels ─────────────
     const panelState = {
       guardian: { messagesHTML: '', mode: 'defend', logEntries: [], initialized: false },
-      earn:     { programsHTML: '', initialized: false },
+      earn:     { initialized: false },
       market:   { initialized: false },
       scalp:    { logText: '', initialized: false },
       log:      { initialized: false },   // log uses global logEntries already
@@ -1762,12 +1852,9 @@
           panelState.guardian.initialized = true;
           break;
         }
-        case 'earn': {
-          const list = document.getElementById('earn-programs-list');
-          if (list) panelState.earn.programsHTML = list.innerHTML;
+        case 'earn':
           panelState.earn.initialized = true;
           break;
-        }
         case 'market':
           panelState.market.initialized = true;
           break;
@@ -1909,6 +1996,11 @@
             <button class="tasks-tab"        data-tab="workspace" onclick="switchTasksTab('workspace')" style="flex:1;">🗂 WORKSPACE</button>
           </div>
 
+          <div id="builder-status-panel">
+            <div class="bs-title">BUILDER STATUS</div>
+            <div id="builder-status-content"><span style="font-size:11px;color:#555;">Loading…</span></div>
+          </div>
+
           <!-- Projects quick-assign bar -->
           <div id="tasks-projects-bar" style="padding:6px 10px;background:rgba(0,0,0,0.2);border-bottom:1px solid rgba(255,255,255,0.04);display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex-shrink:0;">
             <span style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:1px;">Project:</span>
@@ -1967,7 +2059,31 @@
 
       window._tasksData = window._tasksData || { tasks: [], artifacts: [], projects: [] };
       await refreshTasksPanel();
+      await refreshBuilderStatus();
       _initTasksSocket();
+    }
+
+    async function refreshBuilderStatus() {
+      const el = document.getElementById('builder-status-content');
+      if (!el) return;
+      try {
+        const d = await fetch('http://127.0.0.1:5001/api/builder/status').then(r => r.json());
+        const panels = d.panels || [];
+        if (!panels.length) {
+          el.innerHTML = '<span style="font-size:11px;color:#444;">No builder data</span>';
+          return;
+        }
+        el.innerHTML = panels.map(p => {
+          const lines = (p.lines || []).map(ln => {
+            const cls = ln.ok ? 'ok' : 'miss';
+            return `<div class="builder-status-line ${cls}">${escapeHtml(ln.status_line || '')}</div>`;
+          }).join('');
+          return `<div class="builder-type-block">
+            <div class="builder-type-name">${escapeHtml(p.title || p.type || '')}</div>${lines}</div>`;
+        }).join('');
+      } catch (_) {
+        el.innerHTML = '<span style="font-size:11px;color:#444;">Builder status unavailable</span>';
+      }
     }
 
     async function refreshTasksPanel() {
@@ -2041,6 +2157,14 @@
         const barColor = t.status === 'FAILED' ? '#ff4444' : t.status === 'COMPLETED' ? '#00ff88' : '#00cfff';
         const src = t.source ? `<span style="color:#555;font-size:9px;text-transform:uppercase;letter-spacing:1px;">${t.source}</span>` : '';
         const proj = _projectBadge(t.project_id);
+        const stage = t.current_stage || t.result_summary || (t.status === 'RUNNING' ? 'In progress' : '');
+        const meta = t.metadata || {};
+        const gExtra = t.source === 'guardian' ? `
+          <div style="font-size:10px;color:#666;margin-top:2px;">
+            ${meta.elapsed_sec != null ? `Elapsed: ${meta.elapsed_sec}s · ` : ''}
+            ${meta.findings_count != null ? `Findings: ${meta.findings_count} · ` : ''}
+            ${meta.tool_running ? `Tool: ${escapeHtml(meta.tool_running)}` : ''}
+          </div>` : '';
         return `
           <div class="task-card ${t.status.toLowerCase()}" onclick="showTaskDetail('${t.id}')">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
@@ -2051,7 +2175,8 @@
               ${src}${proj}
               <span style="flex:1;text-align:right;font-size:10px;color:${barColor};">${t.progress || 0}%</span>
             </div>
-            ${t.result_summary ? `<div style="font-size:10px;color:#666;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(t.result_summary)}</div>` : ''}
+            ${stage ? `<div style="font-size:10px;color:#888;margin-top:4px;">${_esc(stage)}</div>` : ''}
+            ${gExtra}
             <div class="task-progress-bar">
               <div class="task-progress-fill" style="width:${pctW}%;background:${barColor};"></div>
             </div>
@@ -2096,8 +2221,11 @@
           <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Active Tasks <span style="color:#00cfff;">(${running.length})</span></div>
           ${running.length ? running.slice(0,5).map(t => `
             <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,207,255,0.05);border:1px solid rgba(0,207,255,0.15);border-radius:6px;padding:8px 10px;margin-bottom:5px;cursor:pointer;" onclick="switchTasksTab('running');showTaskDetail('${t.id}')">
-              <span style="font-size:11px;color:#ccc;">${_esc(t.title)}</span>
-              <span style="font-size:10px;color:#00cfff;">${t.progress||0}%</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:11px;color:#ccc;">${_esc(t.title)}</div>
+                <div style="font-size:10px;color:#666;">${_esc(t.current_stage || t.result_summary || 'In progress')}</div>
+              </div>
+              <span style="font-size:10px;color:#00cfff;flex-shrink:0;">${t.progress||0}%</span>
             </div>`).join('') : '<div style="color:#333;font-size:11px;padding:8px 0;">None running.</div>'}
 
           <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px;">Recent Artifacts <span style="color:#00ff88;">(${recent.length})</span></div>
@@ -2137,8 +2265,13 @@
         <div><span style="color:#555;">Status: </span><span style="color:#ddd;">${task.status}</span></div>
         <div><span style="color:#555;">Source: </span><span style="color:#ddd;">${task.source||'—'}</span></div>
         <div><span style="color:#555;">Progress: </span><span style="color:#ddd;">${task.progress||0}%</span></div>
+        ${task.current_stage ? `<div><span style="color:#555;">Stage: </span><span style="color:#ccc;">${_esc(task.current_stage)}</span></div>` : ''}
         ${task.project_id ? `<div><span style="color:#555;">Project: </span><span style="color:${proj?.color||'#aaa'};">${proj?.name||task.project_id}</span></div>` : ''}
         ${task.result_summary ? `<div><span style="color:#555;">Summary: </span><span style="color:#ccc;">${_esc(task.result_summary)}</span></div>` : ''}
+        ${(task.files_created && task.files_created.length) ? `<div><span style="color:#555;">Files: </span><span style="color:#aaa;font-size:10px;">${_esc(task.files_created.join(', '))}</span></div>` : ''}
+        ${task.metadata && task.metadata.report_path ? `<div><span style="color:#555;">Report: </span><span style="color:#aaa;font-size:10px;">${_esc(task.metadata.report_path)}</span></div>` : ''}
+        ${task.metadata && task.metadata.session_id ? `<div><span style="color:#555;">Session: </span><span style="color:#aaa;">${_esc(task.metadata.session_id)}</span></div>` : ''}
+        ${task.source === 'guardian' ? `<div style="margin-top:6px;font-size:10px;color:#555;">Guardian scan — expand logs in Guardian panel.</div>` : ''}
         ${task.error ? `<div><span style="color:#ff4444;">Error: </span><span style="color:#ff8888;">${_esc(task.error)}</span></div>` : ''}
         <div style="margin-top:8px;display:flex;gap:8px;">
           <button class="art-btn" onclick="assignTaskProject('${taskId}')">🗂 Assign Project</button>
@@ -2156,6 +2289,8 @@
         }).then(r=>r.json());
         if (res.ok) {
           _appendChatMsg('sentinel', `✓ Launching ${_esc(label||'artifact')}`);
+        } else if (res.needs_install && res.dependency === 'godot') {
+          showGodotInstallDialog(res);
         } else {
           _appendChatMsg('sentinel', `✗ Launch failed: ${_esc(res.error||res.message||'?')}`);
         }
@@ -2349,77 +2484,393 @@
       }
     }
 
-    // ── EARN PANEL ────────────────────────────────────────────────────────────
-    async function loadEarnPanel(container, savedState) {
-      // If we have saved HTML, restore it without a network call
-      if (savedState && savedState.programsHTML) {
-        container.innerHTML = `
-          <div class="panel-stat-row">
-            <div class="panel-stat"><div class="panel-stat-label">Programs</div><div class="panel-stat-value">—</div></div>
-            <div class="panel-stat"><div class="panel-stat-label">Bounties</div><div class="panel-stat-value">—</div></div>
-          </div>
-          <button class="panel-btn" id="earn-scan-btn" onclick="earnScanNow()">🔍 SCAN NOW</button>
-          <div class="panel-section-title" style="margin-top:14px;">Programs</div>
-          <div id="earn-programs-list" style="margin-top:6px;">${savedState.programsHTML}</div>`;
-        return;
-      }
-      let programs = [];
-      let stats = { total: 0, bounty: 0 };
-      try {
-        const r = await fetch('http://127.0.0.1:5001/earn/jobs');
-        const d = await r.json();
-        programs = d.jobs || d.programs || d.data || [];
-        stats.total = programs.length;
-        stats.bounty = programs.filter(p => (p.type||'').toLowerCase().includes('bounty')).length;
-      } catch(e) { /* backend may not have this endpoint yet */ }
+    // ── EARN DISCOVERY DASHBOARD ──────────────────────────────────────────────
+    const EARN_ROW_H = 36;
+    window._earnDash = {
+      programs: [], filtered: [], selectedHandle: null,
+      filter: 'all', platform: 'all', sort: 'bounty_desc', search: '',
+    };
 
-      container.innerHTML = `
-        <div class="panel-stat-row">
-          <div class="panel-stat"><div class="panel-stat-label">Programs</div><div class="panel-stat-value">${stats.total}</div></div>
-          <div class="panel-stat"><div class="panel-stat-label">Bounties</div><div class="panel-stat-value">${stats.bounty}</div></div>
+    async function earnDashLog(msg) {
+      try {
+        await fetch('http://127.0.0.1:5001/api/earn/discovery/log', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg }),
+        });
+      } catch (_) {}
+    }
+
+    function earnDashShell() {
+      return `<div class="earn-dash" id="earn-dash-root">
+        <div class="earn-tabs">
+          <button type="button" class="earn-tab active" data-etab="discovery" onclick="earnSwitchTab('discovery')">Discovery</button>
+          <button type="button" class="earn-tab" data-etab="research" onclick="earnSwitchTab('research')">Research</button>
         </div>
-        <button class="panel-btn" id="earn-scan-btn" onclick="earnScanNow()">🔍 SCAN NOW</button>
-        <div class="panel-section-title" style="margin-top:14px;">Programs</div>
-        <div id="earn-programs-list" style="margin-top:6px;">
-          ${programs.length === 0
-            ? '<div style="color:#444;font-size:12px;padding:12px 0;">No programs loaded. Click SCAN NOW.</div>'
-            : renderEarnTable(programs)}
-        </div>`;
+        <div id="earn-tab-discovery">
+        <div class="earn-dash-overview" id="earn-dash-overview"></div>
+        <div class="earn-dash-metrics" id="earn-dash-metrics"></div>
+        <div class="earn-dash-toolbar">
+          <input type="search" id="earn-dash-search" placeholder="Search program, domain, asset, handle…" />
+          <button class="panel-btn" id="earn-scan-btn" onclick="earnScanNow(false)">SCAN NOW</button>
+          <button class="panel-btn" id="earn-force-btn" onclick="earnScanNow(true)" style="border-color:rgba(255,180,0,0.4);color:#ffb000;">FORCE REFRESH</button>
+        </div>
+        <div class="earn-dash-toolbar" id="earn-dash-filters"></div>
+        <div class="earn-dash-toolbar" id="earn-dash-sorts"></div>
+        <div class="earn-dash-count" id="earn-dash-count">Loading…</div>
+        <div class="earn-dash-layout">
+          <div class="earn-dash-main">
+            <div class="earn-dash-table-wrap">
+              <div class="earn-dash-table-header">
+                <span>Program</span><span>Platform</span><span>Bounty</span><span>Assets</span>
+                <span>Web</span><span>Mob</span><span>API</span><span>Updated</span><span>Src</span>
+              </div>
+              <div class="earn-dash-table-viewport" id="earn-dash-viewport"></div>
+            </div>
+          </div>
+          <div class="earn-dash-detail" id="earn-dash-detail"><span style="color:#444;">Select a program</span></div>
+        </div>
+        </div>
+        <div id="earn-tab-research" class="earn-research-panel" style="display:none;">
+          <div class="earn-research-card" id="earn-research-summary">Loading research sessions…</div>
+          <div id="earn-research-detail"></div>
+        </div>
+      </div>`;
     }
 
-    function renderEarnTable(programs) {
-      const rows = programs.slice(0, 20).map((p, i) => {
-        // Base64-encode the JSON so no special chars can break the attribute
-        let encoded = '';
-        try { encoded = btoa(unescape(encodeURIComponent(JSON.stringify(p)))); } catch(_) {}
-        return `
-        <tr id="earn-row-${i}">
-          <td>${escapeHtml(p.name || p.program || '')}</td>
-          <td><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(p.type || '')}</span></td>
-          <td style="color:#10a37f;">${escapeHtml(String(p.max_bounty || p.reward || p.bounty || '—'))}</td>
-          <td>
-            <button class="panel-btn earn-accept-btn" style="padding:4px 10px;font-size:11px;white-space:nowrap;"
-                data-prog="${encoded}" data-idx="${i}" onclick="earnAcceptWork(null,this)">Accept &amp; Work</button>
-            <div id="earn-status-${i}" style="font-size:10px;color:var(--text-muted);margin-top:3px;"></div>
-          </td>
-        </tr>`;
-      }).join('');
-      return `<table class="panel-table"><thead><tr><th>Program</th><th>Type</th><th>Reward</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table>`;
-    }
+    window._earnTab = 'discovery';
+    window.earnSwitchTab = function(tab) {
+      window._earnTab = tab;
+      document.querySelectorAll('.earn-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.etab === tab);
+      });
+      const disc = document.getElementById('earn-tab-discovery');
+      const res = document.getElementById('earn-tab-research');
+      if (disc) disc.style.display = tab === 'discovery' ? '' : 'none';
+      if (res) res.style.display = tab === 'research' ? '' : 'none';
+      if (tab === 'research') earnResearchLoadDashboard();
+    };
 
-    window.earnScanNow = async function() {
-      const btn = document.getElementById('earn-scan-btn');
-      if (!btn) return;
-      btn.disabled = true; btn.textContent = '⏳ Scanning...';
+    async function earnResearchStart(btnEl) {
+      const handle = window._earnDash.selectedHandle;
+      if (!handle) { alert('Select a program first'); return; }
+      const full = window._earnDash.programs.find(x => (x.handle||x.program) === handle);
+      if (!full) return;
+      const btn = btnEl || event.target;
+      if (btn) { btn.disabled = true; btn.textContent = 'Researching…'; }
       try {
-        const r = await fetch('http://127.0.0.1:5001/earn/jobs');
+        const r = await fetch('http://127.0.0.1:5001/api/earn/research/start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(full),
+        });
         const d = await r.json();
-        const programs = d.jobs || d.programs || d.data || [];
-        document.getElementById('earn-programs-list').innerHTML = programs.length > 0
-          ? renderEarnTable(programs) : '<div style="color:#00ff88;font-size:12px;padding:8px 0;">Scan complete. No new programs.</div>';
-      } catch(e) {
-        document.getElementById('earn-programs-list').innerHTML = `<div style="color:#ff4444;font-size:12px;">Scan error: ${e.message}</div>`;
-      } finally { if (btn) { btn.disabled = false; btn.textContent = '🔍 SCAN NOW'; } }
+        if (d.status !== 'ok') throw new Error(d.error || 'start failed');
+        window._earnResearchSessionId = d.session_id;
+        earnDashLog('Research Pipeline Started: ' + d.session_id);
+        earnSwitchTab('research');
+        earnResearchPoll(d.session_id);
+      } catch (e) {
+        alert('Research failed: ' + e.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Research Program'; }
+      }
+    }
+
+    async function earnResearchPoll(sessionId) {
+      const det = document.getElementById('earn-research-detail');
+      if (det) det.innerHTML = '<span style="color:#666;">Pipeline running…</span>';
+      for (let i = 0; i < 120; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+          const r = await fetch(`http://127.0.0.1:5001/api/earn/research/${encodeURIComponent(sessionId)}`);
+          const d = await r.json();
+          if (d.status === 'ok' && d.session) {
+            earnResearchRenderSession(d.session);
+            if (d.session.status === 'complete' || d.session.status === 'error') return;
+          }
+        } catch (_) {}
+      }
+    }
+
+    function earnResearchRenderSession(s) {
+      const sum = document.getElementById('earn-research-summary');
+      const det = document.getElementById('earn-research-detail');
+      if (sum) {
+        sum.innerHTML = `<b>${escapeHtml(s.program_title||'')}</b> · ${escapeHtml(s.status||'')}
+          · ${(s.potential_findings||[]).length} findings · ${(s.evidence||[]).length} evidence
+          · ${(s.targets_probed||[]).length} targets`;
+      }
+      if (!det) return;
+      const plans = (s.research_plan||[]).slice(0, 8);
+      const techs = (s.technologies||[]).slice(0, 6);
+      const finds = (s.potential_findings||[]).slice(0, 12);
+      det.innerHTML = `
+        <div class="earn-research-card"><b>Scope</b><div style="color:#888;margin-top:4px;">${escapeHtml(s.scope_summary||'')}</div></div>
+        <div class="earn-research-card"><b>Technologies</b>
+          ${techs.length ? techs.map(t => `<div style="margin-top:4px;color:#aaa;">${escapeHtml(t.url||'')} — ${escapeHtml([...(t.framework||[]),...(t.api_tech||[]),...(t.cloud||[])].join(', '))}</div>`).join('') : '<div style="color:#444;">Pending recon</div>'}
+        </div>
+        <div class="earn-research-card"><b>Research Plan</b>
+          ${plans.map(p => `<div style="margin-top:6px;"><span style="color:#00cfff;">${escapeHtml(p.target||'')}</span><br><span style="color:#666;">Detected: ${escapeHtml((p.detected||[]).join(', '))}</span><br><span style="color:#888;">${escapeHtml((p.suggested_research||[]).join(' · '))}</span></div>`).join('')}
+        </div>
+        <div class="earn-research-card"><b>Potential Findings</b> <span style="color:#444;">(not auto-submitted)</span>
+          ${finds.map(f => `<div class="earn-research-finding"><b>${escapeHtml(f.title||'')}</b><br>
+            <span style="color:#666;">${escapeHtml(f.target||'')} · ${escapeHtml(f.category||'')} · conf ${Math.round((f.confidence||0)*100)}%</span><br>
+            <span style="color:#555;">${escapeHtml((f.status||'Idea'))} — ${escapeHtml((f.evidence||'').slice(0,100))}</span></div>`).join('') || '<div style="color:#444;">None yet</div>'}
+        </div>
+        <div class="earn-research-card" style="color:#555;font-size:10px;">Submission draft / impact / repro: placeholder only — human review required.</div>`;
+    }
+
+    async function earnResearchLoadDashboard() {
+      const sum = document.getElementById('earn-research-summary');
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/earn/research/sessions');
+        const d = await r.json();
+        const sessions = d.sessions || [];
+        if (sum) {
+          sum.innerHTML = sessions.length
+            ? sessions.map(s => `<div style="margin:4px 0;cursor:pointer;" onclick="earnResearchPoll('${escapeHtml(s.id)}')">
+                <b>${escapeHtml(s.program_title||'')}</b> — ${escapeHtml(s.status)} — ${s.findings_count} findings</div>`).join('')
+            : 'No research sessions yet. Select a program and click <b>Research Program</b>.';
+        }
+        if (window._earnResearchSessionId) earnResearchPoll(window._earnResearchSessionId);
+      } catch (e) {
+        if (sum) sum.textContent = 'Research load failed: ' + e.message;
+      }
+    }
+
+    function earnDashRenderOverview(ov) {
+      const el = document.getElementById('earn-dash-overview');
+      if (!el || !ov) return;
+      const src = (ov.source || 'cache').toUpperCase();
+      const refresh = (ov.last_refresh || '—').replace('T', ' ').slice(0, 19);
+      const age = ov.cache_age_minutes != null ? `${ov.cache_age_minutes} min` : '—';
+      const dur = ov.discovery_duration_s != null ? `${ov.discovery_duration_s}s` : '—';
+      el.innerHTML = `
+        <div class="earn-dash-card"><div class="label">Programs Available</div><div class="value">${ov.programs_available ?? '—'}</div></div>
+        <div class="earn-dash-card"><div class="label">Active Programs</div><div class="value">${ov.active_programs ?? '—'}</div></div>
+        <div class="earn-dash-card"><div class="label">Last Refresh</div><div class="value" style="font-size:10px;">${escapeHtml(refresh)}</div></div>
+        <div class="earn-dash-card"><div class="label">Source / Cache</div><div class="value" style="font-size:10px;">${escapeHtml(src)} · ${escapeHtml(age)} · ${escapeHtml(dur)}</div></div>
+        <div class="earn-dash-card"><div class="label">Web Targets</div><div class="value">${ov.web_targets ?? '—'}</div></div>
+        <div class="earn-dash-card"><div class="label">Mobile Targets</div><div class="value">${ov.mobile_targets ?? '—'}</div></div>
+        <div class="earn-dash-card"><div class="label">API Targets</div><div class="value">${ov.api_targets ?? '—'}</div></div>
+        <div class="earn-dash-card"><div class="label">Highest / Avg Bounty</div><div class="value" style="font-size:10px;">${escapeHtml(ov.highest_bounty_display||'—')} / ${escapeHtml(ov.average_bounty_display||'—')}</div></div>`;
+    }
+
+    function earnDashRenderMetrics(m) {
+      const el = document.getElementById('earn-dash-metrics');
+      if (!el || !m) return;
+      el.innerHTML = `
+        <div class="earn-dash-card"><div class="label">Discovered</div><div class="value">${m.programs_discovered ?? '—'}</div></div>
+        <div class="earn-dash-card"><div class="label">Analyzed</div><div class="value">${m.programs_analyzed ?? 0}</div></div>
+        <div class="earn-dash-card"><div class="label">Reports</div><div class="value">${m.reports_generated ?? 0}</div></div>
+        <div class="earn-dash-card"><div class="label">Reward Pool</div><div class="value" style="font-size:9px;">${escapeHtml(m.potential_reward_pool_display||'—')}</div></div>`;
+    }
+
+    function earnDashBindFilters() {
+      const filters = [
+        ['all','All'],['web','Web'],['mobile','Mobile'],['api','API'],
+        ['high_bounty','High Bounty'],['low_scope','Low Scope'],['large_scope','Large Scope'],
+      ];
+      const platforms = [['all','All Platforms'],['hackerone','HackerOne'],['bugcrowd','Bugcrowd'],['intigriti','Intigriti']];
+      const sorts = [
+        ['bounty_desc','Highest Bounty'],['bounty_asc','Lowest Bounty'],
+        ['assets_desc','Most Assets'],['assets_asc','Least Assets'],
+        ['newest','Newest'],['oldest','Oldest'],['alpha','A–Z'],
+      ];
+      const fEl = document.getElementById('earn-dash-filters');
+      const sEl = document.getElementById('earn-dash-sorts');
+      if (fEl) {
+        fEl.innerHTML = filters.map(([k,l]) =>
+          `<button type="button" class="earn-dash-filter ${window._earnDash.filter===k?'active':''}" data-f="${k}">${l}</button>`
+        ).join('') + ' <span style="color:#444;margin:0 4px;">|</span> ' +
+        platforms.map(([k,l]) =>
+          `<button type="button" class="earn-dash-filter ${window._earnDash.platform===k?'active':''}" data-pf="${k}">${l}</button>`
+        ).join('');
+        fEl.querySelectorAll('[data-f]').forEach(b => b.onclick = () => {
+          window._earnDash.filter = b.dataset.f;
+          earnDashLog('Filter Applied: ' + b.dataset.f);
+          earnDashApplyFilters();
+          earnDashBindFilters();
+        });
+        fEl.querySelectorAll('[data-pf]').forEach(b => b.onclick = () => {
+          window._earnDash.platform = b.dataset.pf;
+          earnDashLog('Filter Applied: platform ' + b.dataset.pf);
+          earnDashApplyFilters();
+          earnDashBindFilters();
+        });
+      }
+      if (sEl) {
+        sEl.innerHTML = sorts.map(([k,l]) =>
+          `<button type="button" class="earn-dash-sort ${window._earnDash.sort===k?'active':''}" data-s="${k}">${l}</button>`
+        ).join('');
+        sEl.querySelectorAll('[data-s]').forEach(b => b.onclick = () => {
+          window._earnDash.sort = b.dataset.s;
+          earnDashLog('Sort Applied: ' + b.dataset.s);
+          earnDashApplyFilters();
+          earnDashBindFilters();
+        });
+      }
+    }
+
+    function earnDashApplyFilters() {
+      const st = window._earnDash;
+      const q = (st.search || '').trim().toLowerCase();
+      let list = st.programs.slice();
+      if (q) list = list.filter(p => (p.search_blob || '').includes(q));
+      if (st.platform !== 'all') {
+        list = list.filter(p => (p.platform || '').toLowerCase() === st.platform);
+      }
+      switch (st.filter) {
+        case 'web': list = list.filter(p => p.has_web); break;
+        case 'mobile': list = list.filter(p => p.has_mobile); break;
+        case 'api': list = list.filter(p => p.has_api); break;
+        case 'high_bounty': list = list.filter(p => (p.bounty_max_usd || 0) >= 2500); break;
+        case 'low_scope': list = list.filter(p => (p.asset_count || 0) <= 10); break;
+        case 'large_scope': list = list.filter(p => (p.asset_count || 0) >= 30); break;
+      }
+      const cmp = {
+        bounty_desc: (a,b) => (b.bounty_max_usd||0) - (a.bounty_max_usd||0),
+        bounty_asc: (a,b) => (a.bounty_max_usd||0) - (b.bounty_max_usd||0),
+        assets_desc: (a,b) => (b.asset_count||0) - (a.asset_count||0),
+        assets_asc: (a,b) => (a.asset_count||0) - (b.asset_count||0),
+        newest: (a,b) => (b.last_updated||'').localeCompare(a.last_updated||''),
+        oldest: (a,b) => (a.last_updated||'').localeCompare(b.last_updated||''),
+        alpha: (a,b) => (a.title||'').localeCompare(b.title||''),
+      }[st.sort] || ((a,b) => 0);
+      list.sort(cmp);
+      st.filtered = list;
+      const cnt = document.getElementById('earn-dash-count');
+      if (cnt) cnt.textContent = `Showing ${list.length} of ${st.programs.length} programs`;
+      earnDashRenderVirtualTable();
+    }
+
+    function earnDashChk(on) { return `<span class="chk ${on?'':'off'}">${on?'✓':'✗'}</span>`; }
+
+    function earnDashRenderVirtualTable() {
+      const vp = document.getElementById('earn-dash-viewport');
+      if (!vp) return;
+      const list = window._earnDash.filtered;
+      const total = list.length;
+      const scrollTop = vp.scrollTop;
+      const viewH = vp.clientHeight || 280;
+      const start = Math.max(0, Math.floor(scrollTop / EARN_ROW_H) - 2);
+      const visible = Math.ceil(viewH / EARN_ROW_H) + 6;
+      const end = Math.min(total, start + visible);
+      const padTop = start * EARN_ROW_H;
+      const padBot = Math.max(0, (total - end) * EARN_ROW_H);
+      let html = `<div style="height:${padTop}px"></div>`;
+      for (let i = start; i < end; i++) {
+        const p = list[i];
+        const h = p.handle || p.program || '';
+        const sel = window._earnDash.selectedHandle === h ? ' selected' : '';
+        const upd = (p.last_updated || '').replace('T', ' ').slice(0, 10);
+        const src = (p.discovery_source || p.source || 'api').toUpperCase();
+        html += `<div class="earn-dash-row${sel}" data-handle="${escapeHtml(h)}" data-idx="${i}">
+          <span title="${escapeHtml(h)}">${escapeHtml((p.title||'').slice(0,28))}</span>
+          <span>${escapeHtml(p.platform||'')}</span>
+          <span style="color:#10a37f;">${escapeHtml(p.bounty_display||'—')}</span>
+          <span>${p.asset_count||0}</span>
+          ${earnDashChk(p.has_web)}${earnDashChk(p.has_mobile)}${earnDashChk(p.has_api)}
+          <span style="color:#666;">${escapeHtml(upd)}</span>
+          <span style="color:#555;font-size:9px;">${escapeHtml(src)}</span>
+        </div>`;
+      }
+      html += `<div style="height:${padBot}px"></div>`;
+      vp.innerHTML = html;
+      vp.querySelectorAll('.earn-dash-row').forEach(row => {
+        row.onclick = () => earnDashSelectProgram(row.dataset.handle);
+      });
+    }
+
+    async function earnDashSelectProgram(handle) {
+      if (!handle) return;
+      window._earnDash.selectedHandle = handle;
+      earnDashLog('Program Selected: ' + handle);
+      earnDashRenderVirtualTable();
+      const det = document.getElementById('earn-dash-detail');
+      if (!det) return;
+      det.innerHTML = '<span style="color:#666;">Loading details…</span>';
+      try {
+        const r = await fetch(`http://127.0.0.1:5001/api/earn/discovery/program/${encodeURIComponent(handle)}`);
+        const d = await r.json();
+        const p = d.program || {};
+        const recs = (p.recommendations || []).slice(0, 5);
+        let encoded = '';
+        const full = window._earnDash.programs.find(x => (x.handle||x.program) === handle);
+        if (full) try { encoded = btoa(unescape(encodeURIComponent(JSON.stringify(full)))); } catch(_) {}
+        det.innerHTML = `
+          <h4>${escapeHtml(p.title||handle)}</h4>
+          <div><b>Platform:</b> ${escapeHtml(p.platform||'')}</div>
+          <div><b>Bounty:</b> ${escapeHtml(p.bounty_display||'')}</div>
+          <div style="margin-top:6px;color:#888;">${escapeHtml(p.description||'')}</div>
+          <div style="margin-top:8px;"><b>Scope:</b> ${escapeHtml(p.scope_summary||'')}</div>
+          <div><b>In scope:</b> ${p.in_scope_count??'—'} · <b>Out:</b> ${p.out_scope_count??'—'}</div>
+          <div style="margin-top:6px;"><b>Mobile:</b> ${escapeHtml((p.mobile_targets||[]).join(', ')||'—')}</div>
+          <div><b>Domains:</b> ${escapeHtml((p.domains||[]).slice(0,6).join(', ')||'—')}</div>
+          <div class="earn-dash-rec"><b>Top recommendations</b>
+            ${recs.length ? recs.map((rec,i) => `<div style="margin-top:6px;color:#aaa;">${i+1}. ${escapeHtml(rec.title||rec)}<br><span style="color:#555;">${escapeHtml((rec.evidence||'').slice(0,120))}</span></div>`).join('') : '<div style="color:#444;">Run Accept & Work to generate analysis.</div>'}
+          </div>
+          <button class="panel-btn earn-accept-btn" style="margin-top:10px;width:100%;" data-prog="${encoded}" onclick="earnAcceptWork(null,this)">Accept &amp; Work</button>
+          <button class="panel-btn" style="margin-top:6px;width:100%;border-color:rgba(0,207,255,0.35);color:#00cfff;" onclick="earnResearchStart(this)">Research Program</button>`;
+      } catch (e) {
+        det.innerHTML = `<span style="color:#f88;">${escapeHtml(e.message)}</span>`;
+      }
+    }
+
+    async function earnDashLoadData(refresh, force) {
+      const qs = force ? '?refresh=1&force=1' : (refresh ? '?refresh=1' : '');
+      const r = await fetch('http://127.0.0.1:5001/api/earn/discovery/dashboard' + qs);
+      const d = await r.json();
+      if (d.status !== 'ok') throw new Error(d.error || 'Dashboard load failed');
+      window._earnDash.programs = d.programs || [];
+      earnDashRenderOverview(d.overview);
+      earnDashRenderMetrics(d.metrics);
+      earnDashBindFilters();
+      earnDashApplyFilters();
+      return d;
+    }
+
+    async function loadEarnPanel(container, savedState) {
+      container.innerHTML = earnDashShell();
+      const searchEl = document.getElementById('earn-dash-search');
+      if (searchEl) {
+        let t = null;
+        searchEl.oninput = () => {
+          clearTimeout(t);
+          t = setTimeout(() => {
+            window._earnDash.search = searchEl.value;
+            if (searchEl.value.trim()) earnDashLog('Search Query: ' + searchEl.value.trim());
+            earnDashApplyFilters();
+          }, 200);
+        };
+      }
+      const vp = document.getElementById('earn-dash-viewport');
+      if (vp && !vp._earnScrollBound) {
+        vp._earnScrollBound = true;
+        vp.onscroll = () => earnDashRenderVirtualTable();
+      }
+      try {
+        await earnDashLoadData(false, false);
+        await earnDashLog('Dashboard Loaded');
+      } catch (e) {
+        const cnt = document.getElementById('earn-dash-count');
+        if (cnt) cnt.textContent = 'Load failed: ' + e.message;
+      }
+    }
+
+    window.earnScanNow = async function(force) {
+      const btn = document.getElementById('earn-scan-btn');
+      const forceBtn = document.getElementById('earn-force-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+      if (forceBtn) forceBtn.disabled = true;
+      try {
+        await earnDashLoadData(true, !!force);
+      } catch (e) {
+        const cnt = document.getElementById('earn-dash-count');
+        if (cnt) cnt.textContent = 'Scan error: ' + e.message;
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'SCAN NOW'; }
+        if (forceBtn) forceBtn.disabled = false;
+      }
     };
 
     window.earnAcceptWork = async function(programJsonOrNull, btnEl) {
@@ -2454,8 +2905,15 @@
             title:   p.title || p.name || p.program || 'Unknown',
             source:  p.source || p.type || 'unknown',
             url:     p.url || p.program_url || '',
-            scope:   p.scope || [],
-            reward:  p.reward || p.max_bounty || p.bounty || 'Varies'
+            scope:   p.scope_full || p.scope || [],
+            reward:  p.reward || p.max_bounty || p.bounty || 'Varies',
+            program: p.handle || p.program || '',
+            handle:  p.handle || p.program || '',
+            targets: p.targets || null,
+            website: p.website || '',
+            submission_state: p.submission_state || '',
+            offers_bounties: p.offers_bounties,
+            scope_count: p.scope_count || (p.scope && p.scope.length) || 0,
           })
         });
 
@@ -2840,26 +3298,74 @@
     async function loadGuardianPanel(container, savedState) {
       const restoredMode = (savedState && savedState.mode) || window._guardianMode || 'defend';
       container.innerHTML = `
-        <div class="mode-selector">
-          <button class="mode-btn-p ${restoredMode==='defend'?'active-defend':''}" data-mode="defend" onclick="guardianSetMode(this,'defend')">🛡 DEFEND</button>
-          <button class="mode-btn-p ${restoredMode==='attack'?'active-attack':''}" data-mode="attack" onclick="guardianSetMode(this,'attack')">⚔ ATTACK</button>
-          <button class="mode-btn-p ${restoredMode==='forensics'?'active-forensics':''}" data-mode="forensics" onclick="guardianSetMode(this,'forensics')">🔍 FORENSICS</button>
+        <div class="guardian-pro">
+          <div class="guardian-pro-header">
+            <h2>Guardian</h2>
+            <button type="button" class="guardian-pro-settings-btn" onclick="guardianOpenSettings()">⚙ Settings</button>
+          </div>
+          <div class="guardian-pro-mode">
+            <button class="mode-btn-p ${restoredMode==='defend'?'active-defend':''}" onclick="guardianSetMode(this,'defend')">Defend</button>
+            <button class="mode-btn-p ${restoredMode==='attack'?'active-attack':''}" onclick="guardianSetMode(this,'attack')">Attack</button>
+            <button class="mode-btn-p ${restoredMode==='forensics'?'active-forensics':''}" onclick="guardianSetMode(this,'forensics')">Forensics</button>
+          </div>
+          <div id="guardian-chat-messages"></div>
+          <div class="guardian-pro-input-row">
+            <input id="guardian-input" placeholder="Ask Guardian or run a scan…" onkeydown="if(event.key==='Enter')guardianSend()"/>
+            <button type="button" class="guardian-pro-send" onclick="guardianSend()">Send</button>
+          </div>
         </div>
-        <div class="panel-section-title">Tools</div>
-        <div id="guardian-tools" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
-          <span style="font-size:11px;color:#555;">Loading tools...</span>
-        </div>
-        <div class="panel-section-title">Chat</div>
-        <div id="guardian-chat-messages"></div>
-        <div id="guardian-input-row">
-          <input id="guardian-input" placeholder="Enter command or question..." onkeydown="if(event.key==='Enter')guardianSend()"/>
-          <button class="panel-btn" onclick="guardianSend()">Send</button>
-        </div>
-        <div class="panel-section-title" style="margin-top:8px;">
-          GUARDIAN LOG
-          <button class="panel-btn" onclick="guardianLogClear()" style="float:right;padding:2px 8px;font-size:10px;">CLEAR</button>
-        </div>
-        <div id="guardian-log" style="height:180px;overflow-y:auto;background:#000;border:1px solid rgba(0,255,255,0.2);padding:8px;font-family:monospace;font-size:11px;color:#0f0;margin-top:4px;border-radius:4px;"></div>`;
+        <div id="guardian-settings-drawer" onclick="if(event.target===this)guardianCloseSettings()">
+          <div class="guardian-settings-panel" onclick="event.stopPropagation()">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+              <h3>Guardian Settings</h3>
+              <button type="button" class="guardian-pro-settings-btn" onclick="guardianCloseSettings()">✕</button>
+            </div>
+            <div class="guardian-settings-section" id="gset-models">
+              <h4>Models</h4>
+              <div id="guardian-ai-runtime" class="guardian-brain-card">Loading Guardian Brain…</div>
+              <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+                <select id="guardian-model-select" style="flex:1;min-width:160px;font-size:12px;background:#0B0B0B;color:#F5F5F5;border:1px solid #232323;padding:6px;border-radius:6px;"></select>
+                <button type="button" class="guardian-pro-settings-btn" onclick="guardianSaveModel()">Apply</button>
+              </div>
+              <div id="guardian-install-models" style="margin-top:8px;"></div>
+            </div>
+            <div class="guardian-settings-section" id="gset-tools">
+              <h4>Tools</h4>
+              <div id="guardian-tool-status"><span style="color:#888;font-size:12px;">Checking…</span></div>
+              <button type="button" class="guardian-pro-settings-btn" style="margin-top:8px;" onclick="guardianRunBootstrap()">Repair / Install Tools</button>
+            </div>
+            <div class="guardian-settings-section" id="gset-trusted">
+              <h4>Trusted Targets</h4>
+              <div id="guardian-trusted-list" style="font-size:12px;color:#A0A0A0;max-height:100px;overflow-y:auto;"></div>
+              <div style="margin-top:8px;display:flex;gap:6px;">
+                <input id="guardian-trusted-input" placeholder="hostname" style="flex:1;font-size:12px;padding:6px;background:#0B0B0B;color:#F5F5F5;border:1px solid #232323;border-radius:6px;"/>
+                <button type="button" class="guardian-pro-settings-btn" onclick="guardianApproveTarget()">Add</button>
+              </div>
+            </div>
+            <div class="guardian-settings-section" id="gset-threat">
+              <h4>Threat Intel</h4>
+              <p style="font-size:12px;color:#A0A0A0;margin:0;">OTX, AbuseIPDB, CISA KEV — set OTX_API_KEY and ABUSEIPDB_API_KEY in environment.</p>
+            </div>
+            <div class="guardian-settings-section" id="gset-crypto">
+              <h4>Crypto Intel</h4>
+              <p style="font-size:12px;color:#A0A0A0;margin:0;">Roadmap module — public feed correlation only.</p>
+            </div>
+            <div class="guardian-settings-section" id="gset-findings">
+              <h4>Findings Center</h4>
+              <div id="guardian-findings-preview" style="font-size:12px;color:#A0A0A0;">Open after a scan completes.</div>
+            </div>
+            <div class="guardian-settings-section" id="gset-logs">
+              <h4>Logs</h4>
+              <div id="guardian-log" style="height:120px;overflow-y:auto;background:#0B0B0B;border:1px solid #232323;padding:8px;font-size:11px;color:#A0A0A0;border-radius:6px;"></div>
+              <button type="button" class="guardian-pro-settings-btn" style="margin-top:6px;" onclick="guardianLogClear()">Clear log</button>
+            </div>
+            <div class="guardian-settings-section" id="gset-advanced">
+              <h4>Advanced</h4>
+              <div id="guardian-offensive-lab-status" style="font-size:12px;color:#A0A0A0;">Offensive lab: ATTACK mode only.</div>
+              <button type="button" class="guardian-pro-settings-btn" style="margin-top:6px;" onclick="guardianAckLab()">Acknowledge closed lab</button>
+            </div>
+          </div>
+        </div>`;
       window._guardianMode = restoredMode;
       // Restore saved messages
       if (savedState && savedState.messagesHTML) {
@@ -2878,6 +3384,16 @@
         panelState.guardian.pendingResponses = [];
       }
       guardianLoadTools();
+      guardianLoadRuntime();
+      guardianLoadTrusted();
+      guardianLoadOffensiveLab();
+      _attachGuardianSocketListener();
+      if (window._sharedSocket) {
+        window._sharedSocket.off('guardian_bootstrap_update');
+        window._sharedSocket.on('guardian_bootstrap_update', () => { guardianLoadTools(); });
+        window._sharedSocket.off('guardian_bootstrap_complete');
+        window._sharedSocket.on('guardian_bootstrap_complete', () => { guardianLoadTools(); });
+      }
       // Load marked.js for markdown rendering in guardian chat
       if (!window.marked) {
         const s = document.createElement('script');
@@ -2900,16 +3416,67 @@
     }
 
     window._guardianMode = 'defend';
+    window.guardianOpenSettings = function() {
+      const d = document.getElementById('guardian-settings-drawer');
+      if (d) { d.classList.add('open'); guardianLoadTools(); guardianLoadRuntime(); guardianLoadFindingsPreview(); }
+    };
+    window.guardianCloseSettings = function() {
+      const d = document.getElementById('guardian-settings-drawer');
+      if (d) d.classList.remove('open');
+    };
+    window.guardianRunBootstrap = async function() {
+      try {
+        await fetch('http://127.0.0.1:5001/api/guardian/bootstrap', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+        guardianLoadTools();
+      } catch(_) {}
+    };
+    async function guardianLoadFindingsPreview() {
+      const el = document.getElementById('guardian-findings-preview');
+      if (!el) return;
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/guardian/findings/center');
+        const d = await r.json();
+        const sessions = d.sessions || [];
+        if (!sessions.length) { el.textContent = 'No scans yet.'; return; }
+        const s = sessions[0];
+        const r2 = await fetch('http://127.0.0.1:5001/api/guardian/findings/center?session_id=' + encodeURIComponent(s.session_id));
+        const c = await r2.json();
+        const center = c.center || {};
+        el.innerHTML = `Latest: <b>${escapeHtml(center.target||'')}</b><br>`
+          + `Hosts: ${(center.hosts||[]).length} · Endpoints: ${(center.endpoints||[]).length} · `
+          + `Findings: ${(center.findings||[]).length}`;
+      } catch(_) { el.textContent = 'Findings unavailable.'; }
+    }
     window.guardianSetMode = function(btn, mode) {
       window._guardianMode = mode;
       document.querySelectorAll('.mode-btn-p').forEach(b => b.className = 'mode-btn-p');
       btn.className = `mode-btn-p active-${mode}`;
+      guardianLoadOffensiveLab();
+    };
+
+    async function guardianLoadOffensiveLab() {
+      const el = document.getElementById('guardian-offensive-lab-status');
+      if (!el) return;
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/guardian/offensive-lab/status');
+        const d = await r.json();
+        const c = d.config || {};
+        el.innerHTML = `Enabled: ${c.enabled !== false} · Ack: ${c.closed_lab_acknowledged ? 'yes' : 'no'} · `
+          + `Cred audit: ${(c.credential_audit||{}).enabled !== false}`;
+      } catch(_) {
+        el.textContent = 'Lab status unavailable';
+      }
+    }
+
+    window.guardianAckLab = async function() {
+      await fetch('http://127.0.0.1:5001/api/guardian/offensive-lab/acknowledge', { method: 'POST' });
+      guardianLoadOffensiveLab();
     };
 
     function appendGuardianLogEntry(entry) {
       const el = document.getElementById('guardian-log');
       if (!el) return;
-      const color = { error:'#f44', warning:'#fa0', success:'#0f0', info:'#0ff', tool:'#f0f' }[entry.level] || '#0f0';
+      const color = { error:'#c88', warning:'#aa8', success:'#A0A0A0', info:'#888', tool:'#999' }[entry.level] || '#888';
       const line = document.createElement('div');
       line.style.color = color;
       const time = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
@@ -2925,27 +3492,123 @@
     };
 
     async function guardianLoadTools() {
-      const el = document.getElementById('guardian-tools');
+      const el = document.getElementById('guardian-tool-status');
       if (!el) return;
       try {
-        const r = await fetch('http://127.0.0.1:5001/guardian/status');
+        const r = await fetch('http://127.0.0.1:5001/api/guardian/tools/status');
         const d = await r.json();
-        const rawTools = d.tools_available || d.available_tools || d.tools || d.available || {};
-        // tools_available is a dict {name: bool}; convert to badge array
-        const toolEntries = Array.isArray(rawTools)
-          ? rawTools.map(t => ({name: t, ok: true}))
-          : Object.entries(rawTools).map(([name, ok]) => ({name, ok}));
-        if (toolEntries.length) {
-          el.innerHTML = toolEntries.map(({name, ok}) =>
-            `<span style="padding:3px 8px;border:1px solid ${ok ? 'rgba(0,255,136,0.4)' : 'rgba(255,68,68,0.3)'};
-             border-radius:3px;font-size:10px;color:${ok ? '#00ff88' : '#ff6666'};">
-             ${ok ? '✓' : '✗'} ${escapeHtml(name)}</span>`
-          ).join(' ');
-        } else {
+        const tools = d.tools || d.tool_diagnostics || [];
+        if (!tools.length) {
           el.innerHTML = '<span style="font-size:11px;color:#444;">No tools detected</span>';
+          return;
         }
-      } catch(_) { el.innerHTML = '<span style="font-size:11px;color:#444;">Tool check unavailable</span>'; }
+        const core = tools.filter(t => !t.roadmap);
+        const roadmap = tools.filter(t => t.roadmap);
+        const rowHtml = (t) => {
+          const label = escapeHtml(t.label || t.name || t.id || 'Tool');
+          let statusLine = t.status_line || (t.installed ? '✓ Installed' : '✗ Missing');
+          if (t.bundled && !statusLine.includes('Bundled')) statusLine = '✓ Bundled';
+          else if (t.system && !statusLine.includes('System')) statusLine = '✓ System';
+          else if (!t.installed && !statusLine.includes('Missing') && !statusLine.includes('planned')) statusLine = '✗ Missing';
+          statusLine = escapeHtml(statusLine);
+          const cls = statusLine.includes('Missing') || statusLine.includes('planned') || !t.installed ? 'miss' : 'ok';
+          const ver = t.version ? `<div style="font-size:10px;color:#666;">v: ${escapeHtml(t.version)}</div>` : '';
+          const health = t.health ? `<div style="font-size:10px;color:#666;">health: ${escapeHtml(t.health)}</div>` : '';
+          const pathHint = t.path
+            ? `<div style="font-size:10px;color:#555;margin-top:2px;">${escapeHtml(t.path)}</div>`
+            : (t.note ? `<div style="font-size:10px;color:#555;margin-top:2px;">${escapeHtml(t.note)}</div>` : '');
+          const meta = ver + health;
+          return `<div class="guardian-tool-row">
+            <span class="guardian-tool-name">${label}</span>
+            <span class="guardian-tool-state ${cls}">${statusLine}${meta}${pathHint}</span>
+          </div>`;
+        };
+        el.innerHTML =
+          (core.length ? '<div class="gts-sub">Active pipeline</div>' + core.map(rowHtml).join('') : '') +
+          (roadmap.length ? '<div class="gts-sub" style="margin-top:8px;">Roadmap modules</div>' + roadmap.map(rowHtml).join('') : '');
+      } catch(_) {
+        el.innerHTML = '<span style="font-size:11px;color:#444;">Tool check unavailable</span>';
+      }
     }
+
+    async function guardianLoadRuntime() {
+      const el = document.getElementById('guardian-ai-runtime');
+      const sel = document.getElementById('guardian-model-select');
+      const installEl = document.getElementById('guardian-install-models');
+      if (!el) return;
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/guardian/runtime');
+        const d = await r.json();
+        const brain = d.brain || d.runtime || {};
+        if (brain.no_models) {
+          el.innerHTML = '<strong>No Guardian Brain installed</strong><br><span style="color:#888">Install a local Ollama model to enable analysis.</span>';
+          if (installEl && brain.install_suggestions) {
+            installEl.innerHTML = brain.install_suggestions.map(s =>
+              `<button type="button" class="guardian-pro-settings-btn" style="margin:4px 4px 0 0;" onclick="guardianInstallModel('${escapeHtml(s.id)}')">Install ${escapeHtml(s.label)}</button>`
+            ).join('');
+          }
+        } else {
+          el.innerHTML = `
+            <div><strong>Guardian Brain</strong></div>
+            <div style="margin-top:6px;">Current model: <strong>${escapeHtml(brain.current_model_friendly || brain.current_model || '—')}</strong></div>
+            <div>Status: ${escapeHtml(brain.status || 'Ready')}</div>
+            <div>GPU: ${escapeHtml((brain.gpu && brain.gpu.label) || 'CPU')}</div>
+            <div>${escapeHtml(brain.memory_note || '')}</div>`;
+          if (installEl) installEl.innerHTML = '';
+        }
+        const models = brain.installed_models || d.models || [];
+        if (sel && models.length) {
+          sel.innerHTML = models.map(m => `<option value="${escapeHtml(m)}" ${m===(brain.current_model)?'selected':''}>${escapeHtml(m)}</option>`).join('');
+        }
+      } catch(_) {
+        el.innerHTML = '<span style="color:#888;">Could not reach Guardian Brain. Is Ollama running?</span>';
+      }
+    }
+    window.guardianInstallModel = async function(model) {
+      try {
+        await fetch('http://127.0.0.1:5001/api/guardian/runtime/install', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({model}),
+        });
+        guardianLoadRuntime();
+      } catch(_) {}
+    };
+
+    window.guardianSaveModel = async function() {
+      const sel = document.getElementById('guardian-model-select');
+      if (!sel || !sel.value) return;
+      await fetch('http://127.0.0.1:5001/api/guardian/runtime/model', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({model: sel.value}),
+      });
+      guardianLoadRuntime();
+    };
+
+    async function guardianLoadTrusted() {
+      const el = document.getElementById('guardian-trusted-list');
+      if (!el) return;
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/guardian/settings/trusted-targets');
+        const d = await r.json();
+        const rows = d.targets || [];
+        el.innerHTML = rows.length
+          ? rows.map(t => `<div style="padding:2px 0;">✓ ${escapeHtml(t.target || t.display || '')}</div>`).join('')
+          : '<span style="color:#444;">No trusted targets yet.</span>';
+      } catch(_) {
+        el.innerHTML = '<span style="color:#444;">Unavailable</span>';
+      }
+    }
+
+    window.guardianApproveTarget = async function() {
+      const inp = document.getElementById('guardian-trusted-input');
+      if (!inp || !inp.value.trim()) return;
+      await fetch('http://127.0.0.1:5001/api/guardian/settings/trusted-targets', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({target: inp.value.trim()}),
+      });
+      inp.value = '';
+      guardianLoadTrusted();
+    };
 
     function _appendGuardianChatMsg(role, content) {
       const msgs = document.getElementById('guardian-chat-messages');
@@ -2954,7 +3617,7 @@
       const div = document.createElement('div');
       if (role === 'user') {
         div.className = 'g-msg-user';
-        div.innerHTML = `<span class="g-time">${escapeHtml(time)}</span><span class="g-content"><b>You:</b> ${escapeHtml(content)}</span>`;
+        div.innerHTML = `<div class="g-content">${escapeHtml(content)}</div>`;
       } else if (role === 'error') {
         div.className = 'g-msg-error';
         div.style.cssText = 'color:#ff4444;font-size:12px;padding:4px 0;';
@@ -2966,7 +3629,7 @@
         if (window.marked) {
           try { html = window.marked.parse(content); } catch(_) {}
         }
-        div.innerHTML = `<span class="g-time">${escapeHtml(time)}</span><div class="g-content"><b>Guardian:</b><br>${html}</div>`;
+        div.innerHTML = `<div class="g-label">Guardian</div><div class="g-content">${html}</div>`;
       }
       msgs.appendChild(div);
       msgs.scrollTop = msgs.scrollHeight;
@@ -3011,8 +3674,8 @@
         const resp = d.response || d.message || d.result || '';
         if (resp) _appendGuardianChatMsg('sentinel', resp);
         // If assessment started, note that results arrive via socket
-        if (d.requires_confirmation || d.scanning || d.authorized) {
-          _appendGuardianChatMsg('sentinel', '_Assessment results will appear below as each tool completes. Watch the Guardian Log for live output._');
+        if (d.scanning) {
+          _appendGuardianChatMsg('sentinel', 'I\'ll post progress here as each step finishes.');
         }
       } catch(e) {
         clearTimeout(timer);
@@ -3037,8 +3700,10 @@
           panelState.guardian.pendingResponses.push(data);
           return;
         }
-        // Show each step with appropriate label
-        _appendGuardianChatMsg('sentinel', resp);
+        const line = data.chat_line || resp;
+        const show = (data.step === 'final') ? resp : line;
+        _appendGuardianChatMsg('sentinel', show);
+        if (data.step === 'final') guardianLoadFindingsPreview();
       });
     }
     // Attach once socket is ready (may be called again on panel open)
@@ -3112,7 +3777,7 @@
         </div>
         <div id="log-panel-filter">
           <span style="font-size:10px;color:#555;margin-right:4px;">FILTER:</span>
-          ${['all','chat','forge','earn','system','guardian','aider','errors'].map(f =>
+          ${['all','chat','builder','forge','earn','system','guardian','aider','errors'].map(f =>
             `<button class="log-filter-btn ${f==='all'?'active':''}" onclick="logSetFilter('${f}')" style="${f==='chat'?'border-color:rgba(0,212,255,0.5);color:#00d4ff;':''}">${f.toUpperCase()}</button>`
           ).join('')}
         </div>
@@ -3181,7 +3846,13 @@
     function logMatchesFilter(entry, filter) {
       if (filter === 'all') return true;
       if (filter === 'errors') return entry.level === 'error';
-      return (entry.type || '').toLowerCase() === filter;
+      const t = (entry.type || '').toLowerCase();
+      const msg = entry.message || '';
+      if (filter === 'builder') {
+        return t === 'builder' || t === 'forge' && msg.includes('[BUILDER]') || msg.includes('[BUILDER]');
+      }
+      if (filter === 'forge') return t === 'forge' && !msg.includes('[BUILDER]');
+      return t === filter;
     }
 
     window.logSetFilter = function(filter) {
@@ -4077,19 +4748,23 @@
           socket.on('forge_complete', (data) => {
             let chatMsg = '';
 
-            if (data.success) {
+            if (data.success && data.build_complete !== false && data.verification_status !== 'failed') {
               if (data.files_modified && data.files_modified.length > 0) {
-                chatMsg = `✓ Build complete.\n\nFiles created:\n`;
+                chatMsg = `✓ Build complete — verified, artifact registered, launch ready.\n\nFiles created:\n`;
                 data.files_modified.forEach(f => { chatMsg += `  📄 ${f}\n`; });
                 if (data.entry_point) {
                   chatMsg += `\nMain file: ${data.entry_point}`;
-                  window.pendingLaunch = data.entry_point;
+                }
+                if (data.launch_command) {
+                  chatMsg += `\nLaunch: ${data.launch_command}`;
                 }
               } else if (data.output_dir) {
                 chatMsg = `✓ Build complete.\n\nOutput directory: ${data.output_dir}\nCheck the Log tab for created files.`;
                 if (data.entry_point) {
                   chatMsg += `\nEntry point: ${data.entry_point}`;
-                  window.pendingLaunch = data.entry_point;
+                }
+                if (data.launch_command) {
+                  chatMsg += `\nLaunch: ${data.launch_command}`;
                 }
               } else {
                 chatMsg = '✓ Build complete. Check the Log tab for details.';
@@ -4115,15 +4790,24 @@
                 const btn = document.createElement('button');
                 btn.textContent = '▶ Launch';
                 btn.style.cssText = 'display:block;margin-top:8px;background:rgba(0,255,255,0.1);border:1px solid rgba(0,255,255,0.5);color:#0ff;padding:6px 16px;cursor:pointer;font-family:monospace;font-size:12px;border-radius:4px;';
-                btn.onclick = () => {
-                  fetch('http://localhost:5001/api/launch', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({file: data.entry_point})
-                  });
+                btn.onclick = async () => {
                   btn.textContent = '▶ Launching...';
                   btn.disabled = true;
-                  setTimeout(() => { btn.textContent = '✓ Launched'; }, 2000);
+                  try {
+                    const r = await fetch('http://127.0.0.1:5001/api/artifact/launch', {
+                      method: 'POST', headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify({task: ''})
+                    });
+                    const d = await r.json();
+                    if (d.ok) btn.textContent = '✓ Launched';
+                    else if (d.needs_install && d.dependency === 'godot') {
+                      btn.textContent = '▶ Install Godot';
+                      btn.disabled = false;
+                      showGodotInstallDialog(d);
+                    } else {
+                      btn.textContent = '✗ Failed';
+                    }
+                  } catch (_) { btn.textContent = '✗ Error'; }
                 };
                 lastMsg.appendChild(btn);
               }
@@ -4131,6 +4815,11 @@
 
             orbState = 'idle'; renderOrb();
           });
+
+          socket.on('launch_dependency_prompt', (data) => {
+            if (data && data.dependency === 'godot') showGodotInstallDialog(data);
+          });
+          socket.on('builder_runtime_updated', () => { refreshBuilderStatus(); });
         } catch(e) {
           console.warn('Socket.IO init failed:', e);
         }
@@ -4170,41 +4859,133 @@
       btn.disabled = false; btn.textContent = 'Save & Run';
     };
 
+    // ── Godot install prompt (GAME launch dependency) ─────────────────────────
+    function _ensureGodotOverlay() {
+      if (document.getElementById('godot-install-overlay')) return;
+      const ov = document.createElement('div');
+      ov.id = 'godot-install-overlay';
+      ov.innerHTML = `<div id="godot-install-dialog">
+        <h3 id="godot-install-title">Godot required. Install now?</h3>
+        <p id="godot-install-hint" style="font-size:11px;color:#888;margin:0;">Required to open Godot game projects.</p>
+        <div class="godot-install-btns">
+          <button type="button" class="godot-btn-install" id="godot-btn-install">Install</button>
+          <button type="button" class="godot-btn-browse" id="godot-btn-browse">Browse</button>
+          <button type="button" class="godot-btn-cancel" id="godot-btn-cancel">Cancel</button>
+        </div>
+        <p id="godot-install-status" style="font-size:10px;color:#666;margin-top:12px;min-height:14px;"></p>
+      </div>`;
+      document.body.appendChild(ov);
+      document.getElementById('godot-btn-cancel').onclick = () => hideGodotInstallDialog();
+      document.getElementById('godot-btn-install').onclick = () => godotInstallAndRelaunch();
+      document.getElementById('godot-btn-browse').onclick = () => godotBrowseAndRelaunch();
+    }
+
+    function showGodotInstallDialog(payload) {
+      _ensureGodotOverlay();
+      const ov = document.getElementById('godot-install-overlay');
+      const title = document.getElementById('godot-install-title');
+      const st = document.getElementById('godot-install-status');
+      if (title) title.textContent = payload.prompt_title || 'Godot required. Install now?';
+      if (st) st.textContent = '';
+      ov.classList.add('visible');
+      window._pendingGodotLaunch = true;
+    }
+
+    function hideGodotInstallDialog() {
+      const ov = document.getElementById('godot-install-overlay');
+      if (ov) ov.classList.remove('visible');
+      window._pendingGodotLaunch = false;
+    }
+
+    async function _retryArtifactLaunch() {
+      const r = await fetch('http://127.0.0.1:5001/api/artifact/launch', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({task: ''})
+      });
+      return r.json();
+    }
+
+    async function godotInstallAndRelaunch() {
+      const st = document.getElementById('godot-install-status');
+      if (st) st.textContent = 'Downloading / installing Godot…';
+      try {
+        const res = await fetch('http://127.0.0.1:5001/api/builder/runtime/godot/install', { method: 'POST' });
+        const d = await res.json();
+        if (!d.ok) {
+          if (st) st.textContent = d.error || 'Install failed';
+          return;
+        }
+        if (st) st.textContent = 'Installed. Launching…';
+        await refreshBuilderStatus();
+        const launch = await _retryArtifactLaunch();
+        hideGodotInstallDialog();
+        if (launch.ok) {
+          showChatResponse(`✓ ${launch.message || 'Launch successful'}`);
+        } else if (launch.needs_install) {
+          showGodotInstallDialog(launch);
+        } else {
+          showChatResponse(`✗ ${launch.error || 'Launch failed'}`);
+        }
+      } catch (e) {
+        if (st) st.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function godotBrowseAndRelaunch() {
+      const st = document.getElementById('godot-install-status');
+      if (st) st.textContent = 'Select Godot.exe in the file picker…';
+      try {
+        const res = await fetch('http://127.0.0.1:5001/api/builder/runtime/godot/browse', { method: 'POST' });
+        const d = await res.json();
+        if (d.cancelled) { if (st) st.textContent = ''; return; }
+        if (!d.ok) {
+          if (st) st.textContent = d.error || 'Browse cancelled';
+          return;
+        }
+        if (st) st.textContent = 'Registered. Launching…';
+        await refreshBuilderStatus();
+        const launch = await _retryArtifactLaunch();
+        hideGodotInstallDialog();
+        if (launch.ok) showChatResponse(`✓ ${launch.message || 'Launch successful'}`);
+        else showChatResponse(`✗ ${launch.error || 'Launch failed'}`);
+      } catch (e) {
+        if (st) st.textContent = 'Error: ' + e.message;
+      }
+    }
+
     // ── Launch keyword interception ───────────────────────────────────────────
     const _LAUNCH_KW = ['launch it', 'run it', 'open it', 'start it', 'execute it',
                         'launch the', 'run the', 'open the', 'start the', 'run program',
                         'launch app', 'run app', 'launch calculator', 'run calculator'];
 
+    async function _handleLaunchResponse(d) {
+      if (d.ok) {
+        const cmd = d.command ? `\nCommand: ${d.command}` : '';
+        showChatResponse(`✓ ${d.message || 'Launch successful'}${cmd}`);
+        return;
+      }
+      if (d.needs_install && d.dependency === 'godot') {
+        showGodotInstallDialog(d);
+        showChatResponse('Godot required. Install now?');
+        return;
+      }
+      showChatResponse(`✗ ${d.error || d.message || 'Launch failed'}`);
+    }
+
     async function _tryLaunchFromChat(query) {
       const lower = query.toLowerCase();
       if (!_LAUNCH_KW.some(kw => lower.includes(kw))) return false;
-      // If pendingLaunch is set (from forge_complete socket event), use it directly
-      if (window.pendingLaunch) {
-        try {
-          const r = await fetch('http://127.0.0.1:5001/api/launch', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({file: window.pendingLaunch})
-          });
-          const d = await r.json();
-          const fname = window.pendingLaunch.split(/[\\/]/).pop();
-          showChatResponse(d.status === 'launched' ? `✓ Launching ${fname}` : `✗ ${d.error || 'Launch failed'}`);
-          return true;
-        } catch(e) {
-          showChatResponse('✗ Launch error: ' + e.message);
-          return true;
-        }
-      }
-      // Fall back to artifact registry
       try {
         const r = await fetch('http://127.0.0.1:5001/api/artifact/launch', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({task: ''})
         });
         const d = await r.json();
-        showChatResponse(d.message || (d.status === 'launched' ? '✓ Launched' : '✗ Launch failed'));
+        await _handleLaunchResponse(d);
         return true;
       } catch(e) {
-        return false;
+        showChatResponse('✗ Launch error: ' + e.message);
+        return true;
       }
     }
 

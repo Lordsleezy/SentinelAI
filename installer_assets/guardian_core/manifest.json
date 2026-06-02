@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "description": "Guardian Core — ProjectDiscovery tools shipped with Sentinel installer",
+  "tools": [
+    {
+      "id": "httpx",
+      "exe": "httpx.exe",
+      "zip": "httpx_windows_amd64.zip",
+      "zip_glob": "httpx_*_windows_amd64.zip",
+      "release": "https://github.com/projectdiscovery/httpx/releases/latest"
+    },
+    {
+      "id": "subfinder",
+      "exe": "subfinder.exe",
+      "zip": "subfinder_windows_amd64.zip",
+      "zip_glob": "subfinder_*_windows_amd64.zip",
+      "release": "https://github.com/projectdiscovery/subfinder/releases/latest"
+    },
+    {
+      "id": "katana",
+      "exe": "katana.exe",
+      "zip": "katana_windows_amd64.zip",
+      "zip_glob": "katana_*_windows_amd64.zip",
+      "release": "https://github.com/projectdiscovery/katana/releases/latest"
+    },
+    {
+      "id": "nuclei",
+      "exe": "nuclei.exe",
+      "zip": "nuclei_windows_amd64.zip",
+      "zip_glob": "nuclei_*_windows_amd64.zip",
+      "release": "https://github.com/projectdiscovery/nuclei/releases/latest"
+    },
+    {
+      "id": "naabu",
+      "exe": "naabu.exe",
+      "zip": "naabu_windows_amd64.zip",
+      "zip_glob": "naabu_*_windows_amd64.zip",
+      "github_repo": "naabu"
+    },
+    {
+      "id": "dnsx",
+      "exe": "dnsx.exe",
+      "zip": "dnsx_windows_amd64.zip",
+      "zip_glob": "dnsx_*_windows_amd64.zip",
+      "github_repo": "dnsx"
+    },
+    {
+      "id": "ffuf",
+      "exe": "ffuf.exe",
+      "zip": "ffuf_*_windows_amd64.zip",
+      "github_repo": "ffuf"
+    },
+    {
+      "id": "assetfinder",
+      "exe": "assetfinder.exe",
+      "zip": "assetfinder_windows_amd64.zip",
+      "github_repo": "assetfinder"
+    },
+    {
+      "id": "gowitness",
+      "exe": "gowitness.exe",
+      "zip": "gowitness_*_windows_amd64.zip",
+      "github_repo": "gowitness"
+    }
+  ]
+}

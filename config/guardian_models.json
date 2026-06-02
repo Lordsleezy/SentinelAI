@@ -1,0 +1,26 @@
+{
+  "ollama_url": "http://localhost:11434",
+  "selected_model": "",
+  "gpu_enabled": true,
+  "responsibilities": [
+    "recon_analysis",
+    "threat_intel_analysis",
+    "risk_scoring",
+    "technology_fingerprinting",
+    "report_generation",
+    "findings_correlation",
+    "research_planning",
+    "recommendation_generation"
+  ],
+  "model_catalog_hints": [
+    "dolphin",
+    "dolphin-mistral",
+    "dolphin-llama",
+    "qwen2.5",
+    "deepseek",
+    "llama3",
+    "mistral",
+    "openhermes",
+    "nous-hermes"
+  ]
+}

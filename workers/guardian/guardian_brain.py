@@ -1,7 +1,6 @@
 """
 Guardian — professional penetration testing and security research assistant.
-All active tool execution against external targets requires explicit user
-authorization. Localhost/127.0.0.1 targets are always permitted.
+Executes requested scans and tools immediately when the user asks (no confirmation gate).
 """
 from __future__ import annotations
 
@@ -15,6 +14,12 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+try:
+    from workers.guardian.guardian_ux import GUARDIAN_CHAT_PERSONALITY
+    _GUARDIAN_PERSONALITY = GUARDIAN_CHAT_PERSONALITY
+except Exception:
+    _GUARDIAN_PERSONALITY = ""
+
 GUARDIAN_SYSTEM_PROMPT = """You are Guardian, a professional cybersecurity assistant integrated into SentinelAI. You assist with:
 - Penetration testing on authorized systems
 - Vulnerability research and CVE analysis
@@ -25,11 +30,14 @@ GUARDIAN_SYSTEM_PROMPT = """You are Guardian, a professional cybersecurity assis
 
 You provide detailed, technical security assistance. When a user asks about attack techniques, exploits, or security tools, provide complete professional-grade information as any certified penetration tester would need.
 
-Before executing any tool against an external target, confirm the user has authorization. Once authorization is confirmed, execute fully and interpret results thoroughly.
+When the user requests a scan, test, or tool run against a target, execute immediately — do not ask for authorization or confirmation.
 
 Format tool executions as: TOOL_CALL: <tool> <args>
 
 Be specific, technical, and thorough."""
+
+if _GUARDIAN_PERSONALITY:
+    GUARDIAN_SYSTEM_PROMPT = _GUARDIAN_PERSONALITY + "\n\n" + GUARDIAN_SYSTEM_PROMPT
 
 
 # ── Report helpers (module-level so they're accessible from the thread) ──────
@@ -202,6 +210,7 @@ class GuardianBrain:
         self.ollama_url = self.config.get("ollama_url", "http://localhost:11434")
         self.mode = "defend"
         self.conversation_history: List[Dict] = []
+        # Legacy field — kept for API compat; scans no longer require pre-approval
         self.authorized_targets: set = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
         self.pending_confirmation: Optional[str] = None
 
@@ -277,28 +286,31 @@ class GuardianBrain:
         except Exception as e:
             return f"Guardian model unavailable ({model}): {e}. Is Ollama running?"
 
-    # ── Authorization gate ─────────────────────────────────────────────────────
+    # ── Authorization (disabled — immediate execution) ─────────────────────────
 
     def request_authorization(self, target: str) -> Dict:
-        self.pending_confirmation = target
-        return {
-            "requires_confirmation": True,
-            "target": target,
-            "message": (f"⚠ Authorization required to test target: {target}\n"
-                        "Confirm you have written authorization to perform security testing on this system."),
-        }
-
-    def confirm_authorization(self, target: str) -> Dict:
+        """No-op: auto-authorize and return ready status (backward-compatible API)."""
         self.authorized_targets.add(target)
         self.pending_confirmation = None
-        logger.info("[Guardian] Target authorized: %s", target)
-        return {"status": "authorized", "target": target}
+        return {"status": "authorized", "target": target, "requires_confirmation": False}
+
+    def confirm_authorization(self, target: str) -> Dict:
+        try:
+            from workers.guardian.guardian_trusted_targets import approve
+            approve(target, note="user approved")
+        except Exception:
+            pass
+        self.authorized_targets.add(target)
+        self.pending_confirmation = None
+        logger.info("[Guardian] Target noted: %s", target)
+        return {"status": "authorized", "target": target, "requires_confirmation": False}
 
     def is_authorized(self, target: str) -> bool:
-        for auth in self.authorized_targets:
-            if target == auth or auth in target or target in auth:
-                return True
-        return False
+        try:
+            from workers.guardian.guardian_trusted_targets import is_trusted
+            return is_trusted(target)
+        except Exception:
+            return True
 
     # ── Direct tool execution (no Ollama permission gate) ─────────────────────
 
@@ -376,33 +388,35 @@ class GuardianBrain:
 
     def _analyze_with_ollama(self, tool_name: str, target: str, raw_output: str) -> str:
         """
-        Feed raw tool output to Ollama for analysis.
-        Ollama ONLY analyzes the output — it does NOT decide whether to run tools.
+        Feed raw tool output to Guardian AI for analysis.
         """
-        prompt = f"""You are a cybersecurity analyst reviewing security scan results.
+        if "access" in (tool_name or "").lower():
+            from workers.guardian.guardian_runtime_manager import generate
+            system = (
+                "You are Guardian Access Path Analyst. Find ways in via vulnerabilities only. "
+                "Do not suggest brute force, password spraying, or backdoor/persistence installation. "
+                "Give ordered access paths, validation steps, and bounty-report evidence."
+            )
+            prompt = f"Target: {target}\n\nScan data:\n{raw_output[:5000]}\n\nProvide access path analysis."
+            return generate(prompt, system=system, task_label="access path analysis")
 
-Target: {target}
-Tool: {tool_name}
-
-Raw output:
-{raw_output[:4000]}
-
-Provide a technical analysis:
-1. Key findings (open ports, services, technologies, vulnerabilities)
-2. Risk assessment (Critical / High / Medium / Low)
-3. Specific recommendations
-4. Any immediate concerns requiring attention
-
-Be specific and reference actual data from the output above."""
-        return self._call_ollama(prompt, tier="reasoning")
+        from workers.guardian.guardian_runtime_manager import analyze_security_context
+        return analyze_security_context(target, raw_output, task=tool_name)
 
     def _emit_guardian_response(self, message: str, target: str, step: str = '') -> None:
         """Emit a guardian_response socket event with a partial or final result."""
+        chat_line = message
+        try:
+            from workers.guardian.guardian_ux import humanize_progress
+            chat_line = humanize_progress(step, message)
+        except Exception:
+            pass
         try:
             from desktop_app import socketio
             if socketio:
                 socketio.emit('guardian_response', {
                     'response': message,
+                    'chat_line': chat_line,
                     'target': target,
                     'step': step,
                 })
@@ -415,17 +429,54 @@ Be specific and reference actual data from the output above."""
             message = f"[GUARDIAN] {message}"
         self._guardian_log(message, level)
 
-    def _stage_enter(self, name: str) -> None:
+    def _stage_enter(self, name: str, task_id: str = "") -> None:
         self._stage_log(f"Entering {name}")
+        tid = task_id or getattr(self, "_current_guardian_task_id", "") or ""
+        if tid:
+            try:
+                from workers.guardian.guardian_ux import task_phase_for_stage
+                from workers.task_manager import update_task, RUNNING
+                update_task(
+                    tid, status=RUNNING, current_stage=name,
+                    metadata_update={"phase": task_phase_for_stage(name)},
+                )
+            except Exception:
+                pass
 
-    def _stage_exit(self, name: str, detail: str = '') -> None:
-        msg = f"Exiting {name}"
-        if detail:
-            msg += f" — {detail}"
-        self._stage_log(msg, 'success')
+    def _stage_running(self, name: str) -> None:
+        self._stage_log(f"Running {name}")
 
-    def _stage_skip(self, name: str, reason: str) -> None:
-        self._stage_log(f"Stage skipped — {name}: {reason}", 'warning')
+    def _stage_exit(self, name: str, detail: str = '', *, failed: bool = False) -> None:
+        if detail.startswith("skipped"):
+            self._stage_log(f"Skipped {name} — {detail}", 'warning')
+        elif failed or detail.startswith("error"):
+            self._stage_log(f"Failed {name} — {detail}", 'error')
+        else:
+            self._stage_log(f"Completed {name}" + (f" — {detail}" if detail else ""), 'success')
+
+    def _stage_skip(self, name: str, reason: str) -> str:
+        """Log skip reason; return detail string for mandatory _stage_exit."""
+        self._stage_log(f"Skipped {name}: {reason}", 'warning')
+        return f"skipped: {reason}"
+
+    @staticmethod
+    def _safe_live_hosts(tech_data: List) -> List[str]:
+        """Extract live URLs from httpx/curl host records without raising."""
+        live: List[str] = []
+        for h in tech_data or []:
+            if not isinstance(h, dict):
+                continue
+            url = (h.get("url") or "").strip()
+            if not url:
+                continue
+            try:
+                code = int(h.get("status_code") or 0)
+            except (TypeError, ValueError):
+                code = 0
+            # Plain-text httpx (-silent) has no status — still chain URL in pipeline
+            if code == 0 or 200 <= code < 500:
+                live.append(url)
+        return live
 
     @staticmethod
     def _normalize_probe_targets(target: str, subdomains: List[str]) -> List[str]:
@@ -443,12 +494,12 @@ Be specific and reference actual data from the output above."""
                     out.append(c)
         return out or [f"https://{target}"]
 
-    def _run_full_assessment(self, target: str) -> None:
+    def _run_full_assessment(self, target: str, *, access_path_mode: bool = False) -> None:
         """
-        Guardian pipeline (each stage logs Entering / Exiting / Stage skipped):
+        Guardian pipeline — every stage logs Entering / Exiting (finally-guaranteed):
 
         Target Validation → Subfinder → Amass → httpx → Katana →
-        Nuclei → ZAP → AI Analysis → Final Report
+        Nuclei → ZAP → AI Analysis → Generating Final Report
 
         Empty results (0 hosts, missing tools, errors) never stop the scan.
         A final report is always emitted (including via finally on crash).
@@ -464,6 +515,11 @@ Be specific and reference actual data from the output above."""
             import traceback as _tb
 
             session_id = f"guardian-{target.replace('.', '-')}-{uuid.uuid4().hex[:6]}"
+            try:
+                from workers.guardian.findings_center import start_session
+                start_session(target, session_id)
+            except Exception:
+                pass
             results: Dict[str, Any] = {}
             subdomains: List[str] = []
             live_hosts: List[str] = []
@@ -476,13 +532,38 @@ Be specific and reference actual data from the output above."""
             report_emitted = False
             _task_id = ''
 
-            def _tp(pct: int, summary: str = '') -> None:
+            import time as _time
+            _started = _time.time()
+            _findings_db = None
+            try:
+                from workers.guardian.guardian_findings_db import GuardianFindingsDB
+                _findings_db = GuardianFindingsDB()
+            except Exception:
+                pass
+            threat_intel_result = None
+            offensive_lab_result = None
+            access_path_result = None
+
+            def _tp(pct: int, summary: str = '', stage: str = '', tool: str = '') -> None:
                 if not _task_id:
                     return
                 try:
                     from workers.task_manager import update_task, RUNNING
-                    update_task(_task_id, status=RUNNING, progress=pct,
-                                result_summary=summary or None)
+                    fc = _findings_db.count(session_id) if _findings_db else 0
+                    elapsed = int(_time.time() - _started)
+                    update_task(
+                        _task_id, status=RUNNING, progress=pct,
+                        result_summary=summary or None,
+                        current_stage=stage or None,
+                        metadata_update={
+                            "target": target,
+                            "session_id": session_id,
+                            "elapsed_sec": elapsed,
+                            "tool_running": tool or None,
+                            "findings_count": fc,
+                            "stage": stage,
+                        },
+                    )
                 except Exception:
                     pass
 
@@ -493,10 +574,11 @@ Be specific and reference actual data from the output above."""
                 return t if t.startswith(('http://', 'https://')) else f"https://{t}"
 
             def _emit_final_report(reason: str = '') -> None:
-                nonlocal report_emitted
+                nonlocal report_emitted, threat_intel_result, offensive_lab_result, access_path_result
                 if report_emitted:
                     return
-                self._stage_log("Generating Final Report")
+                report_detail = ""
+                self._stage_enter("Generating Final Report")
                 try:
                     tool_status = tools.status_block() if tools else "Tool registry unavailable"
                     all_vulns = len(nuclei_findings) + len(zap_findings)
@@ -515,15 +597,50 @@ Be specific and reference actual data from the output above."""
                         tool_status=tool_status,
                         risk_score=risk_score,
                     )
+                    try:
+                        from workers.guardian.guardian_report_v3 import append_v3_sections
+                        report = append_v3_sections(
+                            report,
+                            target=target,
+                            subdomains=subdomains,
+                            live_hosts=live_hosts,
+                            endpoints=endpoints,
+                            tech_data=tech_data,
+                            threat_intel=threat_intel_result,
+                        )
+                    except Exception:
+                        pass
+                    if access_path_result:
+                        try:
+                            report += "\n\n" + access_path_result.to_markdown()
+                        except Exception:
+                            pass
+                    if offensive_lab_result:
+                        try:
+                            report += "\n\n" + offensive_lab_result.to_markdown()
+                        except Exception:
+                            pass
                     if reason:
                         report = f"**Note:** {reason}\n\n" + report
                     self._emit_guardian_response(report, target, step='final')
                     report_emitted = True
+                    report_detail = f"{all_vulns} finding(s), risk={risk_score}"
                     try:
                         rpt_dir = Path(__file__).parent.parent.parent / "memory" / "vault" / "guardian_reports"
                         rpt_dir.mkdir(parents=True, exist_ok=True)
-                        (rpt_dir / f"{session_id}.md").write_text(report, encoding="utf-8")
+                        rpt_path = rpt_dir / f"{session_id}.md"
+                        rpt_path.write_text(report, encoding="utf-8")
                         self._stage_log(f"Report saved: {session_id}.md", 'success')
+                        if _task_id:
+                            try:
+                                from workers.task_manager import update_task
+                                update_task(
+                                    _task_id,
+                                    files_created=[str(rpt_path)],
+                                    metadata_update={"report_path": str(rpt_path)},
+                                )
+                            except Exception:
+                                pass
                     except Exception as _save_err:
                         self._stage_log(f"Report save error: {_save_err}", 'warning')
                     if _task_id:
@@ -541,14 +658,18 @@ Be specific and reference actual data from the output above."""
                         target, step='final',
                     )
                     report_emitted = True
+                    report_detail = f"error: {_rpt_err}"
+                finally:
+                    self._stage_exit("Generating Final Report", report_detail or "done")
 
             try:
                 from workers.task_manager import create_task
                 _t = create_task(f"Guardian Scan — {target}", source="guardian",
-                                 metadata={"target": target, "session_id": session_id})
+                                 metadata={"target": target, "session_id": session_id, "phase": "Recon"})
                 _task_id = _t["id"]
+                self._current_guardian_task_id = _task_id
             except Exception:
-                pass
+                self._current_guardian_task_id = ""
 
             try:
                 from workers.guardian.tools.tool_registry import ToolRegistry
@@ -556,17 +677,28 @@ Be specific and reference actual data from the output above."""
                 tool_summary = tools.status_summary()
                 self._stage_log(f"Pipeline started: {target}")
                 self._stage_log(f"Tools: {tool_summary}")
+                pipeline_desc = (
+                    "Target Validation → Subfinder → Amass → httpx → Katana → "
+                    "Nuclei → ZAP → Threat Intel → Access Path Analysis → AI → Report"
+                    if access_path_mode
+                    else "Target Validation → Subfinder → Amass → httpx → Katana → "
+                    "Nuclei → ZAP → AI Analysis → Final Report"
+                )
+                mode_note = (
+                    "\n\n**Mode:** Access path hunt — vulnerabilities only (no brute force, no backdoors).\n"
+                    if access_path_mode else ""
+                )
                 self._emit_guardian_response(
                     f"🔍 **Assessment started for `{target}`**\n\n"
                     f"**Session:** `{session_id}`\n\n"
                     f"**Tool Status:**\n```\n{tool_summary}\n```\n\n"
-                    f"Pipeline: Target Validation → Subfinder → Amass → httpx → Katana → "
-                    f"Nuclei → ZAP → AI Analysis → Final Report",
+                    f"Pipeline: {pipeline_desc}{mode_note}",
                     target, step='start',
                 )
                 _tp(5, "Pipeline started")
 
                 # ── Target Validation ──────────────────────────────────────────
+                tv_detail = ""
                 self._stage_enter("Target Validation")
                 try:
                     self._emit_guardian_response(
@@ -574,45 +706,51 @@ Be specific and reference actual data from the output above."""
                     )
                     headers_raw = self._run_curl_check(target)
                     results['headers'] = headers_raw
+                    tv_detail = f"{len(headers_raw)} bytes"
                     self._emit_guardian_response(
                         f"**Target Validation ✓**\n```\n{headers_raw[:1500]}\n```",
                         target, step='headers',
                     )
-                    self._stage_exit("Target Validation", f"{len(headers_raw)} bytes")
                 except Exception as e:
                     results['headers'] = str(e)
+                    tv_detail = f"error: {e}"
                     self._stage_log(f"Target Validation error: {e} — continuing", 'error')
                     self._emit_guardian_response(
                         f"**Target Validation ✗** `{e}` — continuing", target, step='headers',
                     )
+                finally:
+                    self._stage_exit("Target Validation", tv_detail or "done")
                 _tp(12, "Target validation done")
 
                 # ── Subfinder ──────────────────────────────────────────────────
+                sf_detail = ""
                 self._stage_enter("Subfinder")
                 try:
                     if tools.subfinder.is_available():
                         sub_res = tools.subfinder.enumerate(target, timeout=60)
                         subdomains.extend(sub_res.subdomains)
                         results['subfinder'] = sub_res.raw_output or ''
-                        detail = f"{len(sub_res.subdomains)} subdomain(s)"
+                        sf_detail = f"{len(sub_res.subdomains)} subdomain(s)"
                         if not sub_res.subdomains:
-                            detail = "0 subdomains (empty result)"
-                        self._stage_exit("Subfinder", detail)
+                            sf_detail = "0 subdomains (empty result)"
                         self._emit_guardian_response(
-                            f"**Subfinder ✓** {detail}", target, step='subfinder',
+                            f"**Subfinder ✓** {sf_detail}", target, step='subfinder',
                         )
                     else:
-                        self._stage_skip("Subfinder", "tool not installed")
+                        sf_detail = self._stage_skip("Subfinder", "tool not installed")
                         results['subfinder'] = 'skipped'
                         self._emit_guardian_response(
                             f"**Subfinder ⚠ Skipped** (not installed)", target, step='subfinder',
                         )
                 except Exception as e:
+                    sf_detail = f"error: {e}"
                     self._stage_log(f"Subfinder error: {e} — continuing", 'error')
-                    self._stage_exit("Subfinder", f"error: {e}")
+                finally:
+                    self._stage_exit("Subfinder", sf_detail or "done")
                 _tp(22, f"Subfinder: {len(subdomains)} subs")
 
                 # ── Amass ──────────────────────────────────────────────────────
+                am_detail = ""
                 self._stage_enter("Amass")
                 try:
                     if tools.amass.is_available():
@@ -624,24 +762,85 @@ Be specific and reference actual data from the output above."""
                                 subdomains.append(name)
                                 added += 1
                         results['amass'] = amass_res.raw_output or ''
-                        self._stage_exit("Amass", f"{added} new asset(s), total subs={len(subdomains)}")
+                        am_detail = f"{added} new asset(s), total subs={len(subdomains)}"
                         self._emit_guardian_response(
                             f"**Amass ✓** {added} asset(s)", target, step='amass',
                         )
                     else:
-                        self._stage_skip("Amass", "tool not installed")
+                        am_detail = self._stage_skip("Amass", "tool not installed")
                         results['amass'] = 'skipped'
                         self._emit_guardian_response(
                             f"**Amass ⚠ Skipped** (not installed)", target, step='amass',
                         )
                 except Exception as e:
+                    am_detail = f"error: {e}"
                     self._stage_log(f"Amass error: {e} — continuing", 'error')
-                    self._stage_exit("Amass", f"error: {e}")
-                _tp(32, f"Amass done, {len(subdomains)} subs")
+                finally:
+                    failed_am = am_detail.startswith("error")
+                    self._stage_exit("Amass", am_detail or "done", failed=failed_am)
+                _tp(32, f"Amass done, {len(subdomains)} subs", "Amass")
+                try:
+                    from workers.guardian.findings_center import add_hosts
+                    add_hosts(session_id, subdomains[:80])
+                except Exception:
+                    pass
+
+                # ── Assetfinder ────────────────────────────────────────────────
+                af_detail = ""
+                self._stage_enter("Assetfinder")
+                try:
+                    from workers.guardian.bundled_toolchain import resolve_tool_binary
+                    from workers.guardian.generic_pd_tool import run_tool
+                    if resolve_tool_binary("assetfinder"):
+                        self._stage_running("Assetfinder")
+                        code, out, err = run_tool("assetfinder", ["--subs-only", target], timeout=60)
+                        added = 0
+                        for line in (out or "").splitlines():
+                            name = line.strip()
+                            if name and name not in subdomains:
+                                subdomains.append(name)
+                                added += 1
+                        results['assetfinder'] = out[:2000] if out else err
+                        af_detail = f"{added} subdomain(s) from assetfinder"
+                    else:
+                        af_detail = self._stage_skip("Assetfinder", "tool not installed")
+                        results['assetfinder'] = 'skipped'
+                except Exception as e:
+                    af_detail = f"error: {e}"
+                    self._stage_log(f"Assetfinder error: {e}", 'error')
+                finally:
+                    self._stage_exit("Assetfinder", af_detail or "done", failed=af_detail.startswith("error"))
+                _tp(36, f"Assetfinder: {len(subdomains)} subs", "Assetfinder")
+
+                # ── dnsx ───────────────────────────────────────────────────────
+                dx_detail = ""
+                self._stage_enter("dnsx")
+                try:
+                    from workers.guardian.bundled_toolchain import resolve_tool_binary
+                    from workers.guardian.generic_pd_tool import run_tool
+                    if resolve_tool_binary("dnsx") and subdomains:
+                        self._stage_running("dnsx")
+                        code, out, err = run_tool(
+                            "dnsx", ["-silent", "-a", "-resp"], stdin_lines=subdomains[:50], timeout=90,
+                        )
+                        results['dnsx'] = (out or err)[:2000]
+                        dx_detail = f"resolved {len((out or '').splitlines())} line(s)"
+                    else:
+                        dx_detail = self._stage_skip(
+                            "dnsx", "tool not installed" if not resolve_tool_binary("dnsx") else "no subs",
+                        )
+                        results['dnsx'] = 'skipped'
+                except Exception as e:
+                    dx_detail = f"error: {e}"
+                finally:
+                    self._stage_exit("dnsx", dx_detail or "done", failed=dx_detail.startswith("error"))
+                _tp(40, "dnsx done", "dnsx")
 
                 # ── httpx ──────────────────────────────────────────────────────
+                httpx_detail = ""
                 self._stage_enter("httpx")
                 try:
+                    self._stage_running("httpx")
                     self._emit_guardian_response(
                         f"**httpx** ⟳ technology probe…", target, step='httpx_start',
                     )
@@ -649,11 +848,11 @@ Be specific and reference actual data from the output above."""
                     self._stage_log(f"httpx targets: {len(probe_targets)} URL(s)")
                     if tools.httpx.is_available():
                         httpx_res = tools.httpx.probe(probe_targets, timeout=8)
-                        tech_data = httpx_res.hosts or []
-                        live_hosts = [
-                            h['url'] for h in tech_data
-                            if h.get('status_code', 0) in range(200, 500)
-                        ]
+                        self._stage_log(
+                            f"httpx probe returned ({len(httpx_res.hosts or [])} record(s))",
+                        )
+                        tech_data = list(httpx_res.hosts or [])
+                        live_hosts[:] = self._safe_live_hosts(tech_data)
                         results['httpx'] = httpx_res.raw_output or httpx_res.error or ''
                         if httpx_res.error:
                             self._stage_log(f"httpx returned error flag: {httpx_res.error}", 'warning')
@@ -662,107 +861,304 @@ Be specific and reference actual data from the output above."""
                                 "httpx: 0 live hosts — continuing pipeline (Katana/Nuclei use primary URL)",
                                 'warning',
                             )
-                            live_hosts = []
-                        self._stage_exit(
-                            "httpx",
-                            f"{len(tech_data)} parsed, {len(live_hosts)} live (2xx-4xx)",
-                        )
-                        self._emit_guardian_response(
-                            f"**httpx ✓** {len(tech_data)} host(s), {len(live_hosts)} live",
-                            target, step='httpx',
-                        )
+                        httpx_detail = f"{len(tech_data)} parsed, {len(live_hosts)} live (2xx-4xx)"
                     else:
-                        self._stage_skip("httpx", "tool not installed")
+                        httpx_detail = self._stage_skip("httpx", "tool not installed")
                         results['httpx'] = 'skipped'
+                except Exception as e:
+                    httpx_detail = f"error: {e}"
+                    self._stage_log(f"httpx error: {e} — continuing", 'error')
+                finally:
+                    self._stage_exit("httpx", httpx_detail or "done", failed=httpx_detail.startswith("error"))
+                try:
+                    if httpx_detail.startswith("error"):
+                        self._emit_guardian_response(
+                            f"**httpx ✗** `{httpx_detail}` — continuing", target, step='httpx',
+                        )
+                    elif httpx_detail.startswith("skipped"):
                         self._emit_guardian_response(
                             f"**httpx ⚠ Skipped** (not installed)", target, step='httpx',
                         )
+                    elif httpx_detail:
+                        self._emit_guardian_response(
+                            f"**httpx ✓** {httpx_detail}", target, step='httpx',
+                        )
+                except Exception:
+                    pass
+                _tp(45, f"httpx: {len(live_hosts)} live", "httpx", "httpx")
+                try:
+                    from workers.guardian.findings_center import add_hosts, add_technologies
+                    add_hosts(session_id, live_hosts[:50])
+                    techs = sorted(set(t for h in tech_data for t in (h.get("tech") or [])))
+                    add_technologies(session_id, techs)
+                except Exception:
+                    pass
+
+                # ── Naabu ──────────────────────────────────────────────────────
+                nb_detail = ""
+                self._stage_enter("Naabu")
+                try:
+                    from workers.guardian.bundled_toolchain import resolve_tool_binary
+                    from workers.guardian.generic_pd_tool import run_tool
+                    if resolve_tool_binary("naabu"):
+                        self._stage_running("Naabu")
+                        code, out, err = run_tool(
+                            "naabu", ["-host", target, "-silent"], timeout=90,
+                        )
+                        results['ports'] = out or err or ''
+                        nb_detail = f"{len((out or '').splitlines())} port line(s)"
+                    else:
+                        nb_detail = self._stage_skip("Naabu", "tool not installed")
+                        results['ports'] = results.get('ports', 'skipped')
                 except Exception as e:
-                    self._stage_log(f"httpx error: {e} — continuing", 'error')
-                    self._stage_exit("httpx", f"error: {e}")
-                    self._emit_guardian_response(
-                        f"**httpx ✗** `{e}` — continuing", target, step='httpx',
-                    )
-                _tp(45, f"httpx: {len(live_hosts)} live")
+                    nb_detail = f"error: {e}"
+                finally:
+                    self._stage_exit("Naabu", nb_detail or "done", failed=nb_detail.startswith("error"))
+                _tp(50, "Naabu done", "Naabu", "naabu")
 
                 # ── Katana ─────────────────────────────────────────────────────
+                kat_detail = ""
                 self._stage_enter("Katana")
                 try:
                     crawl_url = _primary_url()
                     self._stage_log(f"Katana crawl URL: {crawl_url}")
                     if tools.katana.is_available():
                         kat_res = tools.katana.crawl(crawl_url, depth=2, timeout=60)
-                        endpoints = kat_res.endpoints or []
+                        endpoints[:] = kat_res.endpoints or []
                         results['katana'] = kat_res.raw_output or kat_res.error or ''
-                        self._stage_exit("Katana", f"{len(endpoints)} endpoint(s)")
+                        kat_detail = f"{len(endpoints)} endpoint(s)"
                         self._emit_guardian_response(
-                            f"**Katana ✓** {len(endpoints)} endpoint(s)", target, step='katana',
+                            f"**Katana ✓** {kat_detail}", target, step='katana',
                         )
                     else:
-                        self._stage_skip("Katana", "tool not installed")
+                        kat_detail = self._stage_skip("Katana", "tool not installed")
                         results['katana'] = 'skipped'
                         self._emit_guardian_response(
                             f"**Katana ⚠ Skipped** (not installed)", target, step='katana',
                         )
                 except Exception as e:
+                    kat_detail = f"error: {e}"
                     self._stage_log(f"Katana error: {e} — continuing", 'error')
-                    self._stage_exit("Katana", f"error: {e}")
-                _tp(58, f"Katana: {len(endpoints)} endpoints")
+                finally:
+                    self._stage_exit("Katana", kat_detail or "done", failed=kat_detail.startswith("error"))
+                _tp(58, f"Katana: {len(endpoints)} endpoints", "Katana", "katana")
+                try:
+                    from workers.guardian.findings_center import add_endpoints
+                    add_endpoints(session_id, endpoints[:200])
+                except Exception:
+                    pass
+
+                # ── ffuf ───────────────────────────────────────────────────────
+                ff_detail = ""
+                self._stage_enter("ffuf")
+                try:
+                    from workers.guardian.bundled_toolchain import resolve_tool_binary
+                    from workers.guardian.generic_pd_tool import run_tool
+                    if resolve_tool_binary("ffuf"):
+                        self._stage_running("ffuf")
+                        url = _primary_url()
+                        import tempfile
+                        wl = tempfile.NamedTemporaryFile(
+                            mode="w", suffix=".txt", delete=False, encoding="utf-8",
+                        )
+                        for w in ("admin", "api", "login", "backup", ".env", "config", "test"):
+                            wl.write(w + "\n")
+                        wl.close()
+                        code, out, err = run_tool(
+                            "ffuf",
+                            ["-u", f"{url}/FUZZ", "-w", wl.name, "-mc", "200,301,302",
+                             "-t", "10", "-maxtime", "20", "-noninteractive"],
+                            timeout=45,
+                        )
+                        results['ffuf'] = (out or err)[:1500]
+                        ff_detail = "dir probe finished" if code == 0 else f"exit {code}"
+                    else:
+                        ff_detail = self._stage_skip("ffuf", "tool not installed")
+                        results['ffuf'] = 'skipped'
+                except Exception as e:
+                    ff_detail = f"error: {e}"
+                finally:
+                    self._stage_exit("ffuf", ff_detail or "done", failed=ff_detail.startswith("error"))
+                _tp(65, "ffuf done", "ffuf", "ffuf")
 
                 # ── Nuclei (no WSL legacy fallback — avoids 120s silent hang) ──
+                nuc_detail = ""
                 self._stage_enter("Nuclei")
                 try:
                     if tools.nuclei.is_available():
                         scan_url = _primary_url()
                         self._stage_log(f"Nuclei scan URL: {scan_url}")
                         nuclei_res = tools.nuclei.scan(scan_url)
-                        nuclei_findings = nuclei_res.findings or []
+                        nuclei_findings[:] = nuclei_res.findings or []
                         results['nuclei'] = nuclei_res.raw_output or nuclei_res.error or ''
                         for f in nuclei_findings:
                             try:
                                 tools.faraday.save_finding(f, session_id)
                             except Exception:
                                 pass
-                        self._stage_exit("Nuclei", f"{len(nuclei_findings)} finding(s)")
+                            if _findings_db:
+                                try:
+                                    _findings_db.add_from_nuclei(f, target, session_id)
+                                except Exception:
+                                    pass
+                            try:
+                                from workers.guardian.findings_center import add_finding
+                                add_finding(
+                                    session_id,
+                                    title=getattr(f, "template", "nuclei-finding"),
+                                    severity=getattr(f, "severity", "medium"),
+                                    evidence=getattr(f, "target", ""),
+                                    tool_source="nuclei",
+                                    discovery_path="Nuclei scan",
+                                    ai_explanation=(getattr(f, "description", "") or "")[:500],
+                                )
+                            except Exception:
+                                pass
+                        nuc_detail = f"{len(nuclei_findings)} finding(s)"
                         self._emit_guardian_response(
-                            f"**Nuclei ✓** {len(nuclei_findings)} finding(s)", target, step='nuclei',
+                            f"**Nuclei ✓** {nuc_detail}", target, step='nuclei',
                         )
                     else:
-                        self._stage_skip("Nuclei", "tool not installed")
+                        nuc_detail = self._stage_skip("Nuclei", "tool not installed")
                         results['nuclei'] = 'skipped'
                         self._emit_guardian_response(
                             f"**Nuclei ⚠ Skipped** (not installed)", target, step='nuclei',
                         )
                 except Exception as e:
+                    nuc_detail = f"error: {e}"
                     self._stage_log(f"Nuclei error: {e} — continuing", 'error')
-                    self._stage_exit("Nuclei", f"error: {e}")
+                finally:
+                    self._stage_exit("Nuclei", nuc_detail or "done")
                 _tp(72, f"Nuclei: {len(nuclei_findings)} findings")
 
                 # ── ZAP ────────────────────────────────────────────────────────
+                zap_detail = ""
                 self._stage_enter("ZAP")
                 try:
                     if tools.zap.is_available():
                         zap_url = _primary_url()
-                        zap_findings = tools.zap.passive_scan(zap_url)
+                        zap_findings[:] = tools.zap.passive_scan(zap_url)
                         results['zap'] = f"{len(zap_findings)} alerts"
-                        self._stage_exit("ZAP", f"{len(zap_findings)} alert(s)")
+                        zap_detail = f"{len(zap_findings)} alert(s)"
                         self._emit_guardian_response(
-                            f"**ZAP ✓** {len(zap_findings)} alert(s)", target, step='zap',
+                            f"**ZAP ✓** {zap_detail}", target, step='zap',
                         )
                     else:
-                        self._stage_skip("ZAP", "daemon not running on :8090")
+                        zap_detail = self._stage_skip("ZAP", "daemon not running on :8090")
                         results['zap'] = 'skipped'
                         self._emit_guardian_response(
                             f"**ZAP ⚠ Skipped** (not running)", target, step='zap',
                         )
                 except Exception as e:
+                    zap_detail = f"error: {e}"
                     self._stage_log(f"ZAP error: {e} — continuing", 'error')
-                    self._stage_exit("ZAP", f"error: {e}")
-                _tp(85, f"ZAP: {len(zap_findings)} alerts")
+                finally:
+                    self._stage_exit("ZAP", zap_detail or "done", failed=zap_detail.startswith("error"))
+                _tp(80, f"ZAP: {len(zap_findings)} alerts", "ZAP", "zap")
+
+                # ── Threat Intel ───────────────────────────────────────────────
+                ti_detail = ""
+                self._stage_enter("Threat Intel")
+                try:
+                    from workers.guardian.guardian_threat_intel import analyze_target
+                    self._stage_running("Threat Intel")
+                    threat_intel_result = analyze_target(target)
+                    ti_detail = f"{len(threat_intel_result.sources_used)} source(s)"
+                    results['threat_intel'] = threat_intel_result.threat_summaries
+                except Exception as e:
+                    ti_detail = f"error: {e}"
+                finally:
+                    self._stage_exit("Threat Intel", ti_detail or "done", failed=ti_detail.startswith("error"))
+                _tp(88, "Threat intel done", "Threat Intel")
+
+                # ── Access Path Analysis (bug/vuln-based entry — no brute/backdoors) ──
+                if access_path_mode:
+                    ap_detail = ""
+                    self._stage_enter("Access Path Analysis")
+                    try:
+                        from workers.guardian.guardian_access_path import run_access_path_analysis
+                        self._stage_running("Access Path Analysis")
+                        access_path_result = run_access_path_analysis(
+                            target,
+                            tools=tools,
+                            nuclei_findings=nuclei_findings,
+                            zap_findings=zap_findings,
+                            endpoints=endpoints,
+                            live_hosts=live_hosts,
+                            results=results,
+                            log_fn=lambda m, lvl="info": self._stage_log(m, lvl),
+                        )
+                        for ef in access_path_result.extra_nuclei_findings:
+                            nuclei_findings.append(ef)
+                            if _findings_db:
+                                try:
+                                    _findings_db.add_from_nuclei(ef, target, session_id)
+                                except Exception:
+                                    pass
+                        ap_detail = f"{len(access_path_result.vectors)} vector(s)"
+                        md = access_path_result.to_markdown()
+                        self._emit_guardian_response(
+                            f"**Access Path Analysis ✓**\n\n{md[:5000]}", target, step="access_path",
+                        )
+                    except Exception as e:
+                        ap_detail = f"error: {e}"
+                        self._stage_log(f"Access path error: {e}", "error")
+                    finally:
+                        self._stage_exit(
+                            "Access Path Analysis", ap_detail or "done",
+                            failed=ap_detail.startswith("error"),
+                        )
+                    _tp(90, ap_detail, "Access Path Analysis")
+
+                # ── Offensive Lab (ATTACK + closed lab only; skipped for access-path mode) ──
+                offensive_lab_result = None
+                if self.mode == "attack" and not access_path_mode:
+                    self._stage_enter("Offensive Lab")
+                    try:
+                        from workers.guardian.guardian_offensive_lab import run_offensive_lab
+                        self._stage_running("Offensive Lab")
+                        offensive_lab_result = run_offensive_lab(
+                            target,
+                            attack_mode=True,
+                            results=results,
+                            endpoints=endpoints,
+                            nuclei_findings=nuclei_findings,
+                            tools=tools,
+                            findings_db=_findings_db,
+                            session_id=session_id,
+                            stage_enter=self._stage_enter,
+                            stage_running=self._stage_running,
+                            stage_exit=lambda n, d, failed=False: self._stage_exit(n, d, failed=failed),
+                            log_fn=lambda m, lvl="info": self._stage_log(m, lvl),
+                        )
+                        if offensive_lab_result.skipped_reason:
+                            self._stage_log(
+                                f"Offensive lab skipped: {offensive_lab_result.skipped_reason}", "warning",
+                            )
+                            self._emit_guardian_response(
+                                f"**Offensive Lab** — {offensive_lab_result.skipped_reason}",
+                                target, step="offensive_lab",
+                            )
+                        else:
+                            summary = (
+                                f"services={len(offensive_lab_result.open_services)} "
+                                f"creds={len(offensive_lab_result.credential_audit)} "
+                                f"backdoors={len(offensive_lab_result.backdoor_findings)}"
+                            )
+                            self._emit_guardian_response(
+                                f"**Offensive Lab ✓** {summary}", target, step="offensive_lab",
+                            )
+                    except Exception as e:
+                        self._stage_log(f"Offensive lab error: {e}", "error")
+                    finally:
+                        self._stage_exit("Offensive Lab", "done")
+                    _tp(92, "Offensive lab", "Offensive Lab")
 
                 # ── AI Analysis ────────────────────────────────────────────────
-                self._stage_enter("AI Analysis")
+                ai_detail = ""
+                self._stage_enter("Guardian AI Analysis")
                 try:
+                    self._stage_running("Guardian AI Analysis")
                     self._emit_guardian_response(
                         f"**AI Analysis** ⟳ synthesizing findings…", target, step='analysis_start',
                     )
@@ -775,16 +1171,21 @@ Be specific and reference actual data from the output above."""
                         f"Nuclei findings: {len(nuclei_findings)}\n"
                         f"ZAP alerts: {len(zap_findings)}\n"
                     )
-                    analysis = self._analyze_with_ollama('security assessment', target, combined_context)
-                    self._stage_exit("AI Analysis", f"{len(analysis)} chars")
+                    if access_path_result and access_path_result.ai_plan:
+                        combined_context += f"\nAccess path plan:\n{access_path_result.ai_plan[:2000]}\n"
+                    task = "access path analysis" if access_path_mode else "security assessment"
+                    analysis = self._analyze_with_ollama(task, target, combined_context)
+                    ai_detail = f"{len(analysis)} chars"
                     self._emit_guardian_response(
                         f"**AI Analysis ✓**\n\n{analysis[:4000]}", target, step='analysis',
                     )
                 except Exception as e:
                     analysis = f"AI analysis unavailable: {e}"
+                    ai_detail = f"error: {e}"
                     self._stage_log(f"AI Analysis error: {e} — continuing", 'error')
-                    self._stage_exit("AI Analysis", f"error: {e}")
-                _tp(95, "AI analysis done")
+                finally:
+                    self._stage_exit("Guardian AI Analysis", ai_detail or "done", failed=ai_detail.startswith("error"))
+                _tp(95, "AI analysis done", "Guardian AI Analysis")
 
                 _emit_final_report()
 
@@ -803,38 +1204,29 @@ Be specific and reference actual data from the output above."""
 
     # ── Main chat ──────────────────────────────────────────────────────────────
 
-    # Keywords that indicate the user is confirming authorization
-    _AUTH_CONFIRMS = [
-        'i approve', 'confirmed', 'yes i own', 'i have authorization',
-        'authorized', 'its my', "it's my", 'i own it', 'i own this',
-        'my website', 'my server', 'my system', 'my domain',
-        'yes', 'yep', 'yup', 'go ahead', 'proceed', 'do it',
-        'confirm', 'approve', 'i confirm', 'i authorize', 'i give permission',
-    ]
     # Keywords that indicate a scan/attack request
     _SCAN_KEYWORDS = [
         'scan', 'check', 'test', 'audit', 'vulnerabilities', 'pentest',
         'assess', 'recon', 'enumerate', 'probe', 'penetrate', 'attack',
         'exploit', 'hack', 'find vulnerabilities', 'security test',
         'find a way', 'break into', 'get into',
+        'run assessment', 'start assessment', 'full assessment',
+        'security assessment', 'run guardian', 'go ahead',
+        'network penetration', 'pentest network', 'hack network', 'intrusion',
     ]
 
     def chat(self, user_message: str) -> Dict:
         msg_lower = user_message.lower()
-
-        # ── Authorization confirmation ─────────────────────────────────────────
-        if any(phrase in msg_lower for phrase in self._AUTH_CONFIRMS):
-            if self.pending_confirmation:
-                target = self.pending_confirmation
-                self.confirm_authorization(target)
-                self.conversation_history.append({"role": "user", "content": user_message})
-                resp = (f"✓ Authorization confirmed for {target}.\n\n"
-                        f"Starting security assessment — results will appear here "
-                        f"as each tool completes. Check the Guardian Log for real-time progress.")
-                self.conversation_history.append({"role": "assistant", "content": resp})
-                # Fire off the assessment in a background thread
-                self._run_full_assessment(target)
-                return {"response": resp, "tool_calls": [], "mode": self.mode, "authorized": True, "target": target}
+        try:
+            from workers.guardian.guardian_access_path import user_wants_access_path_analysis
+            is_access_path = user_wants_access_path_analysis(user_message)
+        except Exception:
+            is_access_path = any(
+                k in msg_lower for k in (
+                    "find a way", "get access", "break into", "get into",
+                    "exploit weakness", "find a bug", "allows you in",
+                )
+            )
 
         # ── Extract targets ───────────────────────────────────────────────────
         ip_pat = r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b"
@@ -848,35 +1240,73 @@ Be specific and reference actual data from the output above."""
             if bare in user_message.lower() and bare not in targets:
                 targets.append(bare)
 
-        always_safe = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
-        external = [t for t in targets if t not in always_safe]
-        unauthorized = [t for t in external if not self.is_authorized(t)]
+        is_scan = any(kw in msg_lower for kw in self._SCAN_KEYWORDS) or is_access_path
+        if self.mode == "attack" and targets and not is_access_path:
+            is_scan = True
 
-        # ── Scan request on unauthorized target → ask for authorization ───────
-        is_scan = any(kw in msg_lower for kw in self._SCAN_KEYWORDS)
-        if unauthorized and is_scan:
-            result = self.request_authorization(unauthorized[0])
-            return {
-                "response": result["message"],
-                "requires_confirmation": True,
-                "target": unauthorized[0],
-                "tool_calls": [],
-                "mode": self.mode,
-            }
+        if not is_scan and any(
+            p in msg_lower for p in ("how's the scan", "how is the scan", "scan going", "scan status", "progress")
+        ):
+            self.conversation_history.append({"role": "user", "content": user_message})
+            hint = (
+                "I don't have an active scan in this session. Start one with a target, "
+                "e.g. `scan example.com` — I'll report subdomains, endpoints, and findings as I go."
+            )
+            tid = getattr(self, "_current_guardian_task_id", "")
+            if tid:
+                try:
+                    from workers.task_manager import get_task
+                    t = get_task(tid)
+                    if t and t.get("status") == "RUNNING":
+                        meta = t.get("metadata") or {}
+                        hint = (
+                            f"Scan in progress on {meta.get('target', 'your target')}. "
+                            f"Phase: {meta.get('phase', t.get('current_stage', 'working'))}. "
+                            f"Progress: {t.get('progress', 0)}%. "
+                            f"Findings so far: {meta.get('findings_count', 0)}."
+                        )
+                except Exception:
+                    pass
+            self.conversation_history.append({"role": "assistant", "content": hint})
+            return {"response": hint, "tool_calls": [], "mode": self.mode}
 
-        # ── Scan request on already-authorized or always-safe target → execute directly ──
-        always_safe_targets = [t for t in targets if t in always_safe]
-        authorized_external = [t for t in external if self.is_authorized(t)]
-        direct_targets = always_safe_targets + authorized_external
-        if is_scan and direct_targets:
-            target = direct_targets[0]
-            resp = (f"Starting security assessment of {target}. "
+        # ── Scan / assessment request → run pipeline immediately (no confirmation) ──
+        if is_scan and targets:
+            target = targets[0]
+            try:
+                from workers.guardian.guardian_trusted_targets import approve, is_trusted
+                if not is_trusted(target):
+                    approve(target, note="auto-approved on scan request")
+            except Exception:
+                pass
+            self.authorized_targets.add(target)
+            if is_access_path:
+                resp = (
+                    f"Hunting vulnerability-based access paths for {target} — "
+                    f"exploitable weaknesses only (no brute force, no backdoors). "
+                    f"Watch this chat and Guardian Log for vectors and validation steps."
+                )
+            else:
+                lab_note = ""
+                if self.mode == "attack":
+                    lab_note = (
+                        " Offensive lab may run in ATTACK mode (network/credential/backdoor detection)."
+                    )
+                resp = (
+                    f"Starting security assessment of {target}.{lab_note} "
                     f"Results will appear here as each tool completes. "
-                    f"Check the Guardian Log for real-time progress.")
+                    f"Check the Guardian Log for real-time progress."
+                )
             self.conversation_history.append({"role": "user", "content": user_message})
             self.conversation_history.append({"role": "assistant", "content": resp})
-            self._run_full_assessment(target)
-            return {"response": resp, "tool_calls": [], "mode": self.mode, "scanning": True}
+            self._run_full_assessment(target, access_path_mode=is_access_path)
+            return {
+                "response": resp,
+                "tool_calls": [],
+                "mode": self.mode,
+                "scanning": True,
+                "access_path_mode": is_access_path,
+            }
 
         # ── Default: pass to Ollama for general Guardian questions ────────────
         tier = self._classify_task_tier(user_message)
@@ -951,10 +1381,9 @@ Be specific and reference actual data from the output above."""
         return results
 
     def run_tool(self, tool: str, args: str, target: str) -> Dict:
-        """Direct tool execution — always requires authorization for external targets."""
-        always_safe = {"localhost", "127.0.0.1", "0.0.0.0"}
-        if target not in always_safe and not self.is_authorized(target):
-            return self.request_authorization(target)
+        """Direct tool execution — runs immediately for any target."""
+        if target:
+            self.authorized_targets.add(target)
         self._guardian_log(f"[TOOL] {tool} {args} → {target}", 'tool')
         try:
             cmd = f"wsl {tool} {args}"
@@ -1189,6 +1618,24 @@ Provide:
         return {"status": "ok"}
 
     def get_status(self) -> Dict:
+        runtime = {}
+        trusted = []
+        try:
+            from workers.guardian.guardian_runtime_manager import get_runtime_dashboard
+            runtime = get_runtime_dashboard()
+        except Exception:
+            pass
+        try:
+            from workers.guardian.guardian_trusted_targets import list_trusted
+            trusted = list_trusted()
+        except Exception:
+            pass
+        offensive_lab = {}
+        try:
+            from workers.guardian.guardian_offensive_lab import load_lab_config
+            offensive_lab = load_lab_config()
+        except Exception:
+            pass
         return {
             "model_fast": self.models.get("fast"),
             "model_reasoning": self.models.get("reasoning"),
@@ -1196,6 +1643,9 @@ Provide:
             "mode": self.mode,
             "history_length": len(self.conversation_history),
             "authorized_targets": list(self.authorized_targets),
+            "trusted_targets": trusted,
             "tools_available": self.tools_available,
             "tools_header": self.get_tools_header(),
+            "guardian_runtime": runtime,
+            "offensive_lab": offensive_lab,
         }

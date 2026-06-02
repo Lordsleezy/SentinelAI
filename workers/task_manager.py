@@ -135,6 +135,8 @@ def create_task(
         "updated_at":     now,
         "error":          None,
         "result_summary": None,
+        "current_stage":  None,
+        "files_created":  [],
         "project_id":     project_id,
         "metadata":       metadata or {},
     }
@@ -153,6 +155,8 @@ def update_task(
     error: Optional[str] = None,
     result_summary: Optional[str] = None,
     metadata_update: Optional[Dict] = None,
+    current_stage: Optional[str] = None,
+    files_created: Optional[List[str]] = None,
 ) -> Optional[Dict]:
     """
     Update task fields. Emits 'task_update'.
@@ -182,6 +186,10 @@ def update_task(
             task["error"] = error
         if result_summary is not None:
             task["result_summary"] = result_summary
+        if current_stage is not None:
+            task["current_stage"] = current_stage
+        if files_created is not None:
+            task["files_created"] = list(files_created)
         if metadata_update:
             task.setdefault("metadata", {}).update(metadata_update)
         task["updated_at"] = _now()
@@ -266,9 +274,13 @@ class TaskContext:
         self.task_id = self._task["id"]
         return self
 
-    def progress(self, pct: int, summary: str = "") -> None:
-        update_task(self.task_id, progress=pct,
-                    result_summary=summary or None)
+    def progress(self, pct: int, summary: str = "", stage: str = "") -> None:
+        update_task(
+            self.task_id,
+            progress=pct,
+            result_summary=summary or None,
+            current_stage=stage or summary or None,
+        )
 
     def complete(self, result_summary: str = "", artifact_id: Optional[str] = None) -> None:
         meta = {}
