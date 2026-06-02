@@ -185,23 +185,50 @@ class GuardianBrain:
 
     # ── Tool execution ─────────────────────────────────────────────────────────
 
+    def _guardian_log(self, message: str, level: str = 'info') -> None:
+        """Emit a guardian-typed log event to the UI log panel."""
+        try:
+            from desktop_app import socketio
+            if socketio:
+                socketio.emit('log_event', {
+                    'type': 'guardian',
+                    'level': level,
+                    'message': message,
+                    'timestamp': __import__('datetime').datetime.now().isoformat()
+                })
+        except Exception:
+            pass
+        logger.info("[Guardian/%s] %s", level, message)
+
     def _execute_tool_calls(self, response: str) -> List[Dict]:
         calls = re.findall(r"TOOL_CALL:\s*(\w[\w-]*)\s+(.*?)(?=TOOL_CALL:|$)", response, re.DOTALL)
         results = []
         for tool, args in calls:
             tool = tool.strip()
             args = args.strip().splitlines()[0].strip()
-            logger.info("[Guardian] exec: %s %s", tool, args)
+            self._guardian_log(f"[TOOL] {tool} {args}", 'tool')
             try:
                 cmd = f"wsl {tool} {args}"
                 proc = subprocess.run(
                     cmd, shell=True, capture_output=True, text=True, timeout=60
                 )
                 output = (proc.stdout or proc.stderr or "No output")[:5000]
+                level = 'success' if proc.returncode == 0 else 'warning'
+                self._guardian_log(f"[RESULT] {tool}: {output[:200]}", level)
                 results.append({"tool": tool, "args": args, "output": output, "exit_code": proc.returncode})
             except subprocess.TimeoutExpired:
+                self._guardian_log(f"[TIMEOUT] {tool} — exceeded 60s, killed", 'error')
                 results.append({"tool": tool, "args": args, "output": "Timed out (60s)", "exit_code": -1})
+            except PermissionError as e:
+                self._guardian_log(f"[ERROR] {tool} requires admin privileges — {e}", 'error')
+                self._guardian_log(f"[INFO] Skipping privileged tool; provide results manually if needed", 'info')
+                results.append({"tool": tool, "args": args, "output": f"Permission denied: {e}\nRun as administrator to use this tool.", "exit_code": -1})
+            except FileNotFoundError:
+                self._guardian_log(f"[ERROR] {tool} not found — tool may not be installed", 'warning')
+                self._guardian_log(f"[INFO] Install {tool} via WSL or add it to PATH", 'info')
+                results.append({"tool": tool, "args": args, "output": f"{tool} not installed. Install via WSL: sudo apt install {tool}", "exit_code": -1})
             except Exception as e:
+                self._guardian_log(f"[ERROR] {tool} failed: {e}", 'error')
                 results.append({"tool": tool, "args": args, "output": f"Execution failed: {e}", "exit_code": -1})
         return results
 
@@ -210,15 +237,26 @@ class GuardianBrain:
         always_safe = {"localhost", "127.0.0.1", "0.0.0.0"}
         if target not in always_safe and not self.is_authorized(target):
             return self.request_authorization(target)
-        logger.info("[Guardian] direct tool: %s %s", tool, args)
+        self._guardian_log(f"[TOOL] {tool} {args} → {target}", 'tool')
         try:
             cmd = f"wsl {tool} {args}"
             proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
             output = (proc.stdout or proc.stderr or "No output")[:8000]
+            level = 'success' if proc.returncode == 0 else 'warning'
+            self._guardian_log(f"[RESULT] exit={proc.returncode} {output[:200]}", level)
             return {"status": "ok", "tool": tool, "args": args, "output": output, "exit_code": proc.returncode}
         except subprocess.TimeoutExpired:
+            self._guardian_log(f"[TIMEOUT] {tool} exceeded 120s, killed", 'error')
             return {"status": "error", "tool": tool, "output": "Timed out after 120s"}
+        except PermissionError as e:
+            self._guardian_log(f"[ERROR] {tool} requires admin — {e}", 'error')
+            self._guardian_log(f"[INFO] Falling back: try running {tool} with reduced privileges", 'warning')
+            return {"status": "error", "tool": tool, "output": f"Permission denied: {e}. Try running as administrator or using a non-privileged scan mode."}
+        except FileNotFoundError:
+            self._guardian_log(f"[ERROR] {tool} not installed", 'warning')
+            return {"status": "error", "tool": tool, "output": f"{tool} not found. Install it via WSL: sudo apt install {tool}"}
         except Exception as e:
+            self._guardian_log(f"[ERROR] {tool} exception: {e}", 'error')
             return {"status": "error", "tool": tool, "output": str(e)}
 
     # ── Code auditing ──────────────────────────────────────────────────────────

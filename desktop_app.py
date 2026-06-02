@@ -4135,12 +4135,20 @@ def api_guardian_chat():
             return jsonify({"status": "error", "error": "No message provided"}), 200
         log(f'Guardian query: {message[:100]}', 'info', 'guardian')
         result = get_guardian_brain().chat(message)
-        log(f'Guardian response: {str(result.get("response",""))[:100]}', 'info', 'guardian')
+        resp_text = str(result.get("response", ""))
+        log(f'Guardian response: {resp_text[:100]}', 'info', 'guardian')
+        tool_calls = result.get('tool_calls', [])
+        if tool_calls:
+            log(f'Guardian ran {len(tool_calls)} tool(s)', 'info', 'guardian')
         return jsonify({"status": "ok", **result})
+    except PermissionError as e:
+        log(f'Guardian permission error: {e}', 'error', 'guardian')
+        log('UAC/admin required — falling back to guidance mode', 'warning', 'guardian')
+        return jsonify({"status": "ok", "response": f"I encountered a permissions error: {e}\n\nI'll provide guidance instead of running the tool directly. What would you like to know?", "tool_calls": []}), 200
     except Exception as e:
         logger.error("Guardian chat error: %s", e, exc_info=True)
         log(str(e), 'error', 'guardian')
-        return jsonify({"status": "error", "error": str(e)}), 200
+        return jsonify({"status": "error", "error": str(e), "response": f"Guardian error: {str(e)}"}), 200
 
 
 @app.route('/guardian/authorize', methods=['POST'])
