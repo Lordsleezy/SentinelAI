@@ -574,6 +574,43 @@ def api_login_clear():
     return jsonify({"status": "cleared"})
 
 
+# ── Sync Routes ───────────────────────────────────────────────────────────────
+
+@app.route('/sync/status')
+def sync_status():
+    try:
+        from workers.sync.conversation_sync import get_conversation_sync
+        sync = get_conversation_sync(sessions=browser_sessions, socketio=socketio)
+        return jsonify(sync.get_status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/sync/trigger', methods=['POST'])
+def sync_trigger():
+    """Manually trigger a conversation sync."""
+    def _do_sync():
+        try:
+            from workers.sync.conversation_sync import get_conversation_sync
+            sync = get_conversation_sync(sessions=browser_sessions, socketio=socketio)
+            sync.sync_all()
+        except Exception as e:
+            log(f"Sync error: {e}", 'error', 'sync')
+    threading.Thread(target=_do_sync, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route('/sync/conversations')
+def sync_conversations():
+    try:
+        from workers.sync.conversation_sync import get_conversation_sync
+        sync = get_conversation_sync(sessions=browser_sessions, socketio=socketio)
+        convos = sync.get_all_conversations()
+        return jsonify({"conversations": convos, "count": len(convos)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/launch', methods=['POST'])
 def api_launch():
     """Launch a built file (Python script, exe, bat, html) by absolute path."""
@@ -4369,6 +4406,21 @@ def start_backend():
         logger.info("Approval watcher started")
     except Exception as e:
         logger.warning(f"Approval watcher failed to start: {e}")
+
+    # Conversation sync — runs every 60 minutes after initial 5-minute delay
+    def _conversation_sync_loop():
+        import time as _time
+        _time.sleep(300)  # 5 minute startup delay
+        while backend_state.get("running", True):
+            try:
+                from workers.sync.conversation_sync import get_conversation_sync
+                sync = get_conversation_sync(sessions=browser_sessions, socketio=socketio)
+                sync.sync_all()
+            except Exception as e:
+                log(f"Scheduled sync error: {e}", 'warning', 'sync')
+            _time.sleep(3600)  # every 60 minutes
+
+    threading.Thread(target=_conversation_sync_loop, daemon=True).start()
 
     # Browser sessions — auto-login to Claude + ChatGPT in background
     def _start_browser_sessions():
