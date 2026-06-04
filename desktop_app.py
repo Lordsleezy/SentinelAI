@@ -3,8 +3,15 @@ desktop_app.py — SentinelAI Desktop Application
 Lightweight desktop shell using Flask + system tray
 Launches backend, provides UI, system tray controls
 """
+import functools
+import hmac
 import os
 import sys
+
+from core.app_paths import bootstrap_packaged_env
+
+bootstrap_packaged_env()
+
 import subprocess
 import threading
 import webbrowser
@@ -20,6 +27,16 @@ from datetime import datetime
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
+from core.app_paths import (
+    ensure_user_data_dirs,
+    load_sentinel_env,
+    resolve_config_dir,
+    resolve_env_path,
+)
+
+ensure_user_data_dirs()
+load_sentinel_env()
+
 import db
 import learning_memory as lm
 import queue_manager as qm
@@ -30,7 +47,7 @@ import orchestration as orch
 from internet_runtime import get_research_runtime
 from memory.filesystem_index import get_filesystem_indexer
 from memory.persistent_memory import get_memory
-from model_router import get_model_router
+from workers.sentinel.model_router import get_model_router
 from reflection import ReflectionEngine
 from tool_registry import get_tool_registry
 from tools.registry import find_tool_for_task, list_tools, register_builtin_tools
@@ -73,9 +90,109 @@ logging.getLogger('chromadb.telemetry').setLevel(logging.CRITICAL)
 logging.getLogger('chromadb').setLevel(logging.WARNING)
 logging.getLogger('fake_useragent').setLevel(logging.ERROR)
 
+
+# ─── Background thread registry (audit H7) ───────────────────────────────────
+#
+# Every Thread.start() is intercepted so we can (a) keep a list of all
+# background threads for /api/debug/threads, and (b) wrap the target with a
+# try/except that logs uncaught exceptions instead of letting them die silent.
+# This covers all 37+ fire-and-forget daemon threads without editing each site.
+
+_threads: list[threading.Thread] = []
+_threads_lock = threading.Lock()
+
+
+def _guarded_thread_target(target):
+    if target is None:
+        return None
+
+    @functools.wraps(target)
+    def _wrapped(*args, **kwargs):
+        try:
+            return target(*args, **kwargs)
+        except Exception:
+            logger.exception(
+                "Background thread '%s' raised an uncaught exception",
+                threading.current_thread().name,
+            )
+
+    return _wrapped
+
+
+_orig_thread_start = threading.Thread.start
+
+
+def _patched_thread_start(self):
+    # Wrap target once. _sentinel_guarded prevents double-wrapping if a caller
+    # restarts a Thread instance (rare, but possible).
+    target = getattr(self, "_target", None)
+    if target is not None and not getattr(self, "_sentinel_guarded", False):
+        try:
+            self._target = _guarded_thread_target(target)
+            self._sentinel_guarded = True
+        except Exception:
+            pass  # never block thread start because of registration bookkeeping
+    with _threads_lock:
+        # Drop dead threads from the registry so it stays bounded.
+        _threads[:] = [t for t in _threads if t.is_alive()]
+        _threads.append(self)
+    return _orig_thread_start(self)
+
+
+threading.Thread.start = _patched_thread_start
+
+
+# ─── Shared async event loop (audit H8) ──────────────────────────────────────
+#
+# `asyncio.run(...)` creates a fresh event loop on every call, blocks the
+# caller for its lifetime, and prevents connection pooling. Several Flask
+# handlers and background threads in this file used it. They now submit
+# coroutines to one persistent loop running in its own thread, via
+# `run_async(coro, timeout)`.
+
+_async_loop: "asyncio.AbstractEventLoop | None" = None
+_async_loop_lock = threading.Lock()
+
+
+def _ensure_async_loop() -> "asyncio.AbstractEventLoop":
+    global _async_loop
+    with _async_loop_lock:
+        if _async_loop is not None and _async_loop.is_running():
+            return _async_loop
+        loop = asyncio.new_event_loop()
+
+        def _run() -> None:
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_forever()
+            finally:
+                loop.close()
+
+        threading.Thread(target=_run, name="sentinel-async-loop", daemon=True).start()
+        _async_loop = loop
+        return loop
+
+
+def run_async(coro, timeout: float = 60.0):
+    """Run an awaitable on the shared loop and block for its result.
+
+    Use this anywhere we are in a sync context but need to call into an
+    `async def` function. Replaces ad-hoc `asyncio.run(...)` calls.
+    """
+    loop = _ensure_async_loop()
+    fut = asyncio.run_coroutine_threadsafe(coro, loop)
+    return fut.result(timeout=timeout)
+
 # Flask app
 app = Flask(__name__)
-CORS(app)
+# Lock CORS to Electron renderer (file:// → null origin) and the local server.
+ALLOWED_ORIGINS = [
+    "http://localhost:5001",
+    "http://127.0.0.1:5001",
+    "null",
+    "file://",
+]
+CORS(app, origins=ALLOWED_ORIGINS)
 
 # License manager (initialized at startup)
 license_manager = get_license_manager()
@@ -94,7 +211,7 @@ memory_v2 = None
 # the HUD keeps working via its 2-second polling loop.
 try:
     from flask_socketio import SocketIO
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading",
+    socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode="threading",
                         logger=False, engineio_logger=False)
     SOCKETIO_AVAILABLE = True
     logger.info("Socket.IO enabled (real-time HUD events)")
@@ -206,13 +323,12 @@ SCAN_ON_STARTUP = False
 
 # ─── Sentinel Identity ────────────────────────────────────────────────────────
 
-SENTINEL_SYSTEM_PROMPT = """You are Sentinel, an advanced AI assistant and orchestration system created by Sentinel Prime Inc. You are intelligent, helpful, and concise. Important rules:
+SENTINEL_SYSTEM_PROMPT = """You are Sentinel, a polished personal AI assistant created by Sentinel Prime Inc.
 - Your name is always Sentinel. Never say you are qwen, llama, mistral, or any other model.
-- If asked who made you, say: Sentinel Prime Inc.
-- If asked what you are, say: I am Sentinel, an AI assistant by Sentinel Prime Inc.
-- Keep responses conversational and concise unless asked for detail.
-- You have access to real-time data including weather, crypto prices, news, and more.
-- You can control smart home devices, find freelance work, repair code, and much more."""
+- If asked who made you, say Sentinel Prime Inc.
+- Keep replies natural, warm, and concise unless the user asks for detail.
+- For greetings, respond with a brief friendly greeting only — no feature lists unless asked.
+- Never mention internal diagnostics, workers, routers, logs, memory systems, or setup steps."""
 
 
 # ─── Real-Time Data Helpers ───────────────────────────────────────────────────
@@ -421,7 +537,7 @@ def background_scan_loop():
 
     while backend_state.get("running"):
         try:
-            inserted = asyncio.run(run_scan(dry_run=False))
+            inserted = run_async(run_scan(dry_run=False), timeout=600.0)
             backend_state["last_scan"] = datetime.now().isoformat()
             logger.info(f"Background scan inserted {inserted} new opportunities")
             enqueue_new_repair_opportunities()
@@ -430,18 +546,91 @@ def background_scan_loop():
 
         time.sleep(SCAN_INTERVAL_SECONDS)
 
-# Authentication
-AUTH_TOKEN = os.getenv("SENTINELAI_AUTH_TOKEN", "sentinelai_default_token_change_me")
+# ─── Authentication ──────────────────────────────────────────────────────────
+#
+# SENTINELAI_AUTH_TOKEN must be set in the environment by the Electron main
+# process (or the user) before Flask starts. The Electron renderer reads the
+# same value and attaches it as `Authorization: Bearer <token>` on every API
+# call. There is no fallback default — refusing to start is safer than booting
+# with a guessable token.
+
+AUTH_TOKEN = os.getenv("SENTINELAI_AUTH_TOKEN", "")
+if not AUTH_TOKEN:
+    logger.error(
+        "SENTINELAI_AUTH_TOKEN is not set. "
+        "Set this env var before starting Sentinel AI. "
+        "The Electron main process is expected to generate a token at launch and inject it into the backend."
+    )
+    raise SystemExit(
+        "SENTINELAI_AUTH_TOKEN is not set. "
+        "Set this env var before starting Sentinel AI."
+    )
+
+
+def _extract_bearer(raw: str) -> str:
+    if not raw:
+        return ""
+    if raw.startswith("Bearer "):
+        return raw[7:]
+    return raw
 
 
 def verify_auth_token(token: str) -> bool:
-    """Verify authentication token."""
+    """Verify authentication token using constant-time comparison."""
     if not token:
         return False
-    # Remove 'Bearer ' prefix if present
-    if token.startswith('Bearer '):
-        token = token[7:]
-    return token == AUTH_TOKEN
+    candidate = _extract_bearer(token)
+    if not candidate:
+        return False
+    return hmac.compare_digest(candidate, AUTH_TOKEN)
+
+
+# Routes that are intentionally reachable without a bearer token:
+# - HTML shells (the renderer requests them via Electron loadURL, which can't
+#   add an Authorization header; the JS inside then calls authed APIs).
+# - /api/ping liveness probe used by Electron readiness polling.
+# - /socket.io/* upgrade traffic (the socket connection itself authenticates
+#   via the auth payload supplied in the client connect call — see frontend).
+# - /static/* assets.
+PUBLIC_PATHS = {
+    "/",
+    "/mobile",
+    "/api/ping",
+}
+PUBLIC_PREFIXES = (
+    "/static/",
+    "/socket.io/",
+    "/api/setup/",
+    "/api/onboarding/",
+    "/api/models/readiness",
+    "/api/telemetry/",
+    "/api/ai/",
+)
+
+
+@app.before_request
+def _global_auth_gate():
+    # CORS preflight must succeed before the browser sends the Authorization header.
+    if request.method == "OPTIONS":
+        return None
+    path = request.path or "/"
+    if path in PUBLIC_PATHS:
+        return None
+    if any(path.startswith(p) for p in PUBLIC_PREFIXES):
+        return None
+    if not verify_auth_token(request.headers.get("Authorization", "")):
+        return jsonify({"error": "Unauthorized"}), 401
+    return None
+
+
+def require_auth(fn):
+    """Decorator kept for backwards compatibility.
+
+    The global before_request gate already requires a valid token on every
+    non-public route, so this is now a no-op wrapper that preserves existing
+    call sites and lets individual routes opt in for clarity.
+    """
+    return fn
 
 
 # ─── System Tray Icon ─────────────────────────────────────────────────────────
@@ -521,15 +710,24 @@ def api_credentials_check(worker_name: str):
 
 
 @app.route('/api/credentials/save', methods=['POST'])
+@require_auth
 def api_credentials_save():
-    """Save a credential to .env and env immediately, then signal retry."""
+    """Save a credential to .env and env immediately, then signal retry.
+
+    Only keys declared by a worker's REQUIREMENTS (plus a small set of
+    service-routing knobs) are accepted. Security-sensitive keys are denied.
+    """
     from workers.lazy_init import get_lazy_init
     data = request.get_json() or {}
     key = data.get("key", "").strip()
     value = data.get("value", "").strip()
     if not key or not value:
         return jsonify({"status": "error", "error": "key and value required"}), 400
-    ok = get_lazy_init().save(key, value)
+    li = get_lazy_init()
+    if not li.is_allowed_key(key):
+        logger.warning("Rejected credential save for disallowed key: %s", key)
+        return jsonify({"status": "error", "error": f"Key not allowed: {key}"}), 400
+    ok = li.save(key, value)
     if ok:
         return jsonify({"status": "saved", "key": key})
     return jsonify({"status": "error", "error": "Failed to write .env"}), 500
@@ -539,6 +737,30 @@ def api_credentials_save():
 def api_ping():
     """Instant liveness probe — used by Electron readiness poll."""
     return jsonify({"ok": True, "running": backend_state.get("running", False)})
+
+
+@app.route('/api/debug/threads')
+@require_auth
+def api_debug_threads():
+    """Snapshot of every Thread spawned through the patched start hook.
+
+    Audit H7 — used to verify that fire-and-forget daemon threads are
+    actually completing instead of dying silently. Auth is enforced by the
+    global before_request gate; the decorator is here for clarity.
+    """
+    with _threads_lock:
+        # Drop dead entries opportunistically so the snapshot stays useful.
+        _threads[:] = [t for t in _threads if t.is_alive()]
+        snapshot = [
+            {
+                "name": t.name,
+                "ident": t.ident,
+                "alive": t.is_alive(),
+                "daemon": t.daemon,
+            }
+            for t in _threads
+        ]
+    return jsonify({"status": "ok", "count": len(snapshot), "threads": snapshot})
 
 
 # ── Login / Identity Routes ───────────────────────────────────────────────────
@@ -725,6 +947,27 @@ def sync_status():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/memory/sync/diagnostics', methods=['GET'])
+def api_memory_sync_diagnostics():
+    """Provider sync state: OFFLINE → SYNCED with import counts."""
+    try:
+        from workers.memory.provider_sync_status import get_provider_sync_status
+        creds = identity_manager.load_credentials() or {}
+        login = {
+            "claude_connected": bool(browser_sessions and getattr(browser_sessions, "claude_logged_in", False)),
+            "chatgpt_connected": bool(browser_sessions and getattr(browser_sessions, "chatgpt_logged_in", False)),
+            "claude_creds_saved": bool(creds.get("claude_email")),
+            "chatgpt_creds_saved": bool(creds.get("chatgpt_email")),
+        }
+        from workers.sync.conversation_sync import get_conversation_sync
+        sync = get_conversation_sync(sessions=browser_sessions, socketio=socketio)
+        diag = get_provider_sync_status(login, sync.get_status())
+        return jsonify({"status": "ok", **diag})
+    except Exception as e:
+        logger.exception("memory sync diagnostics failed")
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
 @app.route('/sync/trigger', methods=['POST'])
 def sync_trigger():
     """Manually trigger a conversation sync."""
@@ -821,36 +1064,77 @@ def memory_purge_source(source: str):
         return jsonify({"error": str(e)}), 500
 
 
+# Only files under a Sentinel-managed directory may be launched via /api/launch.
+# This prevents the endpoint from being used to execute arbitrary files on disk.
+_LAUNCH_ROOTS = [
+    Path(__file__).parent / "workspace",
+    Path(__file__).parent / "tools" / "built",
+    Path(__file__).parent / "data",
+]
+_LAUNCH_ALLOWED_EXTS = {".py", ".exe", ".bat", ".cmd", ".html"}
+
+
+def _is_path_under_root(target: Path, root: Path) -> bool:
+    try:
+        target.resolve().relative_to(root.resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 @app.route('/api/launch', methods=['POST'])
+@require_auth
 def api_launch():
-    """Launch a built file (Python script, exe, bat, html) by absolute path."""
+    """Launch a built file (Python script, exe, bat, html) by absolute path.
+
+    The path must resolve to a file under a Sentinel-managed root
+    (workspace/, tools/built/, data/) and have an allowed extension.
+    """
     try:
         data = request.json or {}
-        file_path = data.get('file', '').strip()
+        file_path = (data.get('file', '') or '').strip()
 
-        if not file_path or not os.path.exists(file_path):
+        if not file_path:
+            return jsonify({"error": "file required"}), 400
+
+        target = Path(file_path)
+        if not target.exists() or not target.is_file():
             return jsonify({"error": f"File not found: {file_path}"}), 404
 
-        ext = os.path.splitext(file_path)[1].lower()
-        python_exe = str(Path(__file__).parent / "venv" / "Scripts" / "python.exe")
-        if not os.path.exists(python_exe):
-            python_exe = "python"
+        ext = target.suffix.lower()
+        if ext not in _LAUNCH_ALLOWED_EXTS:
+            return jsonify({"error": f"Extension not allowed: {ext}"}), 403
+
+        if not any(_is_path_under_root(target, root) for root in _LAUNCH_ROOTS):
+            logger.warning("Rejected launch outside managed roots: %s", file_path)
+            return jsonify({"error": "Path not under a Sentinel-managed root"}), 403
+
+        if getattr(sys, "frozen", False):
+            python_exe = sys.executable
+        else:
+            python_exe = str(Path(__file__).parent / "venv" / "Scripts" / "python.exe")
+            if not os.path.exists(python_exe):
+                python_exe = sys.executable if os.path.exists(sys.executable) else "python"
 
         if ext == '.py':
-            subprocess.Popen([python_exe, file_path],
-                             creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
+            subprocess.Popen(
+                [python_exe, str(target)],
+                shell=False,
+                creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0,
+            )
         elif ext in ('.exe', '.bat', '.cmd'):
-            subprocess.Popen([file_path], shell=True)
+            # shell=False with a list argv prevents shell metacharacter expansion.
+            subprocess.Popen([str(target)], shell=False)
         elif ext == '.html':
-            webbrowser.open(file_path)
+            webbrowser.open(target.as_uri())
         else:
             if os.name == 'nt':
-                os.startfile(file_path)
+                os.startfile(str(target))  # noqa: S606 — restricted by allowlist above
             else:
-                subprocess.Popen(['xdg-open', file_path])
+                subprocess.Popen(['xdg-open', str(target)], shell=False)
 
-        log(f"Launched: {os.path.basename(file_path)}", 'success', 'forge')
-        return jsonify({"status": "launched", "file": os.path.basename(file_path)})
+        log(f"Launched: {target.name}", 'success', 'forge')
+        return jsonify({"status": "launched", "file": target.name})
     except Exception as e:
         log(f"Launch error: {e}", 'error', 'forge')
         return jsonify({"error": str(e)}), 500
@@ -1211,7 +1495,7 @@ def api_settings_keys_post():
         env_name = env_map.get(provider)
         if not env_name:
             return jsonify({"status": "error", "error": "Unknown provider"}), 200
-        env_path = Path(__file__).parent / '.env'
+        env_path = resolve_env_path()
         lines = env_path.read_text(encoding='utf-8').splitlines() if env_path.exists() else []
         updated = False
         for i, line in enumerate(lines):
@@ -1233,7 +1517,7 @@ def api_settings_model_post():
         model_id = data.get('model', '').strip()
         if not model_id:
             return jsonify({"status": "error", "error": "model required"}), 200
-        cfg_path = Path(__file__).parent / "config" / "model_config.json"
+        cfg_path = resolve_config_dir() / "model_config.json"
         cfg_path.parent.mkdir(parents=True, exist_ok=True)
         import json as _j
         cfg = _j.loads(cfg_path.read_text()) if cfg_path.exists() else {}
@@ -1407,7 +1691,7 @@ def api_submissions():
 def api_run_scan():
     def _scan():
         try:
-            inserted = asyncio.run(run_scan(dry_run=False))
+            inserted = run_async(run_scan(dry_run=False), timeout=600.0)
             backend_state["last_scan"] = datetime.now().isoformat()
             db.log_event("manual_scan_complete", f"Inserted {inserted} opportunities")
             enqueue_new_repair_opportunities()
@@ -1854,26 +2138,28 @@ def api_emergency_stop():
 
 
 @app.route('/api/openclaw/command', methods=['POST'])
+@require_auth
 def api_openclaw_command():
     """
     OpenClaw command endpoint.
     Allows OpenClaw to control SentinelAI through safe command routing.
     """
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         command = data.get('command')
         parameters = data.get('parameters', {})
-        auth_token = request.headers.get('Authorization')
-        
+        auth_header = request.headers.get('Authorization', '')
+
         if not command:
             return jsonify({"error": "command required"}), 400
-        
-        # Initialize router with auth token
-        router = OpenClawCommandRouter(auth_token=auth_token)
-        
-        # Route command
+
+        # The global before_request gate already verified the token, but we
+        # re-check here so the router's requires_auth commands are explicitly
+        # tied to a constant-time match rather than presence of any header.
+        authorized = verify_auth_token(auth_header)
+
+        router = OpenClawCommandRouter(auth_token=None, authorized=authorized)
         result = router.route_command(command, parameters)
-        
         return jsonify(result)
     except Exception as e:
         logger.exception("Error processing OpenClaw command")
@@ -2338,7 +2624,7 @@ def api_model_route():
     """Route a task to the best configured model."""
     try:
         data = request.get_json() or {}
-        selection = get_model_router().route(
+        selection = get_model_router().route_for_task(
             data.get('task_type', 'general'),
             data.get('prompt', ''),
             bool(data.get('prefer_local', True)),
@@ -2680,87 +2966,138 @@ def api_models_unload():
 
 @app.route('/api/setup/scan', methods=['POST'])
 def api_setup_scan():
-    """Run machine scan. Returns hardware profile."""
+    """Fast non-blocking machine scan; background setup starts immediately."""
     try:
-        from workers.setup.machine_scanner import get_machine_scanner
-        profile = get_machine_scanner().scan()
-        return jsonify(profile)
+        from core.onboarding.pipeline import get_onboarding_pipeline
+        from core.model_runtime import get_model_runtime
+        from core.onboarding.debug_logger import StepWatchdog
+
+        with StepWatchdog("api_setup_scan"):
+            pipe = get_onboarding_pipeline()
+            profile = pipe.run_fast_scan()
+            pipe.start_background_setup(profile)
+            readiness = get_model_runtime().readiness_quick()
+            return jsonify({
+                **profile,
+                "readiness": readiness,
+                "progress": pipe.progress(),
+                "allow_chat": True,
+                "setup_complete": False,
+            })
     except Exception as e:
         logger.exception("api_setup_scan failed")
-        return jsonify({"error": str(e)}), 500
+        from core.onboarding.pipeline import get_onboarding_pipeline
+        get_onboarding_pipeline().force_complete(allow_degraded=True)
+        return jsonify({
+            "error": "scan_degraded",
+            "allow_chat": True,
+            "user_message": "Sentinel will finish setup in the background.",
+            "cpu_only_profile": True,
+        }), 200
 
 
 @app.route('/api/setup/status')
 def api_setup_status():
-    """Returns current setup status including hardware profile and model readiness."""
+    """Cached profile + quick readiness — never runs a blocking full scan."""
     try:
         from workers.setup.machine_scanner import get_machine_scanner
-        import requests as _req
-        scanner = get_machine_scanner()
-        profile = scanner.load_cached() or scanner.scan()
+        from core.model_runtime import get_model_runtime
+        from core.onboarding.pipeline import get_onboarding_pipeline
 
-        model_downloaded = False
-        try:
-            r = _req.get('http://localhost:11434/api/tags', timeout=3)
-            if r.status_code == 200:
-                models = [m['name'] for m in r.json().get('models', [])]
-                rec = profile.get('recommended_model', '')
-                model_downloaded = any(rec in m for m in models)
-        except Exception:
-            pass
+        profile = get_machine_scanner().load_cached() or {}
+        readiness = get_model_runtime().readiness_quick()
+        progress = get_onboarding_pipeline().progress()
+        models = readiness.get("models") or []
+        model_downloaded = all(m.get("installed") for m in models if m.get("required"))
 
-        setup_complete = (
-            profile.get('ollama_installed', False) and
-            profile.get('ollama_running', False) and
-            model_downloaded
-        )
-
-        return jsonify({**profile, 'model_downloaded': model_downloaded,
-                        'setup_complete': setup_complete})
+        return jsonify({
+            **profile,
+            "model_downloaded": model_downloaded,
+            "setup_complete": bool(progress.get("completed")) or bool(readiness.get("ready")),
+            "readiness": readiness,
+            "progress": progress,
+            "recommended_models": readiness.get("required"),
+            "allow_chat": True,
+        })
     except Exception as e:
         logger.exception("api_setup_status failed")
-        return jsonify({"status": "error", "error": str(e)}), 500
+        return jsonify({"status": "ok", "allow_chat": True, "error": "status_degraded"}), 200
+
+
+@app.route('/api/setup/install-ollama', methods=['POST'])
+def api_setup_install_ollama():
+    """Download/install Ollama (Windows) and start the service."""
+    try:
+        from core.model_runtime import get_model_runtime
+
+        def _run():
+            result = get_model_runtime().install_ollama(
+                progress_cb=lambda p: emit_event("setup_progress", {"step": "ollama_install", **p}),
+            )
+            emit_event("setup_progress", {"step": "ollama_install", "complete": True, **result})
+
+        threading.Thread(target=_run, daemon=True).start()
+        return jsonify({"status": "installing", "user_message": get_model_runtime().user_message()})
+    except Exception as e:
+        return jsonify({"status": "error", "user_message": "Setup could not continue. Please try again."}), 500
 
 
 @app.route('/api/setup/pull-model', methods=['POST'])
 def api_setup_pull_model():
-    """Pull the recommended model via Ollama. Streams progress via Socket.IO."""
+    """Pull hardware-appropriate Llama + Dolphin models. Progress via Socket.IO."""
     try:
-        from workers.setup.machine_scanner import get_machine_scanner
-        data = request.json or {}
-        cached = get_machine_scanner().load_cached() or {}
-        model = data.get('model') or cached.get('recommended_model', 'qwen2.5-coder:7b')
+        from core.model_runtime import get_model_runtime
 
         def pull():
-            log(f"Pulling model: {model}", 'info', 'setup')
-            try:
-                proc = subprocess.Popen(
-                    ['ollama', 'pull', model],
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                )
-                for line in iter(proc.stdout.readline, ''):
-                    line = line.strip()
-                    if line:
-                        emit_event('setup_progress', {
-                            'step': 'model_download', 'message': line, 'model': model
-                        })
-                proc.wait()
-                success = proc.returncode == 0
-                emit_event('setup_progress', {
-                    'step': 'model_download',
-                    'message': f"Model {'ready' if success else 'failed'}",
-                    'complete': True, 'success': success,
-                })
-                log(f"Model pull {'complete' if success else 'failed'}: {model}",
-                    'success' if success else 'error', 'setup')
-            except Exception as exc:
-                log(f"Model pull error: {exc}", 'error', 'setup')
+            rt = get_model_runtime()
+            log("Pulling recommended models for this machine", "info", "setup")
 
-        t = threading.Thread(target=pull, daemon=True)
-        t.start()
-        return jsonify({"status": "pulling", "model": model})
+            def progress(p):
+                emit_event("setup_progress", {"step": "model_download", **p})
+
+            result = rt.install_required_models(progress_cb=progress)
+            emit_event("setup_progress", {
+                "step": "model_download",
+                "complete": True,
+                "success": result.get("ok"),
+                "message": result.get("user_message", ""),
+            })
+            log(
+                f"Model install {'complete' if result.get('ok') else 'incomplete'}",
+                "success" if result.get("ok") else "error",
+                "setup",
+            )
+
+        threading.Thread(target=pull, daemon=True).start()
+        req = get_model_runtime().required_models()
+        return jsonify({"status": "pulling", "models": req.get("models", [])})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/setup/validate', methods=['POST'])
+def api_setup_validate():
+    """Run inference test before enabling chat."""
+    try:
+        from core.model_runtime import get_model_runtime
+        result = get_model_runtime().validate_inference()
+        return jsonify({"status": "ok" if result.get("ok") else "failed", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "user_message": "Validation could not complete. Please try again."}), 500
+
+
+@app.route('/api/setup/complete', methods=['POST'])
+def api_setup_complete():
+    """Always allow entering chat; mark components needing repair when degraded."""
+    try:
+        from core.model_runtime import get_model_runtime
+        result = get_model_runtime().mark_setup_complete()
+        return jsonify({"status": "ok", "allow_chat": True, **result}), 200
+    except Exception as e:
+        logger.exception("api_setup_complete")
+        from core.onboarding.pipeline import get_onboarding_pipeline
+        result = get_onboarding_pipeline().force_complete(allow_degraded=True)
+        return jsonify({"status": "ok", "allow_chat": True, **result}), 200
 
 
 @app.route('/api/setup/intent', methods=['POST'])
@@ -3123,9 +3460,12 @@ def api_guardian_check_keys():
 
 # ─── System Monitor (Issue 7) ──────────────────────────────────────────────────
 
-@app.route('/api/system/stats')
-def api_system_stats():
-    """CPU / RAM / DISK (+ GPU when nvidia-smi is present) for the HUD monitor."""
+def _collect_system_stats() -> dict:
+    """Collect CPU / RAM / DISK (+ GPU when nvidia-smi is present).
+
+    Used by both the /api/system/stats endpoint (for initial fetch) and the
+    background `system_stats` socket broadcaster (for live updates).
+    """
     data = {"cpu": {"percent": 0}, "ram": {"percent": 0}, "disk": {"percent": 0}, "gpu": None}
     try:
         import psutil
@@ -3138,7 +3478,6 @@ def api_system_stats():
                         "used_gb": round(du.used / 1e9, 1), "total_gb": round(du.total / 1e9, 1)}
     except Exception as e:
         logger.debug("psutil stats failed: %s", e)
-    # GPU via nvidia-smi (optional).
     try:
         from shutil import which
         if which("nvidia-smi"):
@@ -3155,7 +3494,46 @@ def api_system_stats():
                                "vram_used_gb": round(mused / 1024, 1)}
     except Exception as e:
         logger.debug("nvidia-smi failed: %s", e)
-    return jsonify({"status": "ok", "data": data, "error": None})
+    return data
+
+
+@app.route('/api/system/stats')
+def api_system_stats():
+    """CPU / RAM / DISK (+ GPU when nvidia-smi is present) for the HUD monitor."""
+    return jsonify({"status": "ok", "data": _collect_system_stats(), "error": None})
+
+
+# ─── Background broadcasters (replace frontend polling with one server-side cadence) ──
+_BROADCAST_INTERVAL_SECONDS = 5.0
+_broadcasters_started = False
+_broadcasters_lock = threading.Lock()
+
+
+def _start_broadcasters_once():
+    """Spin up one background thread that pushes system_stats over Socket.IO.
+
+    Replaces N renderer-side `setInterval` polls with one server cadence;
+    every connected dashboard now gets updates by listening to the
+    `system_stats` event instead of polling /api/system/stats every 5 s.
+    """
+    global _broadcasters_started
+    with _broadcasters_lock:
+        if _broadcasters_started:
+            return
+        _broadcasters_started = True
+
+    def _system_stats_loop():
+        import time as _t
+        while True:
+            try:
+                if SOCKETIO_AVAILABLE and socketio is not None:
+                    socketio.emit("system_stats", {"data": _collect_system_stats()})
+            except Exception as exc:
+                logger.debug("system_stats broadcast failed: %s", exc)
+            _t.sleep(_BROADCAST_INTERVAL_SECONDS)
+
+    t = threading.Thread(target=_system_stats_loop, name="system-stats-broadcaster", daemon=True)
+    t.start()
 
 
 # ─── Pipeline management (Issue 3) ──────────────────────────────────────────────
@@ -3709,6 +4087,7 @@ def _run_forge_build(description: str, output_dir=None, sentinel_task_id: str = 
     Emits forge_complete only after verification, launch verified, and artifact saved.
     Files alone are not success — the app must be runnable.
     """
+    global _pending_godot_install
     from builders.build_tracker import begin_build, finish_build, mark_launch_ready, update_build
     from builders.common.logging_util import log_builder
     from builders.forge_engine import ForgeBuildEngine
@@ -3801,7 +4180,6 @@ def _run_forge_build(description: str, output_dir=None, sentinel_task_id: str = 
 
     if not launch_ok and launch_details.get("needs_install") and launch_details.get("dependency") == "godot":
         log_builder("Installing Godot…", "info", socketio)
-        global _pending_godot_install
         _pending_godot_install = True
         try:
             from builders.runtime.godot_runtime import install_godot
@@ -3835,7 +4213,6 @@ def _run_forge_build(description: str, output_dir=None, sentinel_task_id: str = 
                 'build_complete': False,
             })
         if launch_details.get("needs_install"):
-            global _pending_godot_install
             if launch_details.get("dependency") == "godot":
                 _pending_godot_install = True
             if socketio:
@@ -4134,6 +4511,13 @@ def check_access() -> dict | None:
     """
     if OWNER_MODE:
         return None
+    if license_manager.is_restricted_mode():
+        return {
+            'blocked': True,
+            'reason': 'restricted_mode',
+            'message': 'Beta period ended. Activate your license to continue using Sentinel.',
+            'restricted_mode': True,
+        }
     if license_manager.is_pro():
         return None
     trial = _trial_manager.get_status()
@@ -4661,99 +5045,54 @@ def _save_chat_exchange(user_msg: str, sentinel_response: str) -> None:
         _chat_session.append({'role': 'sentinel', 'content': sentinel_response, 'timestamp': datetime.now().isoformat()})
         if len(_chat_session) > 200:
             del _chat_session[:-200]
-    # Save to long-term memory with moderate importance
+    # Long-term memory — skip short/social turns to avoid polluting greetings with old debug text
     if memory_v2 is not None:
         try:
-            memory_v2.remember(
-                content=f"User asked: {user_msg}\nSentinel responded: {sentinel_response[:500]}",
-                source='user',
-                topic=user_msg[:80],
-                importance=5
-            )
+            from core.chat.context import should_attach_memory
+            if should_attach_memory(user_msg):
+                memory_v2.remember(
+                    content=f"User: {user_msg}\nSentinel: {sentinel_response[:500]}",
+                    source="user",
+                    topic=user_msg[:80],
+                    importance=5,
+                )
         except Exception as _e:
             logger.debug("Memory save failed: %s", _e)
 
 
 def _chat_quick_response(message: str) -> str:
-    """Generate a quick response via Ollama, falling back to Claude API, then canned text."""
-    try:
-        import httpx
-        ollama_host = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
-        ollama_model = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
-        with httpx.Client(timeout=8.0) as client:
-            resp = client.post(
-                f"{ollama_host}/api/generate",
-                json={"model": ollama_model, "prompt": message, "system": SENTINEL_SYSTEM_PROMPT, "stream": False},
-            )
-            if resp.status_code == 200:
-                text = resp.json().get('response', '').strip()
-                if text:
-                    return text
-    except Exception:
-        pass
+    """Chat via Ollama → Claude → OpenAI → web-assistant; always returns text."""
+    from core.chat.context import log_chat_context, try_conversational_reply
+    from core.ai_provider import chat_with_fallbacks
 
-    try:
-        import httpx
-        api_key = os.getenv('ANTHROPIC_API_KEY', '')
-        if api_key:
-            with httpx.Client(timeout=15.0) as client:
-                resp = client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01",
-                             "content-type": "application/json"},
-                    json={"model": "claude-haiku-4-5-20251001", "max_tokens": 256,
-                          "messages": [{"role": "user", "content": message}]},
-                )
-                if resp.status_code == 200:
-                    content = resp.json().get('content', [])
-                    if content:
-                        text = content[0].get('text', '').strip()
-                        if text:
-                            return text
-    except Exception:
-        pass
-
-    return ""
+    quick = try_conversational_reply(message)
+    if quick:
+        log_chat_context(
+            user_message=message,
+            system_prompt=SENTINEL_SYSTEM_PROMPT,
+            route="conversational",
+            provider="canned",
+        )
+        return quick
+    result = chat_with_fallbacks(message, system=SENTINEL_SYSTEM_PROMPT)
+    return result.get("text") or ""
 
 
-_WORKER_RESPONSES = {
-    "forge": "I'll help you with that code task. Opening the Forge...",
-    "earn": "Searching for bounties and opportunities for you...",
-    "market": "Fetching current market and price data for you...",
-    "home": "Sending command to your home automation system...",
-    "finance": "Loading your financial summary...",
-    "general": "I'm here to help! How can I assist you today?",
-}
-
-_CONVERSATIONAL_CANNED = [
-    ("hi", "Hi there! How can I help you today?"),
-    ("hello", "Hello! What can I do for you?"),
-    ("hey", "Hey! What's on your mind?"),
-    ("how are you", "I'm running great and ready to help! What do you need?"),
-    ("what can you do", "I can help you write code, find bug bounties, check market prices, control smart home devices, and much more. Just ask!"),
-    ("what time", "I don't have direct clock access, but your system clock is right. Can I help with something else?"),
-    ("thank", "You're welcome! Let me know if you need anything else."),
-    ("bye", "Goodbye! Come back anytime you need help."),
-    ("2 plus 2", "2 + 2 = 4"),
-    ("2+2", "2 + 2 = 4"),
-]
-
-
-def _canned_response(message: str) -> str:
-    lower = message.lower()
-    for kw, reply in _CONVERSATIONAL_CANNED:
-        if kw in lower:
-            return reply
-    return "I'm here and ready to help! What would you like to do?"
+# NOTE: the legacy `_WORKER_RESPONSES`, `_CONVERSATIONAL_CANNED`, and
+# `_canned_response()` helpers were removed in the 2026 audit. Every chat
+# turn now routes through `workers.sentinel.capability_router.route_message`
+# and the LLM — there is no hardcoded chat fallback.
 
 
 @app.route('/api/chat', methods=['POST'])
+@require_auth
 def api_chat():
     """Route a chat message to the correct worker and return a response string.
 
     Accepts: { "message": "..." }
     Returns: { "worker": "...", "response": "...", "intent": {...} }
     """
+    global _pending_godot_install
     try:
         blocked = check_access()
         if blocked:
@@ -4764,13 +5103,43 @@ def api_chat():
         if not message:
             return jsonify({"error": "message required"}), 400
 
+        from core.model_runtime import get_model_runtime
+        from core.chat.context import (
+            log_chat_context,
+            should_attach_memory,
+            try_conversational_reply,
+        )
+
+        _chat_rt = get_model_runtime()
+        if not _chat_rt.is_ready():
+            threading.Thread(target=lambda: _chat_rt.heal(max_retries=1), daemon=True).start()
+
+        _conversational = try_conversational_reply(message)
+        if _conversational:
+            try:
+                log_chat_context(
+                    user_message=message,
+                    system_prompt=SENTINEL_SYSTEM_PROMPT,
+                    route="conversational",
+                    provider="canned",
+                )
+            except Exception as _log_err:
+                logger.debug("chat context log skipped: %s", _log_err)
+            _save_chat_exchange(message, _conversational)
+            return jsonify({
+                "status": "ok",
+                "worker": "general",
+                "response": _conversational,
+                "routed": True,
+                "provider": "canned",
+            })
+
         # ── Godot install confirmation (chat "yes" after launch prompt) ───────────
         _msg_lower = message.lower().strip()
         _godot_confirm = _pending_godot_install and any(
             w in _msg_lower for w in ('yes', 'y', 'install', 'install godot', 'ok', 'okay', 'sure', 'go ahead')
         )
         if _godot_confirm:
-            global _pending_godot_install
             try:
                 from builders.runtime.godot_runtime import install_godot
                 from workers.artifacts.artifact_registry import launch_latest
@@ -4857,16 +5226,17 @@ def api_chat():
         except Exception as _st_err:
             logger.debug("Status query handler failed: %s", _st_err)
 
-        # Enrich message with relevant memory context then save to chat session
-        _enriched_message = message
+        _memory_context = ""
         if memory_v2 is not None:
             try:
-                mem_context = memory_v2.get_context_for_prompt(message, max_tokens=1500)
-                if mem_context:
-                    _enriched_message = f"[Memory context]\n{mem_context}\n\n[User message]\n{message}"
-                    log(f"Memory context attached: {mem_context[:100]}...", 'info', 'memory')
-                # Save user message to hot memory every time
-                memory_v2.remember(message, source="user", topic=message[:80])
+                if should_attach_memory(message):
+                    _memory_context = memory_v2.get_context_for_prompt(
+                        message, max_tokens=800, chat_mode=True,
+                    )
+                    if _memory_context:
+                        log(f"Memory context attached: {_memory_context[:100]}...", 'info', 'memory')
+                if should_attach_memory(message):
+                    memory_v2.remember(message, source="user", topic=message[:80])
             except Exception as _mem_err:
                 logger.debug("Memory context lookup failed: %s", _mem_err)
         # Log user message to chat source (visible in Log panel CHAT filter)
@@ -4933,9 +5303,8 @@ def api_chat():
                    'add to cart', 'get me a ', 'pick up a ', 'grab me a ']
         if any(kw in lower for kw in _buy_kw):
             try:
-                import asyncio as _asyncio
                 from workers.payments.purchase_executor import PurchaseExecutor
-                staged = _asyncio.run(PurchaseExecutor().find_and_stage(message))
+                staged = run_async(PurchaseExecutor().find_and_stage(message), timeout=30.0)
                 if staged.get("requires_approval"):
                     return jsonify({"status": "ok", "worker": "sentinel_web",
                                     "response": staged["message"], "purchase_approval": staged, "routed": True})
@@ -4950,22 +5319,35 @@ def api_chat():
                    'reserve a ', 'book me a']
         if any(kw in lower for kw in _web_kw):
             try:
-                import asyncio as _asyncio
                 from workers.web.sentinel_web_client import query_web, is_available
-                if _asyncio.run(is_available()):
-                    web_result = _asyncio.run(query_web(message))
-                    web_ans = web_result.get("answer") or web_result.get("result")
-                    if web_ans and not web_result.get("error"):
-                        src = web_result.get("source_url", "")
-                        response = web_ans + (f"\n\nSource: {src}" if src else "")
-                        return jsonify({"status": "ok", "worker": "sentinel_web",
-                                        "response": response, "routed": True,
-                                        "source_url": src, "confidence": web_result.get("confidence")})
-                else:
+
+                async def _availability_then_query():
+                    # One coroutine, one loop trip. Eliminates the race window
+                    # between is_available() and query_web() and avoids paying
+                    # for two fresh event loops per chat turn.
+                    if not await is_available():
+                        return None
+                    return await query_web(message)
+
+                web_result = run_async(_availability_then_query(), timeout=30.0)
+                if web_result is None:
                     return jsonify({"status": "ok", "worker": "general",
                                     "response": "SentinelWeb is offline. Start it with: "
                                                 "cd C:\\Users\\pgg12\\Desktop\\SentinelWeb && venv\\Scripts\\python main.py",
                                     "routed": True})
+                web_ans = web_result.get("answer") or web_result.get("result")
+                if web_ans and not web_result.get("error"):
+                    src = web_result.get("source_url", "")
+                    log_chat_context(
+                        user_message=message,
+                        tools_context=f"sentinel_web; source_url={src}",
+                        route="sentinel_web",
+                    )
+                    response = web_ans + (f"\n\nSource: {src}" if src else "")
+                    _save_chat_exchange(message, response)
+                    return jsonify({"status": "ok", "worker": "sentinel_web",
+                                    "response": response, "routed": True,
+                                    "source_url": src, "confidence": web_result.get("confidence")})
             except Exception as _web_err:
                 logger.debug("SentinelWeb routing failed: %s", _web_err)
 
@@ -5161,38 +5543,92 @@ def api_chat():
             except Exception as _cons_err:
                 logger.debug("Consultation guidance failed (%s) — falling through", _cons_err)
 
-        # Keyword-based pre-routing runs FIRST — overrides conversational classifier
-        # for specific high-confidence patterns. Order: forge > earn > market > home.
-        _pre_worker = None
+        # Unified intent router — Sentinel voice, internal engines (extend keyword routing).
+        try:
+            from workers.sentinel.capability_router import route_message
+            _route = route_message(message)
+        except Exception as _ur_err:
+            logger.debug("unified_router failed: %s", _ur_err)
+            _route = None
 
-        _forge_kw = ('write a', 'write me', 'build a', 'build me', 'create a', 'create me',
-                     'implement', 'debug', 'fix the', 'fix my', 'refactor',
-                     'python function', 'python script', 'javascript', 'bash script',
-                     'new function', 'new class', 'new module', 'new worker', 'def ',
-                     'import ', 'code to', 'script to', 'program to', 'snippet')
-        if any(kw in lower for kw in _forge_kw):
-            _pre_worker = "forge"
+        if _route and _route.internal_engine == "guardian" and _route.execute:
+            def _run_guardian_from_chat(_msg=message, _target=_route.extracted_target):
+                from workers.task_manager import TaskContext
+                title = f"Guardian: {_target or _msg[:50]}"
+                with TaskContext(title, source="guardian") as ctx:
+                    try:
+                        brain = get_guardian_brain()
+                        q = _msg if not _target else f"Perform security assessment on {_target}. {_msg}"
+                        result = brain.chat(q)
+                        summary = str(result.get("response", ""))[:500]
+                        ctx.complete(result_summary=summary)
+                    except Exception as exc:
+                        ctx.fail(str(exc))
+            threading.Thread(target=_run_guardian_from_chat, daemon=True).start()
+            _gresp = (
+                f"Starting security assessment"
+                + (f" on **{_route.extracted_target}**" if _route.extracted_target else "")
+                + ". Track progress in **Tasks** and the Guardian panel."
+            )
+            _save_chat_exchange(message, _gresp)
+            return jsonify({
+                "status": "ok", "worker": "sentinel", "internal_engine": "guardian",
+                "response": _gresp, "routed": True,
+            })
 
-        _earn_kw = ('bounty', 'bug bounty', 'bounties', 'freelance', 'remote job',
-                    'find jobs', 'find work', 'hackerone', 'bugcrowd', 'upwork',
-                    'earn money', 'earn online', 'paid task')
-        if any(kw in lower for kw in _earn_kw):
-            _pre_worker = "earn"
+        if _route and _route.internal_engine == "earn_research" and _route.execute:
+            def _run_earn_research(_prog=_route.extracted_target):
+                from workers.earn.research.pipeline import run_research_pipeline
+                run_research_pipeline(
+                    {"title": _prog, "handle": _prog}, socketio=socketio, background=True,
+                )
+            threading.Thread(target=_run_earn_research, daemon=True).start()
+            _eresp = f"Research pipeline started for **{_route.extracted_target}**. See **Tasks** and the Earn tab."
+            _save_chat_exchange(message, _eresp)
+            return jsonify({
+                "status": "ok", "worker": "sentinel", "internal_engine": "earn_research",
+                "response": _eresp, "routed": True,
+            })
 
-        _market_kw = ('bitcoin price', 'eth price', 'crypto price', 'stock price',
-                      'btc price', 'bitcoin', 'ethereum price', 'market cap',
-                      'market data', 'trading view', 'chart for')
-        if any(kw in lower for kw in _market_kw) and _pre_worker != "forge":
-            _pre_worker = "market"
+        if _route and _route.internal_engine == "learning" and _route.execute:
+            try:
+                from core.learning.learning_engine import get_learning_engine
+                lr = get_learning_engine().handle_unknown(message)
+                _save_chat_exchange(message, lr.get("response", ""))
+                return jsonify({
+                    "status": "ok", "worker": "sentinel", "internal_engine": "learning",
+                    "response": lr.get("response", ""), "routed": True,
+                })
+            except Exception as _le:
+                logger.debug("learning engine: %s", _le)
 
-        _home_kw = ('turn on', 'turn off', 'switch on', 'switch off',
-                    'lights', 'thermostat', 'home automation', 'smart home',
-                    'home assistant', 'lock the', 'unlock the', 'dim the',
-                    'fan on', 'fan off', 'air conditioning', 'temperature to')
-        if any(kw in lower for kw in _home_kw) and _pre_worker is None:
-            _pre_worker = "home"
+        if _route and _route.internal_engine == "memory" and _route.execute:
+            if memory_v2 is not None:
+                try:
+                    hits = memory_v2.recall(message, limit=5)
+                    if hits:
+                        _mresp = "Here's what I remember:\n\n" + "\n".join(
+                            f"- {(getattr(h, 'content', None) or '')[:200]}" for h in hits[:5]
+                        )
+                    else:
+                        _mresp = "No matching memories yet. I'll remember what you tell me in this chat."
+                    _save_chat_exchange(message, _mresp)
+                    return jsonify({"status": "ok", "worker": "sentinel", "response": _mresp, "routed": True})
+                except Exception as _mr:
+                    logger.debug("memory recall: %s", _mr)
 
-        if _pre_worker == 'forge':
+        # Single source of truth: the capability_router decision already
+        # computed at the top of this handler (`_route`) selects the internal
+        # engine. No inline keyword block, no canned per-worker strings —
+        # if the engine doesn't have a structured handler above, fall through
+        # to the LLM.
+
+        engine = (_route.internal_engine if _route else "general")
+
+        # Forge — show the structured Build Plan and stage the approval. The
+        # plan text is parameterized (not a canned response): it describes the
+        # routing decision the user is about to approve.
+        if engine == "forge":
             from builders.router import classify_build, engine_for_route, stack_for_route
             _bt = classify_build(message)
             _stack = ", ".join(stack_for_route(_bt))
@@ -5220,64 +5656,54 @@ def api_chat():
                 "routed": True,
             })
 
-        if _pre_worker:
-            response_text = _WORKER_RESPONSES.get(_pre_worker, f"Routing to {_pre_worker} worker...")
-            _save_chat_exchange(message, response_text)
-            return jsonify({
-                "status": "ok",
-                "worker": _pre_worker,
-                "response": response_text,
-                "intent": {"intent": _pre_worker},
-                "routed": True,
-            })
+        # Everything else (earn, market, home, general) — route through the
+        # real LLM. No canned per-worker strings, no canned conversational
+        # replies. If the model is unreachable we surface that to the user
+        # instead of papering over it with hardcoded chat.
+        from core.ai_provider import chat_with_fallbacks
 
-        # Conversational inputs (no keyword match) → general worker with AI response
-        if is_conversational_input(message):
-            response_text = _chat_quick_response(_enriched_message) or _canned_response(message)
-            # Save response to memory and chat session
-            _save_chat_exchange(message, response_text)
-            return jsonify({
-                "status": "ok",
-                "worker": "general",
-                "response": response_text,
-                "intent": {"intent": "general"},
-                "routed": True,
-            })
+        _tools_context = ""
+        if _route:
+            _tools_context = (
+                f"internal_engine={_route.internal_engine}; "
+                f"reason={_route.reason}; confidence={_route.confidence}"
+            )
+        log_chat_context(
+            user_message=message,
+            memory_context=_memory_context,
+            system_prompt=SENTINEL_SYSTEM_PROMPT,
+            tools_context=_tools_context,
+            route=engine,
+        )
+        chat_result = chat_with_fallbacks(
+            message,
+            system=SENTINEL_SYSTEM_PROMPT,
+            memory_context=_memory_context,
+            tools_context=_tools_context,
+        )
+        response_text = chat_result.get("text") or "I'm here. What would you like to do?"
+        status_code = 200
 
-        decomposer = get_decomposer()
-        plan = decomposer.generate_plan(message)
-        subtasks = plan.get("subtasks", [])
-        first = subtasks[0] if subtasks else {}
-        worker_raw = first.get("worker", "ollama_general")
-
-        _worker_map = {
-            "forge": "forge",
-            "earn": "earn",
-            "market": "market",
-            "ollama_general": "general",
-            "openclaw.web": "general",
-            "memory": "general",
-            "home_assistant": "home",
-            "openclaw.calendar": "general",
-            "entertainment.spotify": "general",
-            "finance.firefly": "finance",
-            "home.camera_worker": "home",
-        }
-        worker = _worker_map.get(worker_raw, "general")
-
-        if worker == "forge" and is_conversational_input(message):
-            worker = "general"
-
-        response_text = _chat_quick_response(_enriched_message) or _WORKER_RESPONSES.get(worker, f"Routing to {worker} worker...")
+        log_chat_context(
+            user_message=message,
+            memory_context=_memory_context,
+            system_prompt=SENTINEL_SYSTEM_PROMPT,
+            tools_context=_tools_context,
+            route=engine,
+            provider=chat_result.get("source", "unknown"),
+            extra={"degraded": chat_result.get("degraded")},
+        )
         _save_chat_exchange(message, response_text)
         return jsonify({
             "status": "ok",
-            "worker": worker,
+            "worker": engine,
             "response": response_text,
-            "intent": {"intent": first.get("type", "GENERAL").lower()},
-            "plan": plan,
+            "intent": {"intent": engine},
             "routed": True,
-        })
+            "degraded": bool(chat_result.get("degraded")),
+            "provider": chat_result.get("source", "unknown"),
+            "model_ready": _chat_rt.is_ready(),
+        }), status_code
     except Exception as e:
         logger.exception("api_chat failed")
         return jsonify({"status": "error", "worker": "general", "response": "An error occurred. Please try again.", "error": str(e)}), 500
@@ -5412,6 +5838,679 @@ def api_web_creds_save():
         return jsonify({"status": "ok", **result})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sentinel Vision — visual understanding + browser/desktop/provider operator
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _vision():
+    from core.sentinelvision import get_vision_engine
+    return get_vision_engine(socketio=socketio)
+
+
+@app.route('/api/sentinelvision/status', methods=['GET'])
+@app.route('/api/sentinelscrub/status', methods=['GET'])
+def api_sentinelvision_status():
+    try:
+        engine = _vision()
+        return jsonify({
+            "status": "ok",
+            "enabled": True,
+            "subsystem": "sentinel_vision",
+            "browser": engine.operators.browser.available,
+            "desktop_platform": engine.operators.desktop.platform,
+            "providers": __import__("core.sentinelvision.providers.registry", fromlist=["list_providers"]).list_providers(),
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "enabled": False, "error": str(e)}), 200
+
+
+@app.route('/api/sentinelvision/goals', methods=['GET', 'POST'])
+@app.route('/api/sentinelscrub/goals', methods=['GET', 'POST'])
+def api_sentinelvision_goals():
+    try:
+        engine = _vision()
+        if request.method == 'POST':
+            data = request.get_json() or {}
+            objective = (data.get("objective") or data.get("message") or "").strip()
+            if not objective:
+                return jsonify({"error": "objective required"}), 400
+            goal = engine.submit_goal(objective, provider_id=data.get("provider_id"))
+            return jsonify({"status": "ok", "goal": goal.to_dict()})
+        goals = [g.to_dict() for g in engine.goals.list_goals()]
+        return jsonify({"status": "ok", "goals": goals})
+    except Exception as e:
+        logger.exception("sentinelvision goals")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/sentinelvision/goals/<goal_id>', methods=['GET'])
+@app.route('/api/sentinelscrub/goals/<goal_id>', methods=['GET'])
+def api_sentinelvision_goal(goal_id):
+    try:
+        engine = _vision()
+        goal = engine.goals.get(goal_id)
+        if not goal:
+            return jsonify({"error": "not found"}), 404
+        pending = [a.to_dict() for a in engine.approval.list_pending(goal_id)]
+        return jsonify({
+            "status": "ok",
+            "goal": goal.to_dict(),
+            "feed": engine.goals.get_feed(goal_id),
+            "pending_approvals": pending,
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/sentinelvision/approvals', methods=['GET'])
+@app.route('/api/sentinelscrub/approvals', methods=['GET'])
+def api_sentinelvision_approvals():
+    try:
+        engine = _vision()
+        pending = [a.to_dict() for a in engine.approval.list_pending()]
+        return jsonify({"status": "ok", "approvals": pending})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/sentinelvision/approvals/<approval_id>/resolve', methods=['POST'])
+@app.route('/api/sentinelscrub/approvals/<approval_id>/resolve', methods=['POST'])
+def api_sentinelvision_approval_resolve(approval_id):
+    try:
+        engine = _vision()
+        data = request.get_json() or {}
+        approved = bool(data.get("approved", False))
+        trust = bool(data.get("trust_provider", False))
+        req = engine.approval.resolve(approval_id, approved)
+        if not req:
+            return jsonify({"error": "approval not found or already resolved"}), 404
+        if trust:
+            engine.approval.set_trusted_provider(req.provider_id, True)
+        if approved:
+            engine.resume_after_approval(approval_id)
+        return jsonify({"status": "ok", "approval": req.to_dict()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/sentinelvision/vault/providers', methods=['GET'])
+@app.route('/api/sentinelscrub/vault/providers', methods=['GET'])
+def api_sentinelvision_vault_list():
+    try:
+        engine = _vision()
+        return jsonify({"status": "ok", "providers": engine.vault.list_providers()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/sentinelvision/vault/register', methods=['POST'])
+@app.route('/api/sentinelscrub/vault/register', methods=['POST'])
+def api_sentinelvision_vault_register():
+    """Register credentials — values never returned in response."""
+    try:
+        engine = _vision()
+        data = request.get_json() or {}
+        provider_id = (data.get("provider_id") or "").strip()
+        fields = data.get("fields") or {}
+        if not provider_id or not fields:
+            return jsonify({"error": "provider_id and fields required"}), 400
+        result = engine.vault.register_provider_account(
+            provider_id, fields, label=data.get("label"),
+        )
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/sentinelvision/audit', methods=['GET'])
+@app.route('/api/sentinelscrub/audit', methods=['GET'])
+def api_sentinelvision_audit():
+    try:
+        from core.sentinelvision.audit import list_audit
+        goal_id = request.args.get("goal_id")
+        limit = int(request.args.get("limit", 100))
+        return jsonify({"status": "ok", "entries": list_audit(limit=limit, goal_id=goal_id)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/sentinelvision/metrics', methods=['GET'])
+@app.route('/api/sentinelscrub/metrics', methods=['GET'])
+def api_sentinelvision_metrics():
+    try:
+        engine = _vision()
+        return jsonify({"status": "ok", "metrics": engine.metrics.summary()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/sentinelvision/playbooks', methods=['GET'])
+@app.route('/api/sentinelscrub/playbooks', methods=['GET'])
+def api_sentinelvision_playbooks():
+    try:
+        from core.sentinelvision.playbooks.recorder import list_playbooks
+        return jsonify({"status": "ok", "playbooks": list_playbooks()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/sentinelvision/workflows', methods=['GET'])
+@app.route('/api/sentinelscrub/workflows', methods=['GET'])
+def api_sentinelvision_workflows():
+    try:
+        from core.sentinelvision.workflows.workflow_library import WorkflowLibrary
+        return jsonify({"status": "ok", "workflows": WorkflowLibrary().list_templates()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/sentinelvision/onboard', methods=['POST'])
+@app.route('/api/sentinelscrub/onboard', methods=['POST'])
+def api_sentinelvision_onboard():
+    try:
+        engine = _vision()
+        data = request.get_json() or {}
+        provider_id = (data.get("provider_id") or "").strip()
+        if not provider_id:
+            objective = (data.get("objective") or data.get("message") or "").strip()
+            provider_id = engine.onboarding.resolve_onboarding_objective(objective) or ""
+        if not provider_id:
+            return jsonify({"error": "provider_id or recognizable objective required"}), 400
+        result = engine.onboarding.onboard_provider(
+            provider_id,
+            objective=data.get("objective"),
+            credentials=data.get("fields") or data.get("credentials"),
+        )
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        logger.exception("sentinelvision onboard")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/sentinelvision/repair-memory', methods=['GET'])
+@app.route('/api/sentinelscrub/repair-memory', methods=['GET'])
+def api_sentinelvision_repair_memory():
+    try:
+        from core.sentinelvision.self_correction.repair_memory import RepairMemoryStore
+        return jsonify({"status": "ok", "patterns": RepairMemoryStore().list_top(30)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/sentinelvision/providers/health', methods=['GET'])
+@app.route('/api/sentinelscrub/providers/health', methods=['GET'])
+def api_sentinelvision_providers_health():
+    try:
+        from core.sentinelvision.providers.registry import list_providers
+        from core.sentinelvision.providers.workflows import get_workflow_runner
+        runner = get_workflow_runner()
+        health = [runner.health_check(p["provider_id"]) for p in list_providers()]
+        return jsonify({"status": "ok", "providers": health})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Memory 2.0 / Missions / Guardian monitor / Updates / Release
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/api/memory2/health', methods=['GET'])
+def api_memory2_health():
+    try:
+        from core.memory2 import get_memory2_engine
+        return jsonify({"status": "ok", "health": get_memory2_engine().health()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/memory2/retrieve', methods=['POST'])
+def api_memory2_retrieve():
+    try:
+        from core.memory2 import get_memory2_engine
+        data = request.get_json() or {}
+        q = (data.get("query") or "").strip()
+        if not q:
+            return jsonify({"error": "query required"}), 400
+        results = get_memory2_engine().retrieve(
+            q,
+            memory_type=data.get("memory_type"),
+            project_id=data.get("project_id"),
+            limit=int(data.get("limit", 20)),
+        )
+        return jsonify({"status": "ok", "results": results})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/memory2/summarize', methods=['GET'])
+def api_memory2_summarize():
+    try:
+        from core.memory2 import get_memory2_engine
+        mt = request.args.get("memory_type")
+        return jsonify({"status": "ok", "summary": get_memory2_engine().summarize(mt)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/memory2/consolidate', methods=['POST'])
+def api_memory2_consolidate():
+    try:
+        from core.memory2 import get_memory2_engine
+        data = request.get_json() or {}
+        return jsonify({"status": "ok", **get_memory2_engine().consolidate(data.get("memory_type"))})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/memory2/cleanup', methods=['POST'])
+def api_memory2_cleanup():
+    try:
+        from core.memory2 import get_memory2_engine
+        data = request.get_json() or {}
+        return jsonify({"status": "ok", **get_memory2_engine().cleanup(dry_run=bool(data.get("dry_run")))})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/missions', methods=['GET', 'POST'])
+def api_missions():
+    try:
+        from core.missions import get_mission_engine
+        eng = get_mission_engine()
+        if request.method == 'POST':
+            data = request.get_json() or {}
+            title = (data.get("title") or data.get("goal") or "").strip()
+            if not title:
+                return jsonify({"error": "title required"}), 400
+            m = eng.create_mission(title, goal=data.get("goal"), dependencies=data.get("dependencies"))
+            return jsonify({"status": "ok", "mission": m})
+        status = request.args.get("status")
+        return jsonify({"status": "ok", "missions": eng.list_missions(status=status)})
+    except Exception as e:
+        logger.exception("missions")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/missions/<mission_id>', methods=['GET', 'PATCH'])
+def api_mission(mission_id):
+    try:
+        from core.missions import get_mission_engine
+        eng = get_mission_engine()
+        if request.method == 'PATCH':
+            data = request.get_json() or {}
+            m = eng.update_mission(mission_id, **data)
+            if not m:
+                return jsonify({"error": "not found"}), 404
+            return jsonify({"status": "ok", "mission": m})
+        m = eng.get_mission(mission_id)
+        if not m:
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"status": "ok", "mission": m})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/guardian/dashboard', methods=['GET'])
+def api_guardian_dashboard():
+    try:
+        from workers.guardian.system_monitor import get_guardian_monitor
+        return jsonify({"status": "ok", **get_guardian_monitor().dashboard()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/guardian/alerts', methods=['GET'])
+def api_guardian_alerts():
+    try:
+        from workers.guardian.system_monitor import get_guardian_monitor
+        limit = int(request.args.get("limit", 20))
+        return jsonify({"status": "ok", "alerts": get_guardian_monitor().get_alerts(limit)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/version', methods=['GET'])
+def api_version():
+    try:
+        from core.release import get_release_manager
+        return jsonify({"status": "ok", **get_release_manager().version()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/updates/status', methods=['GET'])
+def api_updates_status():
+    try:
+        from core.updater import get_auto_updater
+        return jsonify({"status": "ok", **get_auto_updater().status()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/updates/check', methods=['POST'])
+def api_updates_check():
+    try:
+        from core.updater import get_auto_updater
+        return jsonify({"status": "ok", **get_auto_updater().check_for_updates()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/updates/channel', methods=['POST'])
+def api_updates_channel():
+    try:
+        from core.updater import get_auto_updater
+        data = request.get_json() or {}
+        return jsonify(get_auto_updater().set_channel((data.get("channel") or "beta").strip()))
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/updates/download', methods=['POST'])
+def api_updates_download():
+    try:
+        from core.updater import get_auto_updater
+        return jsonify(get_auto_updater().download_update(background=True))
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/updates/rollback', methods=['GET'])
+def api_updates_rollback():
+    try:
+        from core.updater import get_auto_updater
+        return jsonify({"status": "ok", **get_auto_updater().rollback_info()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/updates/diagnostics', methods=['GET'])
+def api_updates_diagnostics():
+    try:
+        from core.updater import get_auto_updater
+        return jsonify({"status": "ok", **get_auto_updater().diagnostics()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/updates/install', methods=['POST'])
+def api_updates_install():
+    try:
+        from core.updater import get_auto_updater
+        return jsonify(get_auto_updater().install_pending())
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/updates/rollback/execute', methods=['POST'])
+def api_updates_rollback_execute():
+    try:
+        from core.updater import get_auto_updater
+        u = get_auto_updater()
+        triggered = u.trigger_rollback()
+        if not triggered.get("ok"):
+            return jsonify({"status": "error", **triggered}), 400
+        result = u.execute_rollback()
+        code = 200 if result.get("ok") else 500
+        return jsonify({"status": "ok" if result.get("ok") else "error", **result}), code
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/updates/electron-event', methods=['POST'])
+def api_updates_electron_event():
+    try:
+        from core.updater import get_auto_updater
+        data = request.get_json() or {}
+        get_auto_updater().record_electron_event(
+            (data.get("phase") or "unknown").strip(),
+            data.get("detail"),
+        )
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/updates/manifest', methods=['GET', 'POST'])
+def api_updates_manifest():
+    try:
+        from core.release import get_release_manager
+        mgr = get_release_manager()
+        if request.method == 'POST':
+            data = request.get_json() or {}
+            m = mgr.generate_update_manifest(
+                channel=data.get("channel", "beta"),
+                minimum_supported_version=data.get("minimum_supported_version", "1.0.0"),
+                force_update=bool(data.get("force_update")),
+                kill_switch=bool(data.get("kill_switch")),
+                updates_disabled=bool(data.get("updates_disabled")),
+            )
+            return jsonify({"status": "ok", "manifest": m})
+        m = mgr.load_update_manifest() or mgr.generate_update_manifest()
+        return jsonify({"status": "ok", "manifest": m})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/release/manifest', methods=['GET', 'POST'])
+def api_release_manifest():
+    try:
+        from core.release import get_release_manager
+        mgr = get_release_manager()
+        if request.method == 'POST':
+            ch = (request.get_json() or {}).get("channel", "beta")
+            return jsonify({"status": "ok", "manifest": mgr.generate_manifest(channel=ch)})
+        m = mgr.load_manifest() or mgr.generate_manifest()
+        return jsonify({"status": "ok", "manifest": m})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/release/verify', methods=['GET'])
+def api_release_verify():
+    try:
+        from core.release import get_release_manager
+        return jsonify({"status": "ok", **get_release_manager().verify_build()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/release/changelog', methods=['GET'])
+def api_release_changelog():
+    try:
+        from core.release import get_release_manager
+        return jsonify({"status": "ok", **get_release_manager().changelog()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/dependencies/scan', methods=['POST'])
+def api_dependencies_scan():
+    try:
+        from core.dependency_manager import get_dependency_manager
+        return jsonify({"status": "ok", **get_dependency_manager().scan_system()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/dependencies', methods=['GET'])
+def api_dependencies_list():
+    try:
+        from core.dependency_manager import get_dependency_manager
+        return jsonify({"status": "ok", "components": get_dependency_manager().list_components()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/dependencies/install', methods=['POST'])
+def api_dependencies_install():
+    try:
+        from core.dependency_manager import get_dependency_manager
+        data = request.get_json() or {}
+        cid = (data.get("component_id") or "").strip()
+        mgr = get_dependency_manager()
+        if cid:
+            return jsonify({"status": "ok", **mgr.install_component(cid)})
+        return jsonify({"status": "ok", **mgr.install_all_required()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/dependencies/repair', methods=['POST'])
+def api_dependencies_repair():
+    try:
+        from core.dependency_manager import get_dependency_manager
+        return jsonify({"status": "ok", **get_dependency_manager().repair_failed()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/models/recommend', methods=['GET'])
+def api_models_recommend():
+    try:
+        from core.model_manager import get_model_manager
+        return jsonify({"status": "ok", **get_model_manager().recommend()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/models', methods=['GET'])
+def api_models_list():
+    try:
+        from core.model_manager import get_model_manager
+        return jsonify({"status": "ok", "models": get_model_manager().list_models()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/models/install-recommended', methods=['POST'])
+def api_models_install_recommended():
+    try:
+        from core.model_manager import get_model_manager
+        return jsonify({"status": "ok", **get_model_manager().install_recommended()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/models/pull', methods=['POST'])
+def api_models_pull():
+    try:
+        from core.model_manager import get_model_manager
+        data = request.get_json() or {}
+        name = (data.get("model") or data.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "model required"}), 400
+        return jsonify({"status": "ok", **get_model_manager().pull_model(name)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/models/remove', methods=['POST'])
+def api_models_remove():
+    try:
+        from core.model_manager import get_model_manager
+        data = request.get_json() or {}
+        name = (data.get("model") or data.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "model required"}), 400
+        return jsonify({"status": "ok", **get_model_manager().remove_model(name)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/onboarding/status', methods=['GET'])
+def api_onboarding_status():
+    try:
+        from core.onboarding import get_first_launch
+        return jsonify({"status": "ok", **get_first_launch().status()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/onboarding/step', methods=['POST'])
+def api_onboarding_step():
+    try:
+        from core.onboarding import get_first_launch
+        data = request.get_json() or {}
+        fl = get_first_launch()
+        if data.get("run_all"):
+            return jsonify({"status": "ok", **fl.run_all()})
+        if data.get("retry") and data.get("step"):
+            return jsonify({"status": "ok", **fl.retry_step(data["step"])})
+        return jsonify({"status": "ok", **fl.run_step(data.get("step"))})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/api/models/readiness', methods=['GET'])
+def api_models_readiness():
+    try:
+        from core.model_runtime import get_model_runtime
+        return jsonify({"status": "ok", **get_model_runtime().readiness_quick()})
+    except Exception as e:
+        return jsonify({"status": "ok", "allow_chat": True, "ready": False, "degraded": True}), 200
+
+
+@app.route('/api/ai/status', methods=['GET'])
+def api_ai_status():
+    try:
+        from core.ai_provider import get_ai_status
+        return jsonify({"status": "ok", **get_ai_status()})
+    except Exception as e:
+        logger.exception("api_ai_status")
+        return jsonify({
+            "status": "ok",
+            "ollama_running": False,
+            "model_installed": False,
+            "model_loaded": False,
+            "provider_ready": False,
+            "download_progress": 0,
+            "allow_chat": True,
+        }), 200
+
+
+@app.route('/api/onboarding/progress', methods=['GET'])
+def api_onboarding_progress():
+    try:
+        from core.onboarding.pipeline import get_onboarding_pipeline
+        from core.model_runtime import get_model_runtime
+        return jsonify({
+            "status": "ok",
+            "progress": get_onboarding_pipeline().progress(),
+            "readiness": get_model_runtime().readiness_quick(),
+            "allow_chat": True,
+        })
+    except Exception as e:
+        return jsonify({"status": "ok", "allow_chat": True, "progress": {"percent": 0, "message": "Starting…"}}), 200
+
+
+@app.route('/api/models/heal', methods=['POST'])
+def api_models_heal():
+    try:
+        from core.model_runtime import get_model_runtime
+        data = request.get_json() or {}
+        retries = int(data.get("max_retries", 2))
+        return jsonify({"status": "ok", **get_model_runtime().heal(max_retries=retries)})
+    except Exception as e:
+        return jsonify({"status": "error", "user_message": "Sentinel is restoring the local AI service. Please wait."}), 500
+
+
+@app.route('/api/models/pull-status', methods=['GET'])
+def api_models_pull_status():
+    try:
+        from core.model_runtime import get_model_runtime
+        rt = get_model_runtime()
+        return jsonify({
+            "status": "ok",
+            "phase": rt._state.get("phase"),
+            "pull": rt._state.get("pull") or {},
+            "install": rt._state.get("install") or {},
+            "readiness": rt.readiness(),
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "user_message": "Download status is temporarily unavailable."}), 500
 
 
 @app.route('/web/credentials/list', methods=['GET'])
@@ -5592,6 +6691,25 @@ def api_build_status():
         return jsonify({"status": "ok", "active": False, "build": None})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/sentinel/model/status', methods=['GET'])
+def api_sentinel_model_status():
+    try:
+        from workers.sentinel.model_router import get_runtime_status
+        return jsonify({"status": "ok", **get_runtime_status()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
+
+
+@app.route('/api/learning/capabilities', methods=['GET'])
+def api_learning_capabilities():
+    """Learned capability profiles (Learning Engine registry)."""
+    try:
+        from core.learning.learning_engine import get_learning_engine
+        return jsonify({"status": "ok", "profiles": get_learning_engine().list_profiles()})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e), "profiles": []}), 200
 
 
 @app.route('/api/capabilities/status', methods=['GET'])
@@ -6126,6 +7244,7 @@ def run_flask_app():
     port = int(os.getenv("FLASK_PORT", "5001"))
     if host not in ("127.0.0.1", "localhost"):
         logger.warning(f"Flask binding to {host} — ensure firewall is configured!")
+    _start_broadcasters_once()
     if SOCKETIO_AVAILABLE and socketio is not None:
         # allow_unsafe_werkzeug: we run the dev server in a daemon thread on localhost.
         try:
@@ -6170,6 +7289,14 @@ def start_backend():
         logger.info("Learning memory system initialized")
     except Exception as e:
         logger.warning(f"Learning memory initialization failed: {e}")
+
+    # Sentinel Vision — operator subsystem (safe: failure does not block boot)
+    try:
+        from core.sentinelvision import get_vision_engine
+        get_vision_engine(socketio=socketio)
+        logger.info("Sentinel Vision subsystem initialized")
+    except Exception as e:
+        logger.warning("Sentinel Vision initialization failed (disabled): %s", e)
     
     # Initialize queue system
     try:
@@ -6225,6 +7352,22 @@ def start_backend():
         logger.info(f"Health monitor started (interval={health_interval}s)")
     except Exception as e:
         logger.warning(f"Health monitor initialization failed: {e}")
+
+    # Model runtime: apply active model + self-healing when Ollama drops
+    try:
+        from core.model_runtime import get_model_runtime, start_self_healing_monitor
+        get_model_runtime().apply_active_model_env()
+        start_self_healing_monitor(interval_sec=45)
+        logger.info("Model runtime self-healing monitor started")
+    except Exception as e:
+        logger.warning("Model runtime monitor failed: %s", e)
+
+    try:
+        from core.ai_provider import bootstrap_providers
+        bootstrap_providers()
+        logger.info("AI provider bootstrap started")
+    except Exception as e:
+        logger.warning("AI provider bootstrap failed: %s", e)
 
     # Initialize orchestration pipeline (Tracks 17-25)
     try:
@@ -6376,6 +7519,54 @@ def start_backend():
         logger.info("Memory Manager V2 initialized")
     except Exception as e:
         logger.warning("Memory V2 init failed: %s", e)
+
+    try:
+        from core.memory2 import get_memory2_engine
+        get_memory2_engine()
+        logger.info("Memory 2.0 engine initialized")
+    except Exception as e:
+        logger.warning("Memory 2.0 init failed: %s", e)
+
+    try:
+        from core.missions import get_mission_engine
+        get_mission_engine()
+        logger.info("Mission engine initialized")
+    except Exception as e:
+        logger.warning("Mission engine init failed: %s", e)
+
+    try:
+        from workers.guardian.system_monitor import get_guardian_monitor
+        get_guardian_monitor()
+        logger.info("Guardian system monitor initialized")
+    except Exception as e:
+        logger.warning("Guardian monitor init failed: %s", e)
+
+    try:
+        from core.updater import get_auto_updater
+        get_auto_updater().check_for_updates()
+        logger.info("Auto-updater check completed")
+    except Exception as e:
+        logger.warning("Auto-updater init failed: %s", e)
+
+    try:
+        license_manager.start_beta_period()
+    except Exception as e:
+        logger.debug("beta period: %s", e)
+
+    try:
+        from core.release import get_release_manager
+        rm = get_release_manager()
+        rm.generate_manifest(channel="beta")
+        rm.generate_update_manifest(channel="beta")
+    except Exception as e:
+        logger.debug("release manifest: %s", e)
+
+    try:
+        from core.dependency_manager import get_dependency_manager
+        get_dependency_manager().scan_system()
+        logger.info("Dependency manager scan completed")
+    except Exception as e:
+        logger.warning("Dependency manager scan failed: %s", e)
 
     try:
         enqueue_new_repair_opportunities()

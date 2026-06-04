@@ -62,9 +62,12 @@ echo Backend executable created:
 echo   build\sentinel_backend\sentinel_backend.exe
 echo.
 echo Size check:
-cd build\sentinel_backend
-dir sentinel_backend.exe
-cd ..\..
+if exist "dist\sentinel_backend\sentinel_backend.exe" (
+    if exist "backend_dist\sentinel_backend" rmdir /s /q "backend_dist\sentinel_backend"
+    if not exist "backend_dist" mkdir backend_dist
+    xcopy /E /I /Y "dist\sentinel_backend" "backend_dist\sentinel_backend\" >nul
+    echo Staged backend to backend_dist\sentinel_backend
+)
 
 echo.
-pause
+if not defined SENTINEL_NONINTERACTIVE pause

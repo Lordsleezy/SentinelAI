@@ -17,7 +17,7 @@ from .confidence import get_confidence_wrapper
 from .verifier import get_verifier
 from .chain_of_thought import get_cot
 from .rag import get_rag
-from .model_selector import get_model_selector
+from workers.sentinel.model_router import get_model_selector
 
 
 class OrchestrationPipeline:

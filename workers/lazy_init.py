@@ -16,12 +16,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Path to the project .env file
-_ENV_PATH = Path(__file__).parent.parent / ".env"
-
-
 def _env_path() -> Path:
-    return _ENV_PATH
+    try:
+        from core.app_paths import resolve_env_path
+        return resolve_env_path()
+    except ImportError:
+        return Path(__file__).parent.parent / ".env"
 
 
 class LazyInit:
@@ -104,8 +104,48 @@ class LazyInit:
             "title": f"Setup Required — {worker_name.capitalize()}",
         }
 
+    # Keys that must never be settable through the API surface. These either
+    # control the security posture (AUTH_TOKEN, OWNER_MODE) or affect process
+    # bootstrapping in ways that would let a caller pivot off the app.
+    DENY_KEYS: set[str] = {
+        "SENTINELAI_AUTH_TOKEN",
+        "SENTINEL_OWNER_MODE",
+        "SENTINEL_DEV_TOOLS",
+        "PATH",
+        "PYTHONPATH",
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+    }
+
+    def allowed_keys(self) -> set[str]:
+        """All credential keys declared by any worker, used as an allowlist."""
+        keys: set[str] = set()
+        for reqs in self.REQUIREMENTS.values():
+            for env_key, *_ in reqs:
+                keys.add(env_key)
+        # Common service-routing knobs the user is permitted to override.
+        keys.update({
+            "OLLAMA_URL",
+            "OLLAMA_HOST",
+            "OLLAMA_MODEL",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GROQ_API_KEY",
+        })
+        return keys - self.DENY_KEYS
+
+    def is_allowed_key(self, key: str) -> bool:
+        return key in self.allowed_keys()
+
     def save(self, key: str, value: str) -> bool:
-        """Write key=value to .env and os.environ immediately."""
+        """Write key=value to .env and os.environ immediately.
+
+        Rejects any key outside the allowlist — this guards the .env file from
+        being used as an arbitrary env-var injection sink via the API surface.
+        """
+        if not self.is_allowed_key(key):
+            logger.warning("[LazyInit] Refusing to save disallowed key: %s", key)
+            return False
         try:
             env_file = _env_path()
             # Read existing content

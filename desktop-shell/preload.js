@@ -2,6 +2,15 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Auth token comes from the main process via process.env (injected before
+// the BrowserWindow loads). The renderer never sees the file path — only the
+// token value, surfaced as window.__SENTINEL_AUTH__ by the shim below.
+const __SENTINEL_AUTH__ = process.env.SENTINELAI_AUTH_TOKEN || '';
+
+contextBridge.exposeInMainWorld('sentinelAuth', {
+  token: __SENTINEL_AUTH__,
+});
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // Backend status events
   onBackendStatus: (callback) => {

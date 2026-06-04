@@ -4,12 +4,32 @@ SQLite with full CRUD for opportunities, submissions, agent_log
 """
 import sqlite3
 import os
+import sys
 from typing import Optional, List, Dict
 from contextlib import contextmanager
 
+
+def _default_data_dir() -> str:
+    try:
+        from core.app_paths import bootstrap_packaged_env, resolve_data_dir
+        bootstrap_packaged_env()
+        return str(resolve_data_dir())
+    except ImportError:
+        if getattr(sys, "frozen", False) or getattr(sys, "_MEIPASS", None):
+            appdata = os.environ.get("APPDATA", "").strip()
+            if appdata:
+                return os.path.join(appdata, "SentinelAI", "data")
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+
+def get_data_dir() -> str:
+    return _default_data_dir()
+
+
 # Support both old and new database paths for migration
-DB_PATH_NEW = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "sentinelai.db")
-DB_PATH_OLD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "sentinel_earn.db")
+_DATA_DIR = _default_data_dir()
+DB_PATH_NEW = os.path.join(_DATA_DIR, "sentinelai.db")
+DB_PATH_OLD = os.path.join(_DATA_DIR, "sentinel_earn.db")
 
 # Use new path, but check for old path for migration
 if os.path.exists(DB_PATH_OLD) and not os.path.exists(DB_PATH_NEW):

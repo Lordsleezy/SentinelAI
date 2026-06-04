@@ -96,6 +96,8 @@ class ResearchSession:
     program_handle: str
     program_title: str
     status: str = "running"
+    current_stage: str = "Starting"
+    progress_percent: int = 0
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     scope_summary: str = ""

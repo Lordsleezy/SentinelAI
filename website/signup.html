@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign Up - Sentinel Prime</title>
+<link rel="stylesheet" href="page.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="logo" href="index.html">SENTINELPRIME</a>
+  <div class="nav-links">
+    <a href="login.html">Login</a><a href="pricing.html">Pricing</a><a href="download.html">Download</a>
+  </div>
+</nav>
+<main>
+  <section class="section">
+    <div class="wrap narrow form-panel">
+      <h1>Create account</h1>
+      <p class="copy">One account for purchase, license, and dashboard.</p>
+      <form id="signupForm">
+        <input required type="text" name="full_name" placeholder="Full name">
+        <input required type="email" name="email" placeholder="Email">
+        <input required type="password" name="password" placeholder="Password (min 8)">
+        <button class="button" type="submit">Sign up</button>
+        <div class="form-status" id="status"></div>
+      </form>
+      <p class="copy" style="margin-top:16px;">Already have an account? <a href="login.html">Login</a></p>
+    </div>
+  </section>
+</main>
+<script>
+document.getElementById("signupForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const st = document.getElementById("status");
+  st.textContent = "Creating account…";
+  const body = Object.fromEntries(new FormData(e.target));
+  try {
+    const r = await fetch("/api/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Signup failed");
+    localStorage.setItem("sentinel_user_id", d.user_id);
+    localStorage.setItem("sentinel_email", d.email);
+    st.className = "form-status success";
+    st.textContent = "Account created. Redirecting…";
+    location.href = "dashboard.html";
+  } catch (err) {
+    st.className = "form-status error";
+    st.textContent = err.message;
+  }
+});
+</script>
+<script src="nav.js"></script>
+</body>
+</html>

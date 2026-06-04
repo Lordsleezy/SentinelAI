@@ -2,8 +2,9 @@
 """
 PyInstaller spec for SentinelAI Python backend.
 
-Bundles the Flask backend, all worker modules, and the integrations that
-ship in this build into ``dist/sentinel_backend/sentinel_backend.exe``.
+Bundles the Flask backend, all worker modules, Python runtime, and deps into
+``dist/sentinel_backend/`` (onedir COLLECT). End users do not need a venv;
+Electron launches ``sentinel_backend.exe`` from ``resources/sentinel_backend/``.
 
 Optional integrations (telethon, openwakeword, whisper, selenium, openai,
 prometheus_client, etc.) are loaded lazily by their workers and protected
@@ -154,6 +155,9 @@ a = Analysis(
         'workers.forge_worker',
         'workers.guardian.bundled_toolchain',
         'workers.guardian.guardian_bootstrap',
+        'core.capabilities.runtime_validator',
+        'core.app_paths',
+        'core.chat.context',
         'builders.runtime.godot_runtime',
         'builders.builder_status',
         'workers.guardian.tools.tool_registry',

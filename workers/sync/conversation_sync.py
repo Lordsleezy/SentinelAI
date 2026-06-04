@@ -83,14 +83,28 @@ class ConversationSync:
         except Exception as e:
             logger.warning("[Sync] State save failed: %s", e)
 
+    def _emit_sync_state(self, platform: str, state: str, extra: Optional[dict] = None) -> None:
+        if self.socketio:
+            try:
+                payload = {"platform": platform, "state": state}
+                if extra:
+                    payload.update(extra)
+                self.socketio.emit("memory_sync_state", payload)
+            except Exception:
+                pass
+
     def sync_all(self):
         """Pull from both platforms. Called by APScheduler."""
         self._log("Starting conversation sync...")
         synced = 0
+        for platform in ("claude", "chatgpt"):
+            self._emit_sync_state(platform, "SYNCING")
         synced += self._sync_platform("claude")
         synced += self._sync_platform("chatgpt")
         self.conversations_synced += synced
         self._save_state()
+        for platform in ("claude", "chatgpt"):
+            self._emit_sync_state(platform, "SYNCED", {"imported": synced})
         self._log(f"Sync complete: {synced} new conversations", "success")
 
     def _sync_platform(self, platform: str) -> int:
@@ -139,23 +153,29 @@ class ConversationSync:
         path.write_text(json.dumps(conv.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
 
     def _process_into_memory(self, conv: Conversation):
-        """Process conversation through memory pipeline."""
+        """Process conversation through Memory V2 (hot/warm/cold)."""
         try:
-            from memory_manager import get_memory_manager
-            mm = get_memory_manager()
-            content = f"[{conv.platform}] {conv.title}\n" + "\n".join(
-                f"{m['role']}: {m['content'][:500]}"
-                for m in conv.messages[:10]
-            )
-            mm.write_session({
-                "platform": conv.platform,
-                "title": conv.title,
-                "content": content,
-                "date": conv.date,
-                "source": conv.platform,
-            })
+            from workers.memory.memory_manager_v2 import get_memory_manager_v2
+            mm = get_memory_manager_v2()
+            mm.process_conversation(conv)
         except Exception as e:
-            logger.debug("[Sync] Memory processing failed: %s", e)
+            logger.debug("[Sync] Memory V2 processing failed: %s", e)
+            try:
+                from memory_manager import get_memory_manager
+                mm = get_memory_manager()
+                content = f"[{conv.platform}] {conv.title}\n" + "\n".join(
+                    f"{m['role']}: {m['content'][:500]}"
+                    for m in conv.messages[:10]
+                )
+                mm.write_session({
+                    "platform": conv.platform,
+                    "title": conv.title,
+                    "content": content,
+                    "date": conv.date,
+                    "source": conv.platform,
+                })
+            except Exception as e2:
+                logger.debug("[Sync] Legacy memory fallback failed: %s", e2)
 
     async def _extract_conversations_async(self, platform: str) -> List[Conversation]:
         """Use Playwright to extract conversation list from the platform."""

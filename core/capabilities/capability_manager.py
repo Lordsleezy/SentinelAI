@@ -48,12 +48,14 @@ class CapabilityManager:
                 "id": spec.id,
                 "label": spec.label,
                 "tier": int(spec.tier),
+                "dependencies": list(spec.dependencies or []),
                 "installed": v.installed,
                 "healthy": v.healthy,
                 "version": v.version,
                 "message": v.message,
                 "path": v.path,
                 "last_verified": v.last_verified,
+                "verification_status": "verified" if (v.installed and v.healthy) else "missing",
             })
             if not v.installed:
                 all_ok = False
@@ -73,6 +75,9 @@ class CapabilityManager:
             ("ANDROID", "ANDROID"),
             ("GUARDIAN", "GUARDIAN"),
             ("AI", "AI"),
+            ("EARN", "EARN"),
+            ("RESEARCH", "RESEARCH"),
+            ("VISION", "VISION"),
         ):
             st = self.status_for_domain(domain)
             lines = []

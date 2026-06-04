@@ -14,20 +14,86 @@ const { app, BrowserWindow, ipcMain, Menu, MenuItem, Notification, globalShortcu
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+
+// Writable per-user data — never under Program Files (see getEnvPath / getUserDataDir).
+app.setPath('userData', path.join(app.getPath('appData'), 'SentinelAI'));
+const crypto = require('crypto');
 const fetch = require('node-fetch');
 const pty = require('node-pty');
+
+function loadDotEnvFromUserData() {
+  const envPath = path.join(app.getPath('userData'), '.env');
+  if (!fs.existsSync(envPath)) return;
+  const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim();
+    if (!process.env[key]) process.env[key] = val;
+  }
+}
+
+function persistAuthTokenToEnv(token) {
+  const envPath = path.join(app.getPath('userData'), '.env');
+  const key = 'SENTINELAI_AUTH_TOKEN';
+  const line = `${key}=${token}`;
+  let content = '';
+  if (fs.existsSync(envPath)) {
+    content = fs.readFileSync(envPath, 'utf8');
+    const re = new RegExp(`^${key}=.*$`, 'm');
+    if (re.test(content)) {
+      fs.writeFileSync(envPath, content.replace(re, line), 'utf8');
+      return;
+    }
+  }
+  if (content && !content.endsWith('\n')) content += '\n';
+  fs.writeFileSync(envPath, content + line + '\n', 'utf8');
+}
+
+loadDotEnvFromUserData();
+
+// ============================================================================
+// AUTH TOKEN — shared by Electron renderer (fetch/socket) and Flask backend.
+// Loaded from userData .env when present; otherwise generated once and saved.
+// ============================================================================
+const PLACEHOLDER_AUTH = 'your_secure_random_token_here';
+function isWeakAuthToken(token) {
+  return !token || token === PLACEHOLDER_AUTH || token.length < 16;
+}
+let SENTINEL_AUTH_TOKEN = process.env.SENTINELAI_AUTH_TOKEN || '';
+if (isWeakAuthToken(SENTINEL_AUTH_TOKEN)) {
+  SENTINEL_AUTH_TOKEN = crypto.randomBytes(32).toString('hex');
+}
+process.env.SENTINELAI_AUTH_TOKEN = SENTINEL_AUTH_TOKEN;
+try {
+  const ud = app.getPath('userData');
+  if (!fs.existsSync(ud)) fs.mkdirSync(ud, { recursive: true });
+  persistAuthTokenToEnv(SENTINEL_AUTH_TOKEN);
+} catch (err) {
+  console.warn('[Auth] Could not persist token to .env:', err.message);
+}
+// Exposed read-only to preload via process.env; preload bridges it to renderer.
 
 // ============================================================================
 // STARTUP DEBUG LOG
 // ============================================================================
-const _dbgLog = path.join(__dirname, '..', 'startup_debug.log');
+function getDbgLogPath() {
+  try {
+    return path.join(app.getPath('userData'), 'startup_debug.log');
+  } catch (_) {
+    return path.join(__dirname, '..', 'startup_debug.log');
+  }
+}
 function dbg(msg) {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
-  try { fs.appendFileSync(_dbgLog, line, 'utf8'); } catch (_) {}
+  try { fs.appendFileSync(getDbgLogPath(), line, 'utf8'); } catch (_) {}
   console.log(msg);
 }
 // Clear log on each launch
-try { fs.writeFileSync(_dbgLog, '', 'utf8'); } catch (_) {}
+try { fs.writeFileSync(getDbgLogPath(), '', 'utf8'); } catch (_) {}
 
 // ============================================================================
 // STATE
@@ -63,7 +129,9 @@ const HEALTH_CHECK_INTERVAL_MS = 10000;
 const CONSECUTIVE_FAILURES_THRESHOLD = 3;
 
 // PID file next to main.js for orphan prevention
-const PID_FILE = path.join(__dirname, 'backend.pid');
+function getPidFilePath() {
+  return path.join(app.getPath('userData'), 'backend.pid');
+}
 
 // ============================================================================
 // UTILITY
@@ -143,15 +211,15 @@ function updateSplash(message, progress) {
 // ============================================================================
 
 function writePID(pid) {
-  try { fs.writeFileSync(PID_FILE, String(pid), 'utf8'); } catch (_) { /* ignore */ }
+  try { fs.writeFileSync(getPidFilePath(), String(pid), 'utf8'); } catch (_) { /* ignore */ }
 }
 
 function readPID() {
-  try { return parseInt(fs.readFileSync(PID_FILE, 'utf8'), 10); } catch (_) { return null; }
+  try { return parseInt(fs.readFileSync(getPidFilePath(), 'utf8'), 10); } catch (_) { return null; }
 }
 
 function clearPID() {
-  try { fs.unlinkSync(PID_FILE); } catch (_) { /* ignore */ }
+  try { fs.unlinkSync(getPidFilePath()); } catch (_) { /* ignore */ }
 }
 
 function isProcessRunning(pid) {
@@ -165,6 +233,18 @@ function cleanupOrphanedBackend() {
     try { process.kill(pid, 'SIGTERM'); } catch (_) { /* ignore */ }
   }
   clearPID();
+}
+
+/** Packaged installs: kill stale backends that block port 5001 without AppData env. */
+function terminatePackagedBackendProcesses() {
+  if (!app.isPackaged) return;
+  try {
+    const { execSync } = require('child_process');
+    execSync('taskkill /F /IM sentinel_backend.exe /T', { windowsHide: true, stdio: 'ignore' });
+    console.log('[Backend] Terminated stale sentinel_backend.exe processes');
+  } catch (_) {
+    /* none running */
+  }
 }
 
 // ============================================================================
@@ -236,7 +316,7 @@ function launchBackend() {
 
     backendProcess = spawn(command, args, {
       cwd: backendDir,
-      env: { ...process.env, SENTINEL_NO_BROWSER: '1' },
+      env: backendChildEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,  // prevents terminal window appearing on Windows
       detached: false
@@ -481,6 +561,8 @@ async function pollBackendReady() {
 }
 
 async function existingBackendReady() {
+  // Reusing a backend started without SENTINELAI_DATA_DIR breaks chat (writes under Program Files).
+  if (app.isPackaged) return false;
   const status = await httpGetStatus(`${BACKEND_URL}/api/ping`, 2000);
   if (status === 200) {
     backendReady = true;
@@ -698,12 +780,120 @@ function openOrchestrationOS() {
 // SETUP WIZARD
 // ============================================================================
 
+function getUserDataDir() {
+  return app.getPath('userData');
+}
+
+const TELEMETRY_BASE = (process.env.SENTINEL_TELEMETRY_URL || 'https://sentinelprime.org').replace(/\/$/, '');
+
+function getInstallIdPath() {
+  return path.join(getUserDataDir(), 'install_id');
+}
+
+function getOrCreateInstallId() {
+  ensureUserDataDir();
+  const idPath = getInstallIdPath();
+  if (fs.existsSync(idPath)) {
+    return fs.readFileSync(idPath, 'utf8').trim();
+  }
+  const id = crypto.randomUUID();
+  fs.writeFileSync(idPath, id, 'utf8');
+  return id;
+}
+
+function getWindowsOsLabel() {
+  if (process.platform !== 'win32') return process.platform;
+  const os = require('os');
+  const build = parseInt(String(os.release()).split('.')[2] || '0', 10);
+  return build >= 22000 ? 'Windows 11' : 'Windows 10';
+}
+
+/** First-run install beacon — non-blocking; one retry on next launch if the first POST fails. */
+function reportInstallOnce() {
+  setImmediate(() => {
+    try {
+      const flagPath = path.join(getUserDataDir(), 'install_reported.json');
+      let state = {};
+      if (fs.existsSync(flagPath)) {
+        try { state = JSON.parse(fs.readFileSync(flagPath, 'utf8')); } catch (_) {}
+        if (state.sent) return;
+        if (state.failed && state.retried) return;
+      }
+      let appVersion = '1.0.0';
+      try {
+        const pkg = require('./package.json');
+        appVersion = app.getVersion?.() || pkg.version || appVersion;
+      } catch (_) {}
+      const payload = {
+        install_id: getOrCreateInstallId(),
+        version: appVersion,
+        os: getWindowsOsLabel(),
+        arch: process.arch,
+        timestamp: new Date().toISOString(),
+        trial_start: true,
+      };
+      fetch(`${TELEMETRY_BASE}/api/telemetry/install`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+        .then((res) => {
+          if (res.ok) {
+            fs.writeFileSync(flagPath, JSON.stringify({ sent: true }), 'utf8');
+            return;
+          }
+          const next = state.failed
+            ? { sent: false, failed: true, retried: true }
+            : { sent: false, failed: true, retried: false };
+          fs.writeFileSync(flagPath, JSON.stringify(next), 'utf8');
+        })
+        .catch(() => {
+          const next = state.failed
+            ? { sent: false, failed: true, retried: true }
+            : { sent: false, failed: true, retried: false };
+          fs.writeFileSync(flagPath, JSON.stringify(next), 'utf8');
+        });
+    } catch (err) {
+      console.warn('[Install] telemetry skipped:', err.message);
+    }
+  });
+}
+
 function getEnvPath() {
-  // Packaged app: write to resources dir (writable, outside asar)
-  // Dev mode: write to project root
-  return app.isPackaged
-    ? path.join(process.resourcesPath, '.env')
-    : path.join(__dirname, '..', '.env');
+  return path.join(getUserDataDir(), '.env');
+}
+
+function getEnvExamplePath() {
+  if (app.isPackaged) {
+    const bundled = path.join(process.resourcesPath, '.env.example');
+    if (fs.existsSync(bundled)) return bundled;
+  }
+  const devExample = path.join(__dirname, '..', '.env.example');
+  if (fs.existsSync(devExample)) return devExample;
+  return null;
+}
+
+function ensureUserDataDir() {
+  const dir = getUserDataDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const dataDir = path.join(dir, 'data');
+  const configDir = path.join(dir, 'config');
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+  if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+  return dir;
+}
+
+function backendChildEnv() {
+  const userData = getUserDataDir();
+  return {
+    ...process.env,
+    SENTINEL_NO_BROWSER: '1',
+    SENTINELAI_USER_DATA: userData,
+    SENTINELAI_ENV_PATH: path.join(userData, '.env'),
+    SENTINELAI_DATA_DIR: path.join(userData, 'data'),
+  };
 }
 
 function isFirstRun() {
@@ -714,15 +904,21 @@ function isFirstRun() {
 // VITALS CHECK — only 3 things block startup; everything else is lazy
 // ---------------------------------------------------------------------------
 async function ensureEnvFile() {
+  ensureUserDataDir();
   const envPath = getEnvPath();
   if (fs.existsSync(envPath)) return;
 
-  console.log('[Startup] .env not found — creating empty one');
-  const examplePath = path.join(__dirname, '..', '.env.example');
-  if (fs.existsSync(examplePath)) {
-    fs.copyFileSync(examplePath, envPath);
-  } else {
-    fs.writeFileSync(envPath, '# SentinelAI configuration\n', 'utf8');
+  console.log('[Startup] .env not found — creating in userData:', envPath);
+  const examplePath = getEnvExamplePath();
+  try {
+    if (examplePath) {
+      fs.copyFileSync(examplePath, envPath);
+    } else {
+      fs.writeFileSync(envPath, '# SentinelAI configuration\n', 'utf8');
+    }
+  } catch (err) {
+    console.error('[Startup] Failed to create .env:', err.message);
+    throw err;
   }
 }
 
@@ -736,39 +932,40 @@ async function checkOllamaRunning() {
 async function vitalsCheck() {
   const { dialog } = require('electron');
 
-  // CHECK 1: Ollama
-  dbg('[Vitals] Checking Ollama...');
-  let ollamaOk = await checkOllamaRunning();
-  dbg(`[Vitals] Ollama check result: ${ollamaOk}`);
-  if (!ollamaOk) {
-    dbg('[Vitals] Showing Ollama dialog...');
-    // Show dialog and poll until Ollama responds
-    dialog.showMessageBoxSync({
-      type: 'warning',
-      title: 'Ollama Not Running',
-      message: 'Ollama is not running.\n\nStart it with:  ollama serve\n\nClick OK once Ollama is running.',
-      buttons: ['OK — I started it']
-    });
-    // Poll for up to 60s
-    const deadline = Date.now() + 60000;
-    while (Date.now() < deadline) {
-      await sleep(3000);
-      if (await checkOllamaRunning()) { ollamaOk = true; break; }
+  // Packaged installs use PyInstaller backend in resources — no project venv.
+  if (app.isPackaged) {
+    const bundled = resolveBundledBackend();
+    dbg('[Vitals] Packaged install — bundled backend:', bundled || '(missing)');
+    if (!bundled) {
+      dialog.showMessageBoxSync({
+        type: 'error',
+        title: 'Backend Not Found',
+        message:
+          'The SentinelAI backend executable is missing from this installation.\n\n' +
+          'Please reinstall SentinelAI from SentinelPrime.org or your installer package.',
+        buttons: ['OK']
+      });
+      app.quit();
+      return false;
     }
-    if (!ollamaOk) {
-      dbg('[Vitals] Ollama still not reachable — continuing anyway');
-      console.warn('[Vitals] Ollama still not reachable — continuing anyway');
-    }
+    return true;
   }
 
-  dbg('[Vitals] Checking venv Python...');
-  // CHECK 2: venv Python
-  const venvPy = path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe');
-  if (!fs.existsSync(venvPy)) {
+  // Dev mode: require project venv so desktop_app.py has all dependencies.
+  dbg('[Vitals] Dev mode — checking project venv...');
+  const venvCandidates = [
+    path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe'),
+    path.join(__dirname, '..', 'venv', 'bin', 'python'),
+  ];
+  const venvPy = venvCandidates.find((p) => fs.existsSync(p));
+  if (!venvPy) {
     dialog.showMessageBoxSync({
       type: 'error',
       title: 'Python venv Not Found',
-      message: 'Python virtual environment not found.\n\nRun these commands in the SentinelAI folder:\n\n  python -m venv venv\n  venv\\Scripts\\activate\n  pip install -r requirements.txt\n\nThen restart SentinelAI.',
+      message:
+        'Python virtual environment not found.\n\nRun these commands in the SentinelAI folder:\n\n' +
+        '  python -m venv venv\n  venv\\Scripts\\activate\n  pip install -r requirements.txt\n\n' +
+        'Then restart SentinelAI.',
       buttons: ['OK']
     });
     app.quit();
@@ -779,6 +976,33 @@ async function vitalsCheck() {
 }
 
 const WIZARD_DONE_FLAG = path.join(app.getPath('userData'), '.wizard_done');
+
+function httpGetJson(url, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data || '{}'));
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('timeout')); });
+  });
+}
+
+async function isSetupRequired() {
+  try {
+    const body = await httpGetJson(`${BACKEND_URL}/api/models/readiness`, 8000);
+    return !body.ready;
+  } catch (_) {
+    return true;
+  }
+}
 
 function isWizardNeeded() {
   return !fs.existsSync(WIZARD_DONE_FLAG);
@@ -808,15 +1032,22 @@ function createSetupWizardWindow() {
   });
   setupWizardWindow.loadFile(path.join(__dirname, 'setup_wizard.html'));
   setupWizardWindow.once('ready-to-show', () => setupWizardWindow.show());
-  setupWizardWindow.on('closed', () => { setupWizardWindow = null; });
   return new Promise((resolve) => {
-    ipcMain.once('setup-wizard-done', () => {
-      markWizardDone();
+    let finished = false;
+    const done = (ok) => {
+      if (finished) return;
+      finished = true;
+      if (ok) markWizardDone();
       if (setupWizardWindow && !setupWizardWindow.isDestroyed()) setupWizardWindow.close();
-      resolve();
-    });
-    // Allow skipping by closing window
-    setupWizardWindow.on('closed', () => resolve());
+      setupWizardWindow = null;
+      resolve(ok);
+    };
+    const onDone = () => {
+      ipcMain.removeListener('setup-wizard-done', onDone);
+      done(true);
+    };
+    ipcMain.on('setup-wizard-done', onDone);
+    setupWizardWindow.on('closed', () => done(true));
   });
 }
 
@@ -1092,6 +1323,7 @@ function buildAppMenu() {
 async function startupSequence() {
   try {
     dbg('[Startup] startupSequence BEGIN');
+    terminatePackagedBackendProcesses();
     cleanupOrphanedBackend();
 
     createSplashScreen();
@@ -1109,6 +1341,10 @@ async function startupSequence() {
     updateSplash('Checking backend...', 15);
     const reusedBackend = await existingBackendReady();
     dbg(`[Startup] existingBackendReady: ${reusedBackend}`);
+    ensureUserDataDir();
+    await ensureEnvFile();
+    reportInstallOnce();
+
     if (!reusedBackend) {
       dbg('[Startup] Launching backend...');
       updateSplash('Starting Python backend...', 15);
@@ -1129,15 +1365,13 @@ async function startupSequence() {
 
     updateSplash('Opening dashboard...', 92);
 
-    // First-run: ensure .env exists (create empty from .env.example if needed)
-    await ensureEnvFile();
-
-    // First-run setup wizard — blocks until user completes or skips
+    // First-run wizard — non-blocking; always proceed to chat after one pass
     if (isWizardNeeded()) {
-      dbg('[Startup] Showing setup wizard...');
+      dbg('[Startup] Showing setup wizard (non-blocking)...');
       updateSplash('First run — setting up Sentinel...', 93);
       await createSetupWizardWindow();
-      dbg('[Startup] Setup wizard closed');
+      markWizardDone();
+      dbg('[Startup] Setup wizard finished — opening Sentinel');
     }
 
     if (!loggedIn) {
@@ -1159,9 +1393,12 @@ async function startupSequence() {
 
     const { dialog } = require('electron');
     await shutdownBackend();
+    const hints = app.isPackaged
+      ? `• Port ${BACKEND_PORT} is not already in use\n• Reinstall SentinelAI if the problem persists\n• Settings and .env are stored in:\n  ${getUserDataDir()}`
+      : `• Project venv is set up (see README)\n• Port ${BACKEND_PORT} is not already in use`;
     dialog.showErrorBox(
       'SentinelAI Startup Failed',
-      `Could not start SentinelAI:\n\n${error.message}\n\nCheck that:\n• Python 3.8+ is installed\n• pip dependencies are installed (pip install -r requirements.txt)\n• Port ${BACKEND_PORT} is not already in use`
+      `Could not start SentinelAI:\n\n${error.message}\n\n${hints}`
     );
     app.quit();
   }
@@ -1188,15 +1425,72 @@ async function gracefulShutdown() {
 // APP LIFECYCLE
 // ============================================================================
 
+async function postElectronUpdaterEvent(phase, detail) {
+  try {
+    await fetch(`${BACKEND_URL}/api/updates/electron-event`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${SENTINEL_AUTH_TOKEN}`,
+      },
+      body: JSON.stringify({ phase, detail: detail || {} }),
+    });
+  } catch (e) {
+    dbg(`[Updater] event post failed: ${e.message}`);
+  }
+}
+
+async function syncElectronUpdaterChannel(autoUpdater) {
+  try {
+    const r = await fetch(`${BACKEND_URL}/api/updates/status`, {
+      headers: { Authorization: `Bearer ${SENTINEL_AUTH_TOKEN}` },
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    const ch = d.channel || 'beta';
+    autoUpdater.allowPrerelease = ch === 'beta';
+    autoUpdater.autoDownload = !d.updates_disabled;
+    dbg(`[Updater] channel=${ch} allowPrerelease=${autoUpdater.allowPrerelease}`);
+  } catch (e) {
+    autoUpdater.allowPrerelease = true;
+    dbg(`[Updater] channel sync failed: ${e.message}`);
+  }
+}
+
 function initAutoUpdater() {
   try {
     const { autoUpdater } = require('electron-updater');
-    autoUpdater.logger = null;                // keep logs silent in production
-    autoUpdater.autoDownload = true;          // download in background
-    autoUpdater.autoInstallOnAppQuit = true;  // install on next quit
+    autoUpdater.logger = null;
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = false;
 
-    autoUpdater.on('update-downloaded', () => {
+    syncElectronUpdaterChannel(autoUpdater).then(() => {
+      autoUpdater.checkForUpdates().catch((err) => {
+        postElectronUpdaterEvent('error', { message: err.message });
+      });
+    });
+
+    autoUpdater.on('checking-for-update', () => {
+      postElectronUpdaterEvent('checking');
+    });
+
+    autoUpdater.on('update-available', (info) => {
+      dbg(`[Updater] update available: ${info.version}`);
+      postElectronUpdaterEvent('update-available', {
+        version: info.version,
+        releaseDate: info.releaseDate,
+      });
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+      postElectronUpdaterEvent('update-not-available', { version: info && info.version });
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
       dbg('[Updater] Update downloaded — notifying renderer');
+      postElectronUpdaterEvent('update-downloaded', {
+        version: info && info.version,
+      });
       if (orbWindow && !orbWindow.isDestroyed()) {
         orbWindow.webContents.send('update-available');
       }
@@ -1204,11 +1498,14 @@ function initAutoUpdater() {
 
     autoUpdater.on('error', (err) => {
       dbg(`[Updater] Error: ${err.message}`);
+      postElectronUpdaterEvent('error', { message: err.message });
     });
 
-    // Check immediately, then every 4 hours
-    autoUpdater.checkForUpdates().catch(() => {});
-    setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 4 * 60 * 60 * 1000);
+    setInterval(() => {
+      syncElectronUpdaterChannel(autoUpdater).then(() => {
+        autoUpdater.checkForUpdates().catch(() => {});
+      });
+    }, 4 * 60 * 60 * 1000);
   } catch (e) {
     dbg(`[Updater] electron-updater not available: ${e.message}`);
   }

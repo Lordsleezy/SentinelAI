@@ -24,8 +24,9 @@ class CapabilitySpec:
     id: str
     label: str
     tier: InstallTier
-    domain: str  # GAME, WEB, DESKTOP, ANDROID, AI, GUARDIAN, CORE, BUILD
+    domain: str  # GAME, WEB, DESKTOP, ANDROID, AI, GUARDIAN, VISION, RESEARCH, EARN, CORE, BUILD
     description: str = ""
+    dependencies: List[str] = field(default_factory=list)  # other capability ids
 
 
 # ── Capability catalog ───────────────────────────────────────────────────────
@@ -94,6 +95,18 @@ for cid, label in (
         "httpx", "subfinder", "katana", "nuclei",
     ) else InstallTier.RECOMMENDED, "GUARDIAN"))
 
+# VISION (Tier 2–3)
+_reg(CapabilitySpec("vision_model", "Vision LLM", InstallTier.RECOMMENDED, "VISION",
+                    dependencies=["ollama"]))
+_reg(CapabilitySpec("camera_stack", "Camera / capture", InstallTier.OPTIONAL, "VISION"))
+
+# RESEARCH & EARN
+_reg(CapabilitySpec("web_research", "Web research", InstallTier.RECOMMENDED, "RESEARCH",
+                    dependencies=["ollama"]))
+_reg(CapabilitySpec("hackerone_mirror", "Bounty program mirror", InstallTier.REQUIRED, "EARN"))
+_reg(CapabilitySpec("earn_research_pipeline", "Earn research pipeline", InstallTier.REQUIRED, "EARN",
+                    dependencies=["ollama", "subfinder", "httpx"]))
+
 
 # Domain → required capability ids for a task
 DOMAIN_CAPABILITIES: Dict[str, List[str]] = {
@@ -109,6 +122,9 @@ DOMAIN_CAPABILITIES: Dict[str, List[str]] = {
     ],
     "FORGE": ["python", "git", "nodejs", "npm"],
     "CORE": ["python", "git", "sqlite", "venv"],
+    "VISION": ["vision_model", "camera_stack"],
+    "RESEARCH": ["web_research", "ollama"],
+    "EARN": ["hackerone_mirror", "earn_research_pipeline", "ollama"],
 }
 
 

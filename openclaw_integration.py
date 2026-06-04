@@ -113,8 +113,16 @@ BLOCKED_COMMANDS = [
 class OpenClawCommandRouter:
     """Routes OpenClaw commands to SentinelAI operations."""
     
-    def __init__(self, auth_token: Optional[str] = None):
+    def __init__(self, auth_token: Optional[str] = None, authorized: bool = False):
+        """
+        auth_token: kept for backwards compatibility; the truthy-string check
+            from earlier revisions has been removed.
+        authorized: boolean computed by the caller after a real, constant-time
+            token verification (see desktop_app.verify_auth_token). Only when
+            this is True will commands marked requires_auth proceed.
+        """
         self.auth_token = auth_token
+        self.authorized = bool(authorized)
         self.command_history = []
     
     def route_command(self, command: str, parameters: Dict = None) -> Dict:
@@ -156,8 +164,10 @@ class OpenClawCommandRouter:
         
         cmd_def = OPENCLAW_COMMANDS[command]
         
-        # Check authentication
-        if cmd_def["requires_auth"] and not self.auth_token:
+        # Check authentication. `authorized` must come from a real
+        # constant-time verification at the API boundary — a present-but-bogus
+        # token does not satisfy this check.
+        if cmd_def["requires_auth"] and not self.authorized:
             return {
                 "success": False,
                 "error": "This command requires authentication",

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Sentinel Prime</title>
+<meta name="robots" content="noindex,nofollow">
+<link rel="stylesheet" href="page.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+.admin-wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 80px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin: 24px 0; }
+.stat-card { background: rgba(0,255,136,0.06); border: 1px solid rgba(0,255,136,0.2); border-radius: 8px; padding: 16px; }
+.stat-card h3 { margin: 0 0 8px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.7; }
+.stat-card p { margin: 0; font-size: 1.6rem; font-weight: 700; }
+.chart-box { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 20px; margin-bottom: 24px; }
+.token-row { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+.token-row input { flex: 1; min-width: 200px; padding: 10px 12px; background: #0a0a12; border: 1px solid #333; color: #fff; border-radius: 6px; }
+.error { color: #f66; margin-top: 12px; }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <a class="logo" href="index.html">SENTINELPRIME</a>
+  <div class="nav-links"><a href="index.html">Site</a></div>
+</nav>
+<main class="admin-wrap">
+  <p class="eyebrow">Internal</p>
+  <h1>Product analytics</h1>
+  <p class="copy">Downloads, installs, trials, conversions, and Stripe revenue. Requires admin token.</p>
+
+  <div class="token-row">
+    <input type="password" id="adminToken" placeholder="Admin token" autocomplete="off">
+    <button class="button" type="button" id="loadBtn">Load dashboard</button>
+  </div>
+  <div class="error" id="err" style="display:none;"></div>
+
+  <div id="dashboard" style="display:none;">
+    <div class="stat-grid">
+      <div class="stat-card"><h3>Total downloads</h3><p id="totalDownloads">—</p></div>
+      <div class="stat-card"><h3>Total installs</h3><p id="totalInstalls">—</p></div>
+      <div class="stat-card"><h3>Active trials (7d)</h3><p id="activeTrials">—</p></div>
+      <div class="stat-card"><h3>Converted (activated)</h3><p id="converted">—</p></div>
+      <div class="stat-card"><h3>Active subscriptions</h3><p id="activeSubs">—</p></div>
+      <div class="stat-card"><h3>Revenue (30d)</h3><p id="revenue">—</p></div>
+    </div>
+
+    <div class="chart-box">
+      <h2>Downloads (last 30 days)</h2>
+      <canvas id="downloadsChart" height="100"></canvas>
+    </div>
+    <div class="chart-box">
+      <h2>Installs (last 30 days)</h2>
+      <canvas id="installsChart" height="100"></canvas>
+    </div>
+  </div>
+</main>
+<script>
+let downloadsChart, installsChart;
+
+function showError(msg) {
+  const el = document.getElementById("err");
+  el.style.display = "block";
+  el.textContent = msg;
+}
+
+function makeChart(canvasId, label, daily, color) {
+  const ctx = document.getElementById(canvasId);
+  const labels = (daily || []).map(d => d.date);
+  const data = (daily || []).map(d => d.count);
+  return new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{ label, data, backgroundColor: color }],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#888", maxTicksLimit: 10 } },
+        y: { ticks: { color: "#888" }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+async function loadDashboard() {
+  const token = document.getElementById("adminToken").value.trim();
+  if (!token) { showError("Enter admin token."); return; }
+  sessionStorage.setItem("sentinel_admin_token", token);
+  document.getElementById("err").style.display = "none";
+
+  const res = await fetch("/api/admin/analytics", {
+    headers: { "x-admin-token": token },
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    showError(data.error || "Failed to load analytics");
+    return;
+  }
+
+  document.getElementById("dashboard").style.display = "block";
+  document.getElementById("totalDownloads").textContent = data.downloads?.total ?? 0;
+  document.getElementById("totalInstalls").textContent = data.installs?.total ?? 0;
+  document.getElementById("activeTrials").textContent = data.active_trials ?? 0;
+  document.getElementById("converted").textContent = data.converted_users ?? 0;
+  document.getElementById("activeSubs").textContent = data.active_subscriptions ?? 0;
+  document.getElementById("revenue").textContent = "$" + (data.revenue_usd || "0.00");
+
+  if (downloadsChart) downloadsChart.destroy();
+  if (installsChart) installsChart.destroy();
+  downloadsChart = makeChart("downloadsChart", "Downloads", data.downloads?.daily, "rgba(0,255,136,0.5)");
+  installsChart = makeChart("installsChart", "Installs", data.installs?.daily, "rgba(100,180,255,0.5)");
+}
+
+document.getElementById("loadBtn").addEventListener("click", loadDashboard);
+const saved = sessionStorage.getItem("sentinel_admin_token");
+if (saved) {
+  document.getElementById("adminToken").value = saved;
+  loadDashboard();
+}
+</script>
+<script src="nav.js"></script>
+</body>
+</html>

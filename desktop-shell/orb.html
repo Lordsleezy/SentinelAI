@@ -73,6 +73,8 @@
       position: relative;
       overflow: hidden;
       transition: flex 0.3s ease;
+      z-index: 1;
+      isolation: isolate;
     }
 
     #input-section {
@@ -99,15 +101,6 @@
       box-shadow: 0 0 12px rgba(0,255,136,0.2);
     }
 
-    #status-line {
-      margin-top: 12px;
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      align-items: center;
-      padding: 0 8px;
-    }
-
     .dock-btn {
       font-size: 10px;
       padding: 4px 10px;
@@ -124,7 +117,76 @@
       background: rgba(0,255,136,0.15);
     }
 
-    .worker-badge {
+    #chat-input-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    #chat-send-btn {
+      padding: 10px 18px;
+      background: linear-gradient(135deg, #00aa55, #00ff88);
+      color: #000;
+      border: none;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    #chat-send-btn:hover { filter: brightness(1.08); }
+    #chat-send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #worker-dock {
+      display: flex;
+      gap: 10px;
+      margin-top: 8px;
+      align-items: center;
+      justify-content: center;
+    }
+    #settings-dock-btn { font-size: 18px !important; padding: 6px 14px !important; }
+
+    .settings-hub {
+      display: flex;
+      height: 100%;
+      min-height: 360px;
+      gap: 0;
+    }
+    .settings-hub-nav {
+      width: 132px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+      padding: 4px 6px 8px 0;
+      overflow-y: auto;
+    }
+    .settings-hub-nav-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px;
+      margin-bottom: 2px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-secondary, #8e8e93);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .settings-hub-nav-btn:hover { background: rgba(255,255,255,0.05); color: #f5f5f7; }
+    .settings-hub-nav-btn.active {
+      background: rgba(37, 99, 235, 0.15);
+      color: #93c5fd;
+    }
+    .settings-hub-content {
+      flex: 1;
+      min-width: 0;
+      overflow-y: auto;
+      padding-left: 12px;
+    }
+
+    #diagnostics-workers-panel .worker-badge {
       font-size: 11px;
       padding: 4px 10px;
       background: rgba(255,255,255,0.05);
@@ -134,21 +196,18 @@
       gap: 6px;
       border: 1px solid rgba(255,255,255,0.08);
     }
-
-    .worker-badge .dot {
+    #diagnostics-workers-panel .worker-badge .dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
       background: #666;
     }
-
-    .worker-badge.running .dot {
+    #diagnostics-workers-panel .worker-badge.running .dot {
       background: #00ff88;
       box-shadow: 0 0 4px #00ff88;
       animation: pulse 2s infinite;
     }
-
-    .worker-badge.waiting .dot {
+    #diagnostics-workers-panel .worker-badge.waiting .dot {
       background: #ffa500;
       box-shadow: 0 0 4px #ffa500;
     }
@@ -159,45 +218,17 @@
     }
 
     #response-area {
-      position: absolute;
-      bottom: 180px;
-      left: 50%;
-      transform: translateX(-50%);
-      max-width: 600px;
-      background: rgba(18,18,31,0.95);
-      border: 1px solid rgba(0,255,136,0.15);
-      border-radius: 12px;
-      padding: 16px;
-      display: none;
-      max-height: 200px;
-      overflow-y: auto;
-      font-size: 13px;
-      line-height: 1.6;
-    }
-
-    #response-area.visible {
-      display: block;
+      display: none !important;
     }
 
     #plan-preview {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      background: rgba(18,18,31,0.98);
-      border: 1px solid rgba(0,255,136,0.3);
-      border-radius: 12px;
-      padding: 24px;
-      max-width: 600px;
-      max-height: 80vh;
-      overflow-y: auto;
-      display: none;
-      z-index: 1000;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      display: none !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
     }
 
     #plan-preview.visible {
-      display: block;
+      display: none !important;
     }
 
     #plan-preview h2 {
@@ -513,75 +544,103 @@
       min-height: 0;
     }
 
-    /* Left panel — Chat history */
+    /* Legacy left chat panel — disabled (floating bubbles replace it) */
     #left-panel-container {
-      width: 0;
+      display: none !important;
+      width: 0 !important;
       overflow: hidden;
-      transition: width 0.3s ease;
-      border-right: 1px solid rgba(0,255,255,0.15);
-      background: #050510;
+    }
+
+    /* Left conversation feed — JARVIS + iMessage (never covers orb) */
+    #chat-feed-column {
+      width: 22%;
+      min-width: 180px;
+      max-width: 340px;
+      flex-shrink: 0;
       display: flex;
       flex-direction: column;
-      flex-shrink: 0;
+      min-height: 0;
+      background: transparent;
+      border-right: 1px solid rgba(255,255,255,0.04);
+      z-index: 4;
     }
-    #left-panel-container.open {
-      width: 380px;
-    }
-    #left-panel-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 14px;
-      border-bottom: 1px solid rgba(0,255,255,0.15);
-      flex-shrink: 0;
-    }
-    #chat-history {
+    #conversation-messages,
+    #floating-conversation-messages {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
-      padding: 12px;
+      overflow-x: hidden;
+      padding: 14px 12px 18px;
       display: flex;
       flex-direction: column;
       gap: 8px;
-      min-height: 0;
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+      background: transparent;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
     }
-    #chat-history::-webkit-scrollbar { width: 4px; }
-    #chat-history::-webkit-scrollbar-track { background: #000; }
-    #chat-history::-webkit-scrollbar-thumb { background: rgba(0,255,255,0.2); border-radius: 2px; }
-    .chat-msg {
-      max-width: 95%;
-      padding: 8px 12px;
-      border-radius: 8px;
-      font-size: 12px;
-      line-height: 1.5;
+    #conversation-messages::-webkit-scrollbar,
+    #floating-conversation-messages::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
     }
-    .chat-msg-user {
+    #floating-conversation-layer {
+      display: contents;
+    }
+    .chat-bubble-row {
+      display: flex;
+      flex-direction: column;
+      max-width: 78%;
+      animation: chat-bubble-in 0.28s ease-out forwards;
+    }
+    .chat-bubble-row-user {
       align-self: flex-end;
-      background: rgba(0,255,136,0.08);
-      border: 1px solid rgba(0,255,136,0.3);
-      color: #e0e0e0;
-      text-align: right;
+      align-items: flex-end;
+      margin-left: auto;
     }
-    .chat-msg-sentinel {
+    .chat-bubble-row-sentinel {
       align-self: flex-start;
-      background: rgba(0,212,255,0.05);
-      border: 1px solid rgba(0,212,255,0.15);
-      color: #ccc;
+      align-items: flex-start;
+      margin-right: auto;
     }
-    .chat-time {
-      display: block;
-      font-size: 10px;
-      color: #555;
-      margin-bottom: 3px;
+    .chat-bubble-sender {
+      display: none;
     }
-    .chat-content {
-      display: block;
+    .chat-bubble {
+      padding: 9px 13px;
+      border-radius: 20px;
+      font-size: 13px;
+      line-height: 1.42;
       white-space: pre-wrap;
       word-break: break-word;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+      max-width: 100%;
     }
-    #left-panel-footer {
-      padding: 10px 12px;
-      border-top: 1px solid rgba(0,255,255,0.1);
-      flex-shrink: 0;
+    .chat-bubble-user {
+      background: linear-gradient(145deg, #38bdf8 0%, #2563eb 92%);
+      color: #fff;
+      border-bottom-right-radius: 5px;
+    }
+    .chat-bubble-sentinel {
+      background: rgba(22, 22, 28, 0.72);
+      color: #f4f4f5;
+      border: 1px solid rgba(255,255,255,0.06);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom-left-radius: 5px;
+    }
+    @media (max-width: 900px) {
+      #chat-feed-column { width: 32%; min-width: 160px; }
+    }
+    @media (max-width: 640px) {
+      #chat-feed-column { width: 38%; min-width: 140px; }
+      .chat-bubble { font-size: 12px; padding: 8px 12px; }
+    }
+    @keyframes chat-bubble-in {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     #diagnose-btn {
       width: 100%;
@@ -797,8 +856,9 @@
       filter:blur(8px);pointer-events:none;
     }
     .sentinel-orb-label {
-      position:absolute;inset:0;display:flex;flex-direction:column;
-      align-items:center;justify-content:center;pointer-events:none;text-align:center;
+      display: none !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
     }
     .orb-label-text { font-size:13px;letter-spacing:3px;color:#fff;text-shadow:0 0 10px var(--hud-blue); }
     .orb-label-sub  { font-size:10px;color:var(--hud-orange);margin-top:4px;letter-spacing:1px; }
@@ -901,36 +961,12 @@
 
     /* ── App container & panels ── */
     #app-container { background: var(--bg-primary) !important; }
-    #left-panel-container {
-      background: var(--bg-secondary) !important;
-      border-right: 1px solid var(--border-subtle) !important;
-      width: 0 !important;
-    }
-    #left-panel-container.open { width: 320px !important; }
-    #left-panel-header {
-      padding: 14px 16px !important;
-      border-bottom: 1px solid var(--border-subtle) !important;
-    }
-    #left-panel-header span {
-      font-family: var(--font-sans) !important;
-      font-size: 14px !important;
-      font-weight: 600 !important;
-      color: var(--text-primary) !important;
-      letter-spacing: 0 !important;
-    }
-    #left-panel-header button {
-      background: transparent !important;
-      border: none !important;
-      color: var(--text-muted) !important;
-      border-radius: var(--radius-sm) !important;
-      font-size: 16px !important;
-    }
-    #left-panel-header button:hover { background: var(--bg-tertiary) !important; color: var(--text-primary) !important; }
+    #left-panel-container { display: none !important; }
     #panel-container {
       background: var(--bg-secondary) !important;
       border-left: 1px solid var(--border-subtle) !important;
     }
-    #panel-container.open { width: 420px !important; }
+    #panel-container.open { width: min(560px, 44vw) !important; }
     #panel-header {
       padding: 14px 16px !important;
       border-bottom: 1px solid var(--border-subtle) !important;
@@ -954,34 +990,17 @@
       background: var(--bg-secondary) !important;
     }
 
-    /* ── Chat history ── */
-    #chat-history {
-      background: var(--bg-secondary) !important;
-      gap: 4px !important;
-      padding: 14px 12px !important;
+    #conversation-messages,
+    #floating-conversation-messages { font-family: var(--font-sans) !important; }
+    .chat-bubble-user {
+      background: linear-gradient(135deg, #22d3ee, #2563eb) !important;
+      color: #fff !important;
     }
-    #chat-history::-webkit-scrollbar-thumb { background: var(--border-normal) !important; }
-    .chat-msg {
-      font-family: var(--font-sans) !important;
-      font-size: 13px !important;
-      border-radius: var(--radius-lg) !important;
-      max-width: 88% !important;
-    }
-    .chat-msg-user {
-      background: var(--bg-elevated) !important;
+    .chat-bubble-sentinel {
+      background: rgba(28, 28, 32, 0.78) !important;
+      color: var(--text-primary) !important;
       border: 1px solid var(--border-subtle) !important;
-      color: var(--text-primary) !important;
-      border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg) !important;
-      align-self: flex-end !important;
     }
-    .chat-msg-sentinel {
-      background: transparent !important;
-      border: none !important;
-      color: var(--text-primary) !important;
-      padding: 6px 0 !important;
-      align-self: flex-start !important;
-    }
-    .chat-time { color: var(--text-muted) !important; font-size: 10px !important; font-family: var(--font-sans) !important; }
 
     /* ── Chat input ── */
     #input-section {
@@ -1005,8 +1024,7 @@
     #chat-input::placeholder { color: var(--text-muted) !important; }
 
     /* ── Dock buttons ── */
-    #input-section #status-indicator,
-    #input-section #status-line { font-family: var(--font-sans) !important; color: var(--text-muted) !important; font-size: 11px !important; letter-spacing: 0 !important; }
+    #input-section #status-indicator { font-family: var(--font-sans) !important; color: var(--text-muted) !important; font-size: 11px !important; letter-spacing: 0 !important; margin-top: 8px !important; }
     .dock-btn {
       font-family: var(--font-sans) !important;
       font-size: 12px !important;
@@ -1172,13 +1190,11 @@
     .tier-badge.free { background: var(--bg-tertiary) !important; border: 1px solid var(--border-subtle) !important; color: var(--text-muted) !important; font-family: var(--font-sans) !important; }
     .tier-badge.pro  { background: rgba(37,99,235,0.15) !important; border: 1px solid rgba(37,99,235,0.4) !important; color: #93c5fd !important; box-shadow: none !important; font-family: var(--font-sans) !important; }
 
-    /* ── Response / plan areas ── */
+    /* ── Response / plan areas (never overlay orb — bubbles use left feed) ── */
     #response-area {
-      background: var(--bg-secondary) !important;
-      border: 1px solid var(--border-subtle) !important;
-      border-radius: var(--radius-md) !important;
-      font-family: var(--font-sans) !important;
-      color: var(--text-primary) !important;
+      display: none !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
     }
     #plan-preview {
       background: var(--bg-secondary) !important;
@@ -1232,6 +1248,7 @@
     #diagnose-btn { font-family: var(--font-sans) !important; background: var(--bg-tertiary) !important; border: 1px solid var(--border-subtle) !important; color: var(--text-secondary) !important; border-radius: var(--radius-md) !important; letter-spacing: 0 !important; font-size: 12px !important; }
     #diagnose-btn:hover { background: var(--bg-elevated) !important; color: var(--text-primary) !important; }
   </style>
+  <script src="auth_shim.js"></script>
 </head>
 <body>
   <div id="app-container">
@@ -1255,22 +1272,14 @@
     </div>
 
     <div id="main-area">
-      <!-- LEFT PANEL — Chat history (slides in from left) -->
-      <div id="left-panel-container">
-        <div id="left-panel-header">
-          <span>Chat</span>
-          <button onclick="toggleChatPanel()" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;">&#x2715;</button>
-        </div>
-        <div id="chat-history"></div>
-        <div id="left-panel-footer" style="padding:8px 12px;border-top:1px solid rgba(0,255,255,0.1);font-size:10px;color:#444;text-align:center;">
-          Chat history is logged to the LOG panel under CHAT filter
-        </div>
+      <!-- LEFT: iMessage-style feed (transparent, does not cover orb) -->
+      <div id="chat-feed-column" aria-label="Conversation">
+        <div id="conversation-messages"></div>
       </div>
-
-      <!-- ORB SIDE -->
+      <!-- CENTER: Orb centerpiece -->
       <div id="orb-container">
         <div id="orb-root"></div>
-        <div id="response-area"></div>
+        <div id="response-area" aria-hidden="true"></div>
         <div id="plan-preview"></div>
         <div class="tier-badge" id="tier-badge">FREE</div>
         <div class="usage-counter" id="usage-counter"></div>
@@ -1366,7 +1375,7 @@
     </div>
 
     <div id="input-section">
-      <div style="display:flex;gap:8px;align-items:center;">
+      <div id="chat-input-row">
         <input
           id="chat-input"
           type="text"
@@ -1374,25 +1383,14 @@
           autocomplete="off"
           style="flex:1;"
         />
-        <button onclick="showWalletPanel()" title="Payment Methods"
-          style="padding:10px 13px;background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);
-                 border-radius:20px;cursor:pointer;font-size:16px;color:#00ff88;line-height:1;">💳</button>
+        <button type="button" id="chat-send-btn" onclick="sendChatMessage()">Send</button>
       </div>
-      <div id="status-line"></div>
-      <div id="status-indicator" style="margin-bottom:4px;font-size:10px;letter-spacing:1px;color:#555;">
+      <div id="status-indicator" style="margin-top:8px;margin-bottom:4px;font-size:10px;letter-spacing:1px;color:#555;">
         STATUS: <span id="status-text" style="color:#555;">INITIALIZING</span>
       </div>
-      <!-- Inline panel dock — clicking opens a panel instead of a separate window -->
-      <div id="worker-dock" style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
+      <div id="worker-dock">
         <button onclick="toggleChatPanel()" class="dock-btn" id="chat-dock-btn" data-side="left">💬 CHAT</button>
-        <button onclick="openPanel('guardian')" class="dock-btn" data-panel="guardian">🛡 GUARDIAN</button>
-        <button onclick="openPanel('earn')"     class="dock-btn" data-panel="earn">💰 EARN</button>
-        <button onclick="openPanel('market')"   class="dock-btn" data-panel="market">📈 MARKET</button>
-        <button onclick="openPanel('scalp')"    class="dock-btn" data-panel="scalp">⚡ SCALP</button>
-        <button onclick="openPanel('log')"      class="dock-btn" data-panel="log">📋 LOG</button>
-        <button onclick="openPanel('memory')"   class="dock-btn" data-panel="memory">🧠 MEMORY</button>
-        <button onclick="openPanel('settings')"  class="dock-btn" data-panel="settings">⚙ SETTINGS</button>
-        <button onclick="openPanel('tasks')"     class="dock-btn" data-panel="tasks" id="tasks-dock-btn">📋 TASKS</button>
+        <button onclick="openPanel('settings')" class="dock-btn" id="settings-dock-btn" data-panel="settings" title="Settings">⚙</button>
       </div>
     </div>
   </div><!-- end #app-container -->
@@ -1833,27 +1831,92 @@
 
     // ── PANEL STATE STORE — persists content when switching panels ─────────────
     const panelState = {
+      settings: { section: 'general', initialized: false },
       guardian: { messagesHTML: '', mode: 'defend', logEntries: [], initialized: false },
       earn:     { initialized: false },
       market:   { initialized: false },
       scalp:    { logText: '', initialized: false },
-      log:      { initialized: false },   // log uses global logEntries already
-      memory:   { initialized: false }
+      log:      { initialized: false },
+      memory:   { initialized: false },
+      tasks:    { initialized: false },
     };
+
+    let settingsHubSection = 'general';
+    const SETTINGS_HUB_IDS = new Set([
+      'general', 'ai', 'diagnostics', 'memory', 'earn', 'guardian', 'tasks', 'logs',
+      'models', 'capabilities', 'integrations', 'advanced', 'market', 'scalp', 'sentinelvision', 'sentinelscrub', 'updates', 'missions', 'downloads',
+    ]);
+    const SETTINGS_NAV = [
+      { id: 'general', label: 'General' },
+      { id: 'ai', label: 'AI' },
+      { id: 'diagnostics', label: 'Diagnostics' },
+      { id: 'downloads', label: 'Downloads' },
+      { id: 'updates', label: 'Updates' },
+      { id: 'missions', label: 'Missions' },
+      { id: 'sentinelvision', label: 'Sentinel Vision' },
+      { id: 'memory', label: 'Memory' },
+      { id: 'earn', label: 'Earn' },
+      { id: 'guardian', label: 'Guardian' },
+      { id: 'tasks', label: 'Tasks' },
+      { id: 'logs', label: 'Logs' },
+      { id: 'models', label: 'Models' },
+      { id: 'capabilities', label: 'Capabilities' },
+      { id: 'integrations', label: 'Integrations' },
+      { id: 'advanced', label: 'Advanced' },
+    ];
+
+    function isSettingsSectionActive(sectionId) {
+      return currentPanel === 'settings' && settingsHubSection === sectionId;
+    }
+
+    function cleanupSettingsHubSection(sectionId) {
+      if (!sectionId) return;
+      if (sectionId === 'logs' || sectionId === 'log') {
+        if (window._logPanelSocket) {
+          window._logPanelSocket.off('log_event', window._logPanelHandler);
+          window._logPanelSocket = null;
+          window._logPanelHandler = null;
+        }
+        if (logTerminal) { try { logTerminal.dispose(); } catch(_) {} logTerminal = null; }
+      }
+      if (sectionId === 'market' && window._marketInterval) {
+        clearInterval(window._marketInterval);
+        window._marketInterval = null;
+      }
+      if ((sectionId === 'sentinelvision' || sectionId === 'sentinelscrub') && _visionPollTimer) {
+        clearInterval(_visionPollTimer);
+        _visionPollTimer = null;
+      }
+    }
+
+    function _mapPanelToSettingsSection(name) {
+      if (!name) return null;
+      if (name === 'log') return 'logs';
+      if (SETTINGS_HUB_IDS.has(name)) return name;
+      return null;
+    }
+
+    function _updateSettingsNavActive(sectionId) {
+      document.querySelectorAll('.settings-hub-nav-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.section === sectionId));
+    }
 
     function savePanelState(name) {
       if (!name || !panelState[name]) return;
       switch (name) {
         case 'guardian': {
-          const msgs = document.getElementById('guardian-chat-messages');
-          if (msgs) panelState.guardian.messagesHTML = msgs.innerHTML;
           panelState.guardian.mode = window._guardianMode || 'defend';
-          // guardian log entries are saved directly in panelState.guardian.logEntries
           panelState.guardian.initialized = true;
           break;
         }
         case 'earn':
           panelState.earn.initialized = true;
+          panelState.earn.selectedHandle = window._earnDash && window._earnDash.selectedHandle;
+          panelState.earn.selectedTab = window._earnTab || 'discovery';
+          panelState.earn.researchSessionId = window._earnResearchSessionId || '';
+          try {
+            localStorage.setItem('sentinel_earn_state', JSON.stringify(panelState.earn));
+          } catch(_) {}
           break;
         case 'market':
           panelState.market.initialized = true;
@@ -1871,6 +1934,19 @@
         case 'memory':
           panelState.memory.initialized = true;
           break;
+        case 'tasks':
+          panelState.tasks.initialized = true;
+          break;
+        case 'settings':
+          panelState.settings.section = settingsHubSection;
+          panelState.settings.initialized = true;
+          {
+            const nested = { memory: 'memory', earn: 'earn', guardian: 'guardian', tasks: 'tasks',
+              logs: 'log', market: 'market', scalp: 'scalp' };
+            const n = nested[settingsHubSection];
+            if (n && panelState[n]) savePanelState(n);
+          }
+          break;
       }
     }
 
@@ -1881,7 +1957,59 @@
       }).catch(() => {});
     }
 
+    function openSettingsHub(section) {
+      section = _mapPanelToSettingsSection(section) || 'general';
+      if (currentPanel === 'settings' && settingsHubSection === section) {
+        closePanel();
+        return;
+      }
+      if (currentPanel === 'settings') {
+        cleanupSettingsHubSection(settingsHubSection);
+        savePanelState('settings');
+      } else if (currentPanel) {
+        savePanelState(currentPanel);
+      }
+      settingsHubSection = section;
+      currentPanel = 'settings';
+      document.getElementById('panel-title').textContent = 'SETTINGS';
+      _telemetryTrack('panel_opened', { panel: 'settings', section });
+      loadSettingsHub(document.getElementById('panel-content'), section);
+      document.getElementById('panel-container').classList.add('open');
+      setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+        if (window._resizeOrbRenderer) window._resizeOrbRenderer();
+      }, 360);
+      document.querySelectorAll('.dock-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.panel === 'settings'));
+    }
+
+    window.openSettingsSection = function(section) {
+      const mapped = _mapPanelToSettingsSection(section);
+      if (!mapped) return;
+      if (currentPanel !== 'settings') {
+        openSettingsHub(mapped);
+        return;
+      }
+      if (settingsHubSection === mapped) return;
+      cleanupSettingsHubSection(settingsHubSection);
+      savePanelState('settings');
+      settingsHubSection = mapped;
+      panelState.settings.section = mapped;
+      _updateSettingsNavActive(mapped);
+      loadSettingsHubSection(mapped);
+      _telemetryTrack('settings_section', { section: mapped });
+    };
+
     function openPanel(name) {
+      const hubSection = _mapPanelToSettingsSection(name);
+      if (hubSection) {
+        openSettingsHub(hubSection);
+        return;
+      }
+      if (name === 'settings') {
+        openSettingsHub(settingsHubSection || panelState.settings?.section || 'general');
+        return;
+      }
       if (currentPanel === name) { closePanel(); return; }
       savePanelState(currentPanel);
       currentPanel = name;
@@ -1889,7 +2017,6 @@
       _telemetryTrack('panel_opened', { panel: name });
       loadPanelContent(name);
       document.getElementById('panel-container').classList.add('open');
-      // Trigger orb resize after CSS transition
       setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
         if (window._resizeOrbRenderer) window._resizeOrbRenderer();
@@ -1900,6 +2027,7 @@
 
     function closePanel() {
       const closingPanel = currentPanel;
+      if (closingPanel === 'settings') cleanupSettingsHubSection(settingsHubSection);
       currentPanel = null;
       savePanelState(closingPanel);
       document.getElementById('panel-container').classList.remove('open');
@@ -1938,14 +2066,9 @@
       content.innerHTML = '<div style="color:#0ff4;padding:20px;text-align:center;font-size:12px;">Loading...</div>';
       try {
         switch(name) {
-          case 'earn':     await loadEarnPanel(content); break;
-          case 'market':   await loadMarketPanel(content); break;
-          case 'guardian': await loadGuardianPanel(content); break;
-          case 'scalp':    await loadScalpPanel(content); break;
-          case 'log':      await loadLogPanel(content); break;
-          case 'memory':   await loadMemoryPanel(content); break;
-          case 'settings':  await loadSettingsPanel(content); break;
-          case 'tasks':    await loadTasksPanel(content); break;
+          case 'settings':
+            await loadSettingsHub(content, settingsHubSection || 'general');
+            break;
           default: content.innerHTML = '<div style="color:#555;padding:20px;">Unknown panel.</div>';
         }
       } catch(e) {
@@ -1954,33 +2077,13 @@
     }
 
     async function restorePanelState(name, content) {
-      switch (name) {
-        case 'guardian':
-          await loadGuardianPanel(content, panelState.guardian);
-          break;
-        case 'earn':
-          await loadEarnPanel(content, panelState.earn);
-          break;
-        case 'market':
-          // Market always refreshes for fresh prices — skip state restore
-          await loadMarketPanel(content);
-          break;
-        case 'scalp':
-          await loadScalpPanel(content, panelState.scalp);
-          break;
-        case 'log':
-          // Log panel replays from global logEntries automatically
-          await loadLogPanel(content);
-          break;
-        case 'memory':
-          await loadMemoryPanel(content);
-          break;
-        case 'tasks':
-          await loadTasksPanel(content);
-          break;
-        default:
-          content.innerHTML = '<div style="color:#555;padding:20px;">Unknown panel.</div>';
+      if (name === 'settings') {
+        const sec = panelState.settings?.section || 'general';
+        settingsHubSection = sec;
+        await loadSettingsHub(content, sec);
+        return;
       }
+      content.innerHTML = '<div style="color:#555;padding:20px;">Unknown panel.</div>';
     }
 
     // ── TASKS PANEL ───────────────────────────────────────────────────────────
@@ -2419,21 +2522,20 @@
       const sock = (typeof io !== 'undefined') ? io() : null;
       if (!sock) return;
 
-      // Badge counter on dock button
       function _updateTaskBadge() {
-        const btn   = document.getElementById('tasks-dock-btn');
-        if (!btn) return;
+        const nav = document.getElementById('settings-nav-tasks');
+        if (!nav) return;
         const count = (window._tasksData?.tasks || []).filter(
           t => ['RUNNING','PENDING','WAITING_FOR_APPROVAL','WAITING_FOR_USER'].includes(t.status)
         ).length;
-        btn.textContent = count > 0 ? `📋 TASKS (${count})` : '📋 TASKS';
+        nav.textContent = count > 0 ? `Tasks (${count})` : 'Tasks';
       }
 
       sock.on('task_created', function(task) {
         window._tasksData = window._tasksData || {tasks:[],artifacts:[],projects:[]};
         const existing = window._tasksData.tasks.findIndex(t => t.id === task.id);
         if (existing === -1) window._tasksData.tasks.unshift(task);
-        if (currentPanel === 'tasks') {
+        if (isSettingsSectionActive('tasks')) {
           const activeTab = (document.querySelector('.tasks-tab.active')||{}).dataset?.tab || 'running';
           renderTasksTab(activeTab);
           renderWorkspaceTab_if_active();
@@ -2446,7 +2548,7 @@
         const idx = window._tasksData.tasks.findIndex(t => t.id === task.id);
         if (idx >= 0) window._tasksData.tasks[idx] = task;
         else window._tasksData.tasks.unshift(task);
-        if (currentPanel === 'tasks') {
+        if (isSettingsSectionActive('tasks')) {
           const activeTab = (document.querySelector('.tasks-tab.active')||{}).dataset?.tab || 'running';
           renderTasksTab(activeTab);
           // Update detail drawer if it's showing this task
@@ -2462,7 +2564,7 @@
         window._tasksData = window._tasksData || {tasks:[],artifacts:[],projects:[]};
         const existing = window._tasksData.artifacts.findIndex(a => a.id === art.id);
         if (existing === -1) window._tasksData.artifacts.unshift(art);
-        if (currentPanel === 'tasks') {
+        if (isSettingsSectionActive('tasks')) {
           const activeTab = (document.querySelector('.tasks-tab.active')||{}).dataset?.tab;
           if (activeTab === 'artifacts' || activeTab === 'workspace') renderTasksTab(activeTab);
         }
@@ -2472,7 +2574,7 @@
         window._tasksData = window._tasksData || {tasks:[],artifacts:[],projects:[]};
         const existing = window._tasksData.projects.findIndex(p => p.id === proj.id);
         if (existing === -1) window._tasksData.projects.push(proj);
-        if (currentPanel === 'tasks') renderTasksProjectBar();
+        if (isSettingsSectionActive('tasks')) renderTasksProjectBar();
       });
     }
 
@@ -2532,6 +2634,7 @@
         </div>
         <div id="earn-tab-research" class="earn-research-panel" style="display:none;">
           <div class="earn-research-card" id="earn-research-summary">Loading research sessions…</div>
+          <div id="earn-research-progress" style="margin:8px 0;"></div>
           <div id="earn-research-detail"></div>
         </div>
       </div>`;
@@ -2577,9 +2680,9 @@
 
     async function earnResearchPoll(sessionId) {
       const det = document.getElementById('earn-research-detail');
-      if (det) det.innerHTML = '<span style="color:#666;">Pipeline running…</span>';
-      for (let i = 0; i < 120; i++) {
-        await new Promise(r => setTimeout(r, 3000));
+      if (det) det.innerHTML = '<span style="color:#8e8e93;">Pipeline running…</span>';
+      for (let i = 0; i < 90; i++) {
+        await new Promise(r => setTimeout(r, 2000));
         try {
           const r = await fetch(`http://127.0.0.1:5001/api/earn/research/${encodeURIComponent(sessionId)}`);
           const d = await r.json();
@@ -2594,16 +2697,31 @@
     function earnResearchRenderSession(s) {
       const sum = document.getElementById('earn-research-summary');
       const det = document.getElementById('earn-research-detail');
+      const prog = document.getElementById('earn-research-progress');
+      const pct = s.progress_percent != null ? s.progress_percent : (s.status === 'complete' ? 100 : 0);
+      if (prog) {
+        prog.innerHTML = `<div style="display:flex;justify-content:space-between;font-size:11px;color:#8e8e93;margin-bottom:4px;">
+          <span>${escapeHtml(s.current_stage||s.status||'Running')}</span><span>${pct}%</span></div>
+          <div style="height:4px;background:#2a2a2e;border-radius:2px;overflow:hidden;">
+            <div style="height:100%;width:${pct}%;background:#5e9eff;transition:width 0.3s;"></div></div>`;
+      }
       if (sum) {
         sum.innerHTML = `<b>${escapeHtml(s.program_title||'')}</b> · ${escapeHtml(s.status||'')}
           · ${(s.potential_findings||[]).length} findings · ${(s.evidence||[]).length} evidence
           · ${(s.targets_probed||[]).length} targets`;
       }
       if (!det) return;
+      const recon = s.recon_outputs || {};
+      const subs = recon.subdomains || [];
+      const hosts = recon.hosts || [];
+      const endpoints = recon.endpoints || recon.urls || [];
       const plans = (s.research_plan||[]).slice(0, 8);
       const techs = (s.technologies||[]).slice(0, 6);
       const finds = (s.potential_findings||[]).slice(0, 12);
       det.innerHTML = `
+        <div class="earn-research-card"><b>Targets</b><div style="color:#888;margin-top:4px;font-size:10px;">${escapeHtml((s.targets_probed||[]).join(', ').slice(0,200))}</div></div>
+        <div class="earn-research-card"><b>Subdomains</b><div style="color:#888;margin-top:4px;font-size:10px;">${subs.length ? escapeHtml(subs.slice(0,20).join(', ')) : 'Pending recon'}</div></div>
+        <div class="earn-research-card"><b>Hosts / Endpoints</b><div style="color:#888;margin-top:4px;font-size:10px;">${hosts.length} hosts · ${endpoints.length} endpoints</div></div>
         <div class="earn-research-card"><b>Scope</b><div style="color:#888;margin-top:4px;">${escapeHtml(s.scope_summary||'')}</div></div>
         <div class="earn-research-card"><b>Technologies</b>
           ${techs.length ? techs.map(t => `<div style="margin-top:4px;color:#aaa;">${escapeHtml(t.url||'')} — ${escapeHtml([...(t.framework||[]),...(t.api_tech||[]),...(t.cloud||[])].join(', '))}</div>`).join('') : '<div style="color:#444;">Pending recon</div>'}
@@ -2830,7 +2948,17 @@
     }
 
     async function loadEarnPanel(container, savedState) {
+      try {
+        const ls = localStorage.getItem('sentinel_earn_state');
+        if (ls && !savedState) savedState = JSON.parse(ls);
+      } catch(_) {}
+      if (savedState) {
+        if (savedState.selectedHandle) window._earnDash.selectedHandle = savedState.selectedHandle;
+        if (savedState.researchSessionId) window._earnResearchSessionId = savedState.researchSessionId;
+        if (savedState.selectedTab) window._earnDashTab = savedState.selectedTab;
+      }
       container.innerHTML = earnDashShell();
+      if (savedState && savedState.selectedTab) earnSwitchTab(savedState.selectedTab);
       const searchEl = document.getElementById('earn-dash-search');
       if (searchEl) {
         let t = null;
@@ -3141,7 +3269,604 @@
 
     async function marketRefresh() { await loadQuickTickers(); }
 
-    // ── SETTINGS PANEL ────────────────────────────────────────────────────────
+    // ── SETTINGS HUB ──────────────────────────────────────────────────────────
+    async function loadSettingsHub(container, section) {
+      section = _mapPanelToSettingsSection(section) || 'general';
+      settingsHubSection = section;
+      panelState.settings.section = section;
+      const navHtml = SETTINGS_NAV.map(s =>
+        `<button type="button" class="settings-hub-nav-btn${s.id === section ? ' active' : ''}" data-section="${s.id}" id="settings-nav-${s.id}" onclick="openSettingsSection('${s.id}')">${s.label}</button>`
+      ).join('');
+      container.innerHTML = `
+        <div class="settings-hub">
+          <nav class="settings-hub-nav" aria-label="Settings sections">${navHtml}</nav>
+          <div id="settings-hub-content" class="settings-hub-content">
+            <div style="color:#888;padding:20px;font-size:12px;">Loading…</div>
+          </div>
+        </div>`;
+      await loadSettingsHubSection(section);
+    }
+
+    async function loadSettingsHubSection(section) {
+      const content = document.getElementById('settings-hub-content');
+      if (!content) return;
+      content.innerHTML = '<div style="color:#888;padding:16px;font-size:12px;">Loading…</div>';
+      _updateSettingsNavActive(section);
+      try {
+        switch (section) {
+          case 'general': await loadSettingsGeneral(content); break;
+          case 'ai': await loadSettingsAISection(content); break;
+          case 'diagnostics': await loadSettingsDiagnosticsSection(content); break;
+          case 'memory': await loadMemoryPanel(content); panelState.memory.initialized = true; break;
+          case 'earn': await loadEarnPanel(content, panelState.earn); break;
+          case 'guardian': await loadGuardianPanel(content, panelState.guardian); break;
+          case 'tasks': await loadTasksPanel(content); panelState.tasks.initialized = true; break;
+          case 'logs': await loadLogPanel(content); panelState.log.initialized = true; break;
+          case 'models': await loadSettingsModelsSection(content); break;
+          case 'capabilities': await loadSettingsCapabilitiesSection(content); break;
+          case 'integrations': await loadSettingsIntegrationsSection(content); break;
+          case 'advanced': await loadSettingsAdvancedSection(content); break;
+          case 'sentinelvision':
+          case 'sentinelscrub': await loadSettingsSentinelVisionSection(content); break;
+          case 'downloads': await loadSettingsDownloadsSection(content); break;
+          case 'updates': await loadSettingsUpdatesSection(content); break;
+          case 'missions': await loadSettingsMissionsSection(content); break;
+          case 'market': await loadMarketPanel(content); break;
+          case 'scalp': await loadScalpPanel(content, panelState.scalp); break;
+          default: await loadSettingsGeneral(content);
+        }
+      } catch (e) {
+        content.innerHTML = `<div style="color:#f88;padding:16px;font-size:12px;">Error: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    async function loadSettingsGeneral(container) {
+      let status = 'Unknown', model = '';
+      try {
+        const sd = await fetch('http://127.0.0.1:5001/api/status').then(r => r.json());
+        status = sd.status || 'ok';
+      } catch (_) {}
+      try {
+        const scd = await fetch('http://127.0.0.1:5001/api/config').then(r => r.json());
+        model = scd.active_model || scd.model || '—';
+      } catch (_) {}
+      container.innerHTML = `
+        <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:12px;">General</div>
+        <p style="font-size:12px;color:var(--text-muted);line-height:1.55;margin:0 0 14px;">
+          <strong style="color:var(--text-primary);">CHAT</strong> is your primary Sentinel experience — one conversation routes to Guardian, Builder, Earn, and memory automatically.
+        </p>
+        <div class="panel-stat" style="padding:10px 12px;margin-bottom:10px;">
+          <div class="panel-stat-label">Backend</div>
+          <div class="panel-stat-value">${escapeHtml(String(status))}</div>
+        </div>
+        <div class="panel-stat" style="padding:10px 12px;margin-bottom:14px;">
+          <div class="panel-stat-label">Active model</div>
+          <div class="panel-stat-value" style="font-size:12px;">${escapeHtml(model)}</div>
+        </div>
+        <div class="panel-section-title">Quick links</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          <button class="panel-btn" style="font-size:11px;padding:6px 10px;" onclick="openSettingsSection('tasks')">Tasks</button>
+          <button class="panel-btn" style="font-size:11px;padding:6px 10px;" onclick="openSettingsSection('logs')">Logs</button>
+          <button class="panel-btn" style="font-size:11px;padding:6px 10px;" onclick="openSettingsSection('memory')">Memory</button>
+          <button class="panel-btn" style="font-size:11px;padding:6px 10px;" onclick="openSettingsSection('earn')">Earn</button>
+          <button class="panel-btn" style="font-size:11px;padding:6px 10px;" onclick="openSettingsSection('guardian')">Guardian</button>
+          <button class="panel-btn" style="font-size:11px;padding:6px 10px;" onclick="openSettingsSection('models')">Models</button>
+        </div>`;
+    }
+
+    async function loadSettingsCapabilitiesSection(container) {
+      container.innerHTML = `
+        <div style="font-size:14px;font-weight:600;margin-bottom:10px;">Capabilities</div>
+        <p style="font-size:11px;color:var(--text-muted);margin:0 0 12px;">Builder runtimes and learned capabilities.</p>
+        <div id="settings-cap-builder" style="margin-bottom:14px;">
+          <div class="panel-section-title">Builder Status</div>
+          <div id="settings-builder-status-content"><span style="font-size:11px;color:#555;">Loading…</span></div>
+        </div>
+        <div id="settings-cap-learning"></div>`;
+      const bEl = document.getElementById('settings-builder-status-content');
+      if (bEl) {
+        try {
+          const d = await fetch('http://127.0.0.1:5001/api/builder/status').then(r => r.json());
+          const profiles = d.profiles || d.builders || [];
+          if (!profiles.length) bEl.innerHTML = '<span style="font-size:11px;color:#444;">No builder data</span>';
+          else {
+            bEl.innerHTML = profiles.map(p => {
+              const lines = (p.lines || []).map(ln => {
+                const cls = (ln.ok || ln.status === 'ok') ? 'ok' : 'miss';
+                return `<div class="builder-status-line ${cls}">${escapeHtml(ln.status_line || '')}</div>`;
+              }).join('');
+              return `<div class="builder-type-block"><div class="builder-type-name">${escapeHtml(p.title || p.type || '')}</div>${lines}</div>`;
+            }).join('');
+          }
+        } catch (_) {
+          bEl.innerHTML = '<span style="font-size:11px;color:#444;">Unavailable</span>';
+        }
+      }
+      const lEl = document.getElementById('settings-cap-learning');
+      if (lEl) {
+        try {
+          const d = await fetch('http://127.0.0.1:5001/api/learning/capabilities').then(r => r.json());
+          const caps = d.capabilities || d.items || [];
+          lEl.innerHTML = `<div class="panel-section-title" style="margin-top:8px;">Learned</div>`
+            + (caps.length ? caps.slice(0, 20).map(c =>
+              `<div style="font-size:11px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06);">${escapeHtml(c.name || c.id || JSON.stringify(c))}</div>`
+            ).join('') : '<div style="font-size:11px;color:#555;">No learned capabilities yet.</div>');
+        } catch (_) {
+          lEl.innerHTML = '<div style="font-size:11px;color:#555;">Learning engine unavailable.</div>';
+        }
+      }
+    }
+
+    async function loadSettingsIntegrationsSection(container) {
+      container.innerHTML = `
+        <div style="font-size:14px;font-weight:600;margin-bottom:10px;">Integrations</div>
+        <div class="panel-section-title">Memory providers</div>
+        <p style="font-size:11px;color:var(--text-muted);line-height:1.5;">
+          Claude, ChatGPT, and Obsidian-compatible vault (<code style="font-size:10px;">memory/vault/</code>) — configure in <button type="button" class="panel-btn" style="font-size:10px;padding:2px 8px;display:inline;" onclick="openSettingsSection('memory')">Memory</button>.
+        </p>
+        <div class="panel-section-title" style="margin-top:14px;">API keys</div>
+        <p style="font-size:11px;color:var(--text-muted);">OpenAI and Anthropic keys — <button type="button" class="panel-btn" style="font-size:10px;padding:2px 8px;display:inline;" onclick="openSettingsSection('models')">Models</button>.</p>
+        <div class="panel-section-title" style="margin-top:14px;">Payments</div>
+        <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Payment methods (used by in-app purchases only).</p>
+        <button type="button" class="panel-btn" style="font-size:12px;" onclick="showWalletPanel()">Manage payment methods</button>`;
+    }
+
+    let _visionPollTimer = null;
+    const VISION_API = 'http://127.0.0.1:5001/api/sentinelvision';
+
+    async function loadSettingsSentinelVisionSection(container) {
+      container.innerHTML = `
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px;">Sentinel Vision</div>
+        <p style="font-size:11px;color:var(--text-muted);line-height:1.5;margin:0 0 10px;">
+          Eyes and operator layer — see screens, research, operate browsers/desktops/providers, verify, and repair.
+        </p>
+        <div id="scrub-autonomy-score" style="background:rgba(37,99,235,0.1);border:1px solid rgba(37,99,235,0.25);border-radius:8px;padding:10px;margin-bottom:12px;font-size:11px;"></div>
+        <div class="panel-section-title">Provider connections</div>
+        <div id="scrub-provider-health" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;font-size:10px;"></div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+          <input id="scrub-objective" placeholder="e.g. Connect Supabase, Launch Sentinel AI…"
+            style="flex:1;padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px;color:var(--text-primary);font-size:12px;">
+          <button type="button" class="panel-btn" style="font-size:12px;" onclick="scrubSubmitGoal()">Start goal</button>
+        </div>
+        <div id="scrub-status-line" style="font-size:11px;color:#888;margin-bottom:8px;">Loading…</div>
+        <div class="panel-section-title">Execution feed</div>
+        <div id="scrub-feed" style="max-height:200px;overflow-y:auto;background:#0a0a0f;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:8px;font-size:11px;font-family:var(--font-mono);"></div>
+        <div class="panel-section-title" style="margin-top:12px;">Goals</div>
+        <div id="scrub-goals-list" style="font-size:11px;"></div>
+        <div id="scrub-approvals" style="margin-top:10px;"></div>`;
+      visionRefreshAll();
+      if (_visionPollTimer) clearInterval(_visionPollTimer);
+      _visionPollTimer = setInterval(() => {
+        if (isSettingsSectionActive('sentinelvision') || isSettingsSectionActive('sentinelscrub')) visionRefreshAll();
+      }, 4000);
+      if (!window._visionSocketInited && window._sharedSocket) {
+        window._visionSocketInited = true;
+        const onVisionEvent = (ev) => {
+          if (!isSettingsSectionActive('sentinelvision') && !isSettingsSectionActive('sentinelscrub')) return;
+          visionAppendFeed(ev.phase, ev.message, ev.level || 'info');
+          if (ev.goal_id) visionSelectGoal(ev.goal_id);
+        };
+        window._sharedSocket.on('sentinelvision_event', onVisionEvent);
+        window._sharedSocket.on('sentinelscrub_event', onVisionEvent);
+      }
+    }
+
+    const loadSettingsSentinelScrubSection = loadSettingsSentinelVisionSection;
+
+    async function loadSettingsDownloadsSection(container) {
+      container.innerHTML = `
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px;">Downloads</div>
+        <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px;">Runtime components required for Vision, Guardian, and models.</p>
+        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+          <button type="button" class="panel-btn" style="font-size:11px;" onclick="depsScan()">Scan</button>
+          <button type="button" class="panel-btn" style="font-size:11px;" onclick="depsInstallAll()">Install required</button>
+          <button type="button" class="panel-btn" style="font-size:11px;" onclick="depsRepair()">Repair failed</button>
+        </div>
+        <div id="deps-list" style="font-size:11px;">Loading…</div>`;
+      depsRefresh();
+    }
+
+    async function depsRefresh() {
+      try {
+        const d = await fetch('http://127.0.0.1:5001/api/dependencies').then(r => r.json());
+        const el = document.getElementById('deps-list');
+        if (!el) return;
+        const rows = (d.components || []).map(c =>
+          `<div style="padding:8px;margin-bottom:6px;border-radius:8px;background:rgba(255,255,255,0.04);">
+            <div style="display:flex;justify-content:space-between;">
+              <span style="color:#93c5fd;font-weight:600;">${escapeHtml(c.id)}</span>
+              <span>${escapeHtml(c.status)} · ${escapeHtml(c.verification||'')}</span>
+            </div>
+            <div style="color:#666;margin-top:4px;">v${escapeHtml(c.version||'—')} · DL ${c.download_percent||0}% · Inst ${c.install_percent||0}%</div>
+            ${c.message ? `<div style="color:#888;margin-top:4px;">${escapeHtml(c.message)}</div>` : ''}
+            <button type="button" class="panel-btn" style="font-size:10px;margin-top:6px;" onclick="depsInstallOne('${c.id}')">Install</button>
+          </div>`
+        ).join('');
+        el.innerHTML = rows || '<span style="color:#555;">No components</span>';
+      } catch (_) {
+        const el = document.getElementById('deps-list');
+        if (el) el.textContent = 'Dependency API unavailable';
+      }
+    }
+    window.depsScan = async () => { await fetch('http://127.0.0.1:5001/api/dependencies/scan', { method: 'POST' }); depsRefresh(); };
+    window.depsInstallAll = async () => { await fetch('http://127.0.0.1:5001/api/dependencies/install', { method: 'POST', headers:{'Content-Type':'application/json'}, body: '{}' }); depsRefresh(); };
+    window.depsRepair = async () => { await fetch('http://127.0.0.1:5001/api/dependencies/repair', { method: 'POST' }); depsRefresh(); };
+    window.depsInstallOne = async (id) => {
+      await fetch('http://127.0.0.1:5001/api/dependencies/install', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ component_id: id }) });
+      depsRefresh();
+    };
+
+    async function loadSettingsUpdatesSection(container) {
+      container.innerHTML = `
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px;">Updates</div>
+        <p style="font-size:11px;color:var(--text-muted);margin:0 0 12px;">
+          GitHub Releases + electron-updater. Publish with <code style="font-size:10px;">npm run dist:publish</code> so <code style="font-size:10px;">latest.yml</code> ships with each release.
+        </p>
+        <div class="panel-section-title" style="margin-top:4px;">Diagnostics</div>
+        <div id="updates-diagnostics" style="font-size:11px;background:rgba(255,255,255,0.03);border-radius:8px;padding:10px;margin-bottom:10px;line-height:1.55;">Loading…</div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+          <button type="button" class="panel-btn" style="font-size:11px;" onclick="updatesSetChannel('beta')">Beta</button>
+          <button type="button" class="panel-btn" style="font-size:11px;" onclick="updatesSetChannel('stable')">Stable</button>
+          <button type="button" class="panel-btn" style="font-size:11px;" onclick="updatesCheck()">Check</button>
+          <button type="button" class="panel-btn" style="font-size:11px;" onclick="updatesDownload()">Download</button>
+          <button type="button" class="panel-btn" style="font-size:11px;" onclick="updatesInstall()">Install</button>
+          <button type="button" class="panel-btn" style="font-size:11px;" onclick="updatesRollback()">Rollback</button>
+        </div>
+        <div id="updates-available" style="font-size:11px;color:#888;"></div>`;
+      updatesRefresh();
+    }
+
+    function _fmtUpdaterVal(v) {
+      if (v == null || v === '') return '—';
+      if (typeof v === 'object') return escapeHtml(JSON.stringify(v));
+      return escapeHtml(String(v));
+    }
+
+    async function updatesRefresh() {
+      try {
+        const [st, diag] = await Promise.all([
+          fetch('http://127.0.0.1:5001/api/updates/status').then(r => r.json()),
+          fetch('http://127.0.0.1:5001/api/updates/diagnostics').then(r => r.json()),
+        ]);
+        const d = diag.status === 'ok' ? diag : st;
+        const el = document.getElementById('updates-diagnostics');
+        if (el) {
+          el.innerHTML = `
+            <div><strong>Current Version</strong> ${_fmtUpdaterVal(d.current_version)}</div>
+            <div><strong>Latest Version</strong> ${_fmtUpdaterVal(d.latest_version)}</div>
+            <div><strong>Update Channel</strong> ${_fmtUpdaterVal(d.update_channel || st.channel)}</div>
+            <div><strong>Last Check</strong> ${_fmtUpdaterVal(d.last_check)}</div>
+            <div><strong>Last Download</strong> ${_fmtUpdaterVal(d.last_download)}</div>
+            <div><strong>Last Install</strong> ${_fmtUpdaterVal(d.last_install)}</div>
+            <div><strong>Last Failure</strong> ${_fmtUpdaterVal(d.last_failure)}</div>
+            <div><strong>GitHub Connectivity</strong> ${_fmtUpdaterVal(d.github_connectivity)}</div>
+            <div><strong>Update Status</strong> ${_fmtUpdaterVal(d.update_status || st.update_status)}</div>`;
+        }
+        const av = document.getElementById('updates-available');
+        if (av && st.available_update) {
+          const force = st.force_update ? ' <span style="color:#fbbf24;">(required)</span>' : '';
+          av.innerHTML = `<div style="color:#93c5fd;margin-top:8px;">Available: ${escapeHtml(st.available_update.version || '')}${force}</div>
+            <div style="color:#666;font-size:10px;margin-top:4px;">Use Install or the title-bar update banner (electron-updater).</div>`;
+        } else if (av) av.textContent = 'No newer release detected.';
+      } catch (e) {
+        const el = document.getElementById('updates-diagnostics');
+        if (el) el.textContent = 'Updates API unavailable';
+      }
+    }
+
+    window.updatesSetChannel = async function(ch) {
+      await fetch('http://127.0.0.1:5001/api/updates/channel', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ channel: ch }),
+      });
+      updatesRefresh();
+    };
+    window.updatesCheck = async function() {
+      const r = await fetch('http://127.0.0.1:5001/api/updates/check', { method: 'POST' }).then(x => x.json());
+      if (r.error) alert(r.error);
+      updatesRefresh();
+    };
+    window.updatesDownload = async function() {
+      const r = await fetch('http://127.0.0.1:5001/api/updates/download', { method: 'POST' }).then(x => x.json());
+      alert(r.message || r.error || (r.ok ? 'Download started' : JSON.stringify(r)));
+      updatesRefresh();
+    };
+    window.updatesInstall = async function() {
+      const r = await fetch('http://127.0.0.1:5001/api/updates/install', { method: 'POST' }).then(x => x.json());
+      alert(r.message || r.error || JSON.stringify(r));
+      if (r.restart_required) {
+        try {
+          const { ipcRenderer } = require('electron');
+          setTimeout(() => ipcRenderer.send('install-update'), 1500);
+        } catch (_) {}
+      }
+      updatesRefresh();
+    };
+    window.updatesRollback = async function() {
+      if (!confirm('Rollback to the previous version? Sentinel will restart.')) return;
+      const r = await fetch('http://127.0.0.1:5001/api/updates/rollback/execute', { method: 'POST' }).then(x => x.json());
+      alert(r.message || r.error || JSON.stringify(r));
+      updatesRefresh();
+    };
+
+    async function loadSettingsMissionsSection(container) {
+      container.innerHTML = `
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px;">Missions</div>
+        <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px;">Long-running goals — Vision tasks attach automatically.</p>
+        <div id="missions-list" style="font-size:11px;">Loading…</div>`;
+      try {
+        const d = await fetch('http://127.0.0.1:5001/api/missions').then(r => r.json());
+        const el = document.getElementById('missions-list');
+        if (!el) return;
+        const list = d.missions || [];
+        el.innerHTML = list.length ? list.map(m =>
+          `<div style="padding:8px;margin-bottom:6px;border-radius:8px;background:rgba(255,255,255,0.04);">
+            <div style="color:#93c5fd;font-weight:600;">${escapeHtml(m.title)} — ${escapeHtml(m.completion_state)}</div>
+            <div style="color:#888;margin-top:4px;">Progress ${Math.round(m.progress||0)}% · ${escapeHtml(m.current_task||'—')}</div>
+            ${(m.blockers||[]).length ? `<div style="color:#fa0;margin-top:4px;">Blockers: ${escapeHtml(m.blockers.join('; '))}</div>` : ''}
+          </div>`
+        ).join('') : '<span style="color:#555;">No missions yet. Start a Vision goal like “Connect Supabase”.</span>';
+      } catch (_) {
+        const el = document.getElementById('missions-list');
+        if (el) el.textContent = 'Missions API unavailable';
+      }
+    }
+
+    async function guardianLoadDashboard() {
+      const dash = document.getElementById('guardian-sys-dashboard');
+      const alerts = document.getElementById('guardian-sys-alerts');
+      if (!dash) return;
+      try {
+        const d = await fetch('http://127.0.0.1:5001/api/guardian/dashboard').then(r => r.json());
+        const s = d.latest || {};
+        dash.innerHTML = `
+          <div style="color:${d.status==='ok'?'#10a37f':'#fa0'};font-weight:600;margin-bottom:6px;">${escapeHtml(d.status||'—')}</div>
+          <div>CPU ${s.cpu_percent||0}% · RAM ${s.ram_percent||0}% (${s.ram_used_gb||0}/${s.ram_total_gb||0} GB)</div>
+          <div style="margin-top:4px;">Disks: ${(s.disks||[]).map(x => escapeHtml(x.mountpoint)+' '+x.percent+'%').join(' · ') || '—'}</div>
+          <div style="margin-top:4px;">Services: ${(s.services||[]).map(x => (x.up?'✓':'✗')+' '+escapeHtml(x.name)).join(' · ') || '—'}</div>`;
+        if (alerts && d.alerts && d.alerts.length) {
+          alerts.innerHTML = d.alerts.slice(-3).map(a =>
+            `<div style="background:#1a1010;border:1px solid rgba(255,80,0,0.2);border-radius:8px;padding:8px;margin-bottom:6px;">
+              <div style="color:#fa0;font-weight:600;">${escapeHtml(a.title)}</div>
+              <div>${escapeHtml(a.message)}</div>
+              <div style="color:#666;margin-top:4px;">${escapeHtml(a.remediation)}</div>
+            </div>`
+          ).join('');
+        } else if (alerts) alerts.innerHTML = '';
+      } catch (_) {
+        dash.textContent = 'System monitor unavailable (install psutil).';
+      }
+    }
+
+    function visionAppendFeed(phase, message, level) {
+      const el = document.getElementById('scrub-feed');
+      if (!el) return;
+      const color = level === 'error' ? '#f88' : level === 'warn' ? '#fa0' : '#8cf';
+      const row = document.createElement('div');
+      row.style.marginBottom = '4px';
+      row.innerHTML = `<span style="color:#555;">[${escapeHtml(phase)}]</span> <span style="color:${color};">${escapeHtml(message)}</span>`;
+      el.appendChild(row);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    async function visionRefreshAll() {
+      try {
+        const [st, metrics, health] = await Promise.all([
+          fetch(`${VISION_API}/status`).then(r => r.json()),
+          fetch(`${VISION_API}/metrics`).then(r => r.json()).catch(() => ({})),
+          fetch(`${VISION_API}/providers/health`).then(r => r.json()).catch(() => ({})),
+        ]);
+        const scoreEl = document.getElementById('scrub-autonomy-score');
+        if (scoreEl && metrics.metrics) {
+          const m = metrics.metrics;
+          scoreEl.innerHTML = `<div style="font-size:13px;font-weight:600;color:#93c5fd;">Autonomy Score: ${m.autonomy_score}%</div>
+            <div style="margin-top:6px;color:#888;">Research ${m.research_success_pct}% · Execute ${m.execute_success_pct}% · Verify ${m.verify_success_pct}% · Repair ${m.repair_success_pct}%</div>
+            <div style="color:#555;margin-top:4px;">Target: ${m.goal}</div>`;
+        }
+        const healthEl = document.getElementById('scrub-provider-health');
+        if (healthEl && health.providers) {
+          healthEl.innerHTML = health.providers.map(p =>
+            `<span style="padding:4px 8px;border-radius:6px;background:${p.connected?'rgba(16,163,127,0.15)':'rgba(255,255,255,0.05)'};border:1px solid ${p.connected?'rgba(16,163,127,0.3)':'rgba(255,255,255,0.08)'};">
+              ${escapeHtml(p.provider_id)} ${p.connected?'✓':'○'}
+            </span>`
+          ).join('');
+        }
+        const line = document.getElementById('scrub-status-line');
+        if (line) {
+          line.textContent = st.enabled
+            ? `Ready · Browser: ${st.browser ? 'Playwright' : 'install Playwright'} · ${st.providers?.length || 0} providers`
+            : (st.error || 'Unavailable');
+        }
+        const goals = await fetch(`${VISION_API}/goals`).then(r => r.json());
+        const list = document.getElementById('scrub-goals-list');
+        if (list && goals.goals) {
+          list.innerHTML = goals.goals.slice(0, 12).map(g =>
+            `<div style="padding:6px 8px;margin-bottom:4px;border-radius:6px;background:rgba(255,255,255,0.03);cursor:pointer;" onclick="visionSelectGoal('${g.goal_id}')">
+              <span style="color:#93c5fd;">${escapeHtml(g.status)}</span> — ${escapeHtml((g.objective||'').slice(0,60))}
+            </div>`
+          ).join('') || '<span style="color:#555;">No goals yet.</span>';
+        }
+        const appr = await fetch(`${VISION_API}/approvals`).then(r => r.json());
+        const ael = document.getElementById('scrub-approvals');
+        if (ael && appr.approvals?.length) {
+          ael.innerHTML = '<div class="panel-section-title">Pending approvals</div>' + appr.approvals.map(a =>
+            `<div style="background:#1a1510;border:1px solid rgba(255,180,0,0.25);border-radius:8px;padding:10px;margin-bottom:8px;font-size:11px;">
+              <div style="color:#fa0;font-weight:600;">${escapeHtml(a.action)}</div>
+              <div style="color:#aaa;margin:4px 0;">${escapeHtml(a.expected_result)}</div>
+              <div>Account: ${escapeHtml(a.account||'—')} · Cost: ${escapeHtml(a.cost||'—')}</div>
+              <div style="margin-top:8px;display:flex;gap:6px;">
+                <button class="panel-btn" style="font-size:10px;" onclick="visionResolveApproval('${a.approval_id}',true)">Approve</button>
+                <button class="panel-btn" style="font-size:10px;background:#444;" onclick="visionResolveApproval('${a.approval_id}',false)">Reject</button>
+              </div>
+            </div>`
+          ).join('');
+        } else if (ael) ael.innerHTML = '';
+      } catch (e) {
+        const line = document.getElementById('scrub-status-line');
+        if (line) line.textContent = 'Sentinel Vision API unavailable';
+      }
+    }
+
+    window.scrubSubmitGoal = window.visionSubmitGoal = async function() {
+      const input = document.getElementById('scrub-objective');
+      const objective = (input?.value || '').trim();
+      if (!objective) return;
+      input.value = '';
+      visionAppendFeed('queued', 'Submitting: ' + objective);
+      try {
+        const r = await fetch(`${VISION_API}/goals`, {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ objective }),
+        });
+        const d = await r.json();
+        if (d.goal) visionSelectGoal(d.goal.goal_id);
+        visionRefreshAll();
+      } catch (e) {
+        visionAppendFeed('failed', e.message, 'error');
+      }
+    };
+
+    window.scrubSelectGoal = window.visionSelectGoal = async function(goalId) {
+      try {
+        const d = await fetch(`${VISION_API}/goals/${goalId}`).then(r => r.json());
+        const feed = document.getElementById('scrub-feed');
+        if (feed && d.feed) {
+          feed.innerHTML = '';
+          d.feed.forEach(ev => visionAppendFeed(ev.phase, ev.message, ev.level || 'info'));
+        }
+      } catch (_) {}
+    };
+
+    window.scrubResolveApproval = window.visionResolveApproval = async function(approvalId, approved) {
+      await fetch(`${VISION_API}/approvals/${approvalId}/resolve`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ approved, trust_provider: false }),
+      });
+      visionRefreshAll();
+    };
+
+    async function loadSettingsAdvancedSection(container) {
+      container.innerHTML = `
+        <div style="font-size:14px;font-weight:600;margin-bottom:10px;">Advanced</div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+          <button type="button" class="panel-btn" style="font-size:11px;" onclick="settingsAdvancedTab('diagnostics')">Diagnostics</button>
+          <button type="button" class="panel-btn" style="font-size:11px;" onclick="settingsAdvancedTab('market')">Market</button>
+          <button type="button" class="panel-btn" style="font-size:11px;" onclick="settingsAdvancedTab('scalp')">Scalp</button>
+        </div>
+        <div id="settings-advanced-body"></div>`;
+      settingsAdvancedTab('diagnostics');
+    }
+
+    function renderDiagnosticsWorkersPanel() {
+      const el = document.getElementById('diagnostics-workers-panel');
+      if (!el) return;
+      const cache = window._workerDiagnosticsCache;
+      if (!cache) {
+        el.innerHTML = '<span style="font-size:11px;color:#555;">No worker data yet.</span>';
+        return;
+      }
+      const workers = [...(cache.logical_workers || []), ...(cache.pool_workers || [])];
+      if (!workers.length) {
+        el.innerHTML = '<span style="font-size:11px;color:#555;">No workers registered.</span>';
+        return;
+      }
+      el.innerHTML = workers.map(w => {
+        const state = (w.state || 'idle').toLowerCase();
+        const cls = state.includes('run') || state.includes('execut') ? 'running' :
+                   state.includes('wait') || state.includes('pend') ? 'waiting' : '';
+        const label = escapeHtml(w.worker_id || w.intent || 'Unknown');
+        const intent = w.intent && w.worker_id !== w.intent
+          ? `<span style="color:#666;font-size:10px;margin-left:4px;">(${escapeHtml(w.intent)})</span>` : '';
+        return `<div class="worker-badge ${cls}"><span class="dot"></span>${label}${intent} <span style="color:#555;font-size:10px;">${escapeHtml(w.state || 'idle')}</span></div>`;
+      }).join('');
+    }
+
+    window._diagnosticsFeed = window._diagnosticsFeed || [];
+
+    function appendDiagnosticsFeed(kind, text) {
+      const line = { ts: new Date().toLocaleTimeString(), kind: kind || 'info', text: String(text || '').slice(0, 4000) };
+      window._diagnosticsFeed.push(line);
+      if (window._diagnosticsFeed.length > 200) window._diagnosticsFeed.shift();
+      const el = document.getElementById('diagnostics-activity-feed');
+      if (!el) return;
+      const row = document.createElement('div');
+      row.style.cssText = 'font-size:10px;font-family:var(--font-mono);padding:6px 8px;margin-bottom:4px;border-radius:6px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);color:var(--text-secondary);white-space:pre-wrap;word-break:break-word;';
+      row.textContent = `[${line.ts}] ${line.kind.toUpperCase()}: ${line.text}`;
+      el.appendChild(row);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    async function loadSettingsDiagnosticsSection(container) {
+      container.innerHTML = `
+        <p style="font-size:11px;color:var(--text-muted);margin:0 0 12px;line-height:1.5;">
+          Developer diagnostics — worker state, builds, earn research, and web routing (not shown on the main screen).
+        </p>
+        <div class="panel-section-title">Workers &amp; intents</div>
+        <div id="diagnostics-workers-panel" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;"></div>
+        <button type="button" class="panel-btn" style="font-size:11px;margin-bottom:14px;" onclick="updateWorkerStatus()">Refresh workers</button>
+        <div class="panel-section-title">Activity feed</div>
+        <div id="diagnostics-activity-feed" style="max-height:280px;overflow-y:auto;scrollbar-width:none;padding-right:4px;"></div>`;
+      renderDiagnosticsWorkersPanel();
+      updateWorkerStatus();
+      const feed = document.getElementById('diagnostics-activity-feed');
+      if (feed) {
+        window._diagnosticsFeed.forEach(line => {
+          const row = document.createElement('div');
+          row.style.cssText = 'font-size:10px;font-family:var(--font-mono);padding:6px 8px;margin-bottom:4px;border-radius:6px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);color:var(--text-secondary);white-space:pre-wrap;';
+          row.textContent = `[${line.ts}] ${line.kind.toUpperCase()}: ${line.text}`;
+          feed.appendChild(row);
+        });
+      }
+    }
+
+    window.settingsAdvancedTab = async function(tab) {
+      const body = document.getElementById('settings-advanced-body');
+      if (!body) return;
+      body.innerHTML = '<div style="color:#888;font-size:12px;padding:12px;">Loading…</div>';
+      if (tab === 'diagnostics') await loadSettingsDiagnosticsSection(body);
+      else if (tab === 'market') await loadMarketPanel(body);
+      else if (tab === 'scalp') await loadScalpPanel(body, panelState.scalp);
+    };
+
+    function _settingsHubContentEl() {
+      return document.getElementById('settings-hub-content');
+    }
+
+    async function loadSettingsAISection(container) {
+      let s = {};
+      try {
+        s = await fetch('http://127.0.0.1:5001/api/ai/status').then(r => r.json());
+      } catch (_) {}
+      const row = (ok, label, detail) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px;
+          background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:10px;">
+          <span style="font-size:16px;width:22px;text-align:center;">${ok ? '✓' : '○'}</span>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);">${label}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${detail}</div>
+          </div>
+        </div>`;
+      container.innerHTML = `
+        <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:12px;">AI Providers</div>
+        <p style="font-size:12px;color:var(--text-muted);line-height:1.55;margin:0 0 14px;">
+          Local Ollama is preferred. Cloud keys are used automatically when local AI is unavailable.
+        </p>
+        ${row(s.ollama_installed !== false, 'Ollama Installed', s.ollama_installed ? 'Binary found on this machine' : 'Install from Settings → Downloads')}
+        ${row(s.ollama_running, 'Ollama Running', s.ollama_running ? 'Service reachable' : 'Starting or install from Settings → Downloads')}
+        ${row(s.provider_ready, 'Provider Ready', s.provider_ready ? 'Chat can use local or cloud AI' : 'Using fallbacks until local AI is ready')}
+        ${row(s.model_installed, 'Model Installed', s.primary_model || '—')}
+        ${row(s.model_loaded, 'Model Loaded', s.model_loaded ? 'Ready for inference' : 'Loading after download')}
+        ${row(s.web_search_ready, 'Web Search Ready', s.web_search_ready ? 'API key configured' : 'Add BRAVE_API_KEY or similar in .env')}
+        ${row(s.memory_ready, 'Memory Ready', s.memory_ready ? 'Session memory available' : 'Initializing')}
+        <div class="panel-stat" style="margin-top:12px;padding:10px 12px;">
+          <div class="panel-stat-label">Download progress</div>
+          <div class="panel-stat-value">${s.download_progress != null ? s.download_progress + '%' : '—'}</div>
+        </div>
+        <button type="button" class="panel-btn" style="margin-top:12px;width:100%;" onclick="fetch('http://127.0.0.1:5001/api/models/heal',{method:'POST'}).then(()=>alert('Repair started'))">Repair AI stack</button>
+      `;
+    }
+
+    // ── SETTINGS MODELS ─────────────────────────────────────────────────────────
     const LOCAL_MODELS = [
       { id: 'qwen2.5-coder:3b',  label: 'Qwen 2.5 Coder 3B',  vram: 3,  size: '2.1 GB',  speed: '⚡ Fast',    note: 'Best for low-end GPUs or CPU-only' },
       { id: 'qwen2.5-coder:7b',  label: 'Qwen 2.5 Coder 7B',  vram: 8,  size: '4.7 GB',  speed: '🔄 Balanced', note: 'Good balance of speed and quality' },
@@ -3151,7 +3876,7 @@
       { id: 'llama3.2:3b',       label: 'Llama 3.2 3B',        vram: 3,  size: '2.0 GB',  speed: '⚡ Fast',    note: 'Great for general tasks on low VRAM' },
     ];
 
-    async function loadSettingsPanel(container) {
+    async function loadSettingsModelsSection(container) {
       let vram = 0, model = '', ollamaOk = false, ollamaModels = [];
       try {
         const s = await fetch('http://127.0.0.1:5001/api/status'); const sd = await s.json();
@@ -3243,12 +3968,15 @@
           body: JSON.stringify({model: modelId})
         });
         document.getElementById('settings-model-status').textContent = `✓ Active model set to ${modelId}`;
-        await loadSettingsPanel(document.getElementById('panel-content'));
+        const el = _settingsHubContentEl();
+        if (el) await loadSettingsModelsSection(el);
       } catch(e) {
         document.getElementById('settings-model-status').textContent = `Error: ${e.message}`;
         btn.textContent = orig; btn.disabled = false;
       }
     };
+
+    const loadSettingsPanel = loadSettingsModelsSection;
 
     window.settingsDownloadModel = async function(modelId, btn) {
       btn.textContent = '⏳ Pulling...'; btn.disabled = true;
@@ -3267,7 +3995,11 @@
           try {
             const pr = await fetch(`http://127.0.0.1:5001/api/settings/model/pull/status?model=${encodeURIComponent(modelId)}`);
             const pd = await pr.json();
-            if (pd.done) { clearInterval(poll); await loadSettingsPanel(document.getElementById('panel-content')); }
+            if (pd.done) {
+              clearInterval(poll);
+              const el = _settingsHubContentEl();
+              if (el) await loadSettingsModelsSection(el);
+            }
             else if (statusEl && pd.progress) statusEl.textContent = `Downloading ${modelId}: ${pd.progress}%`;
           } catch(_) {}
         }, 3000);
@@ -3300,19 +4032,31 @@
       container.innerHTML = `
         <div class="guardian-pro">
           <div class="guardian-pro-header">
-            <h2>Guardian</h2>
-            <button type="button" class="guardian-pro-settings-btn" onclick="guardianOpenSettings()">⚙ Settings</button>
+            <h2>Security</h2>
+            <button type="button" class="guardian-pro-settings-btn" onclick="guardianOpenSettings()" title="Settings & Diagnostics">⚙</button>
           </div>
+          <p style="font-size:12px;color:#8e8e93;margin:0 0 12px;line-height:1.5;">
+            Sentinel Security Mode — run scans from <strong style="color:#f5f5f7;">Sentinel chat</strong>
+            (e.g. <em>scan example.com</em>). Results appear here and in Tasks.
+          </p>
           <div class="guardian-pro-mode">
             <button class="mode-btn-p ${restoredMode==='defend'?'active-defend':''}" onclick="guardianSetMode(this,'defend')">Defend</button>
             <button class="mode-btn-p ${restoredMode==='attack'?'active-attack':''}" onclick="guardianSetMode(this,'attack')">Attack</button>
             <button class="mode-btn-p ${restoredMode==='forensics'?'active-forensics':''}" onclick="guardianSetMode(this,'forensics')">Forensics</button>
           </div>
-          <div id="guardian-chat-messages"></div>
-          <div class="guardian-pro-input-row">
-            <input id="guardian-input" placeholder="Ask Guardian or run a scan…" onkeydown="if(event.key==='Enter')guardianSend()"/>
-            <button type="button" class="guardian-pro-send" onclick="guardianSend()">Send</button>
+          <div id="guardian-status-card" style="background:#141416;border:1px solid #2a2a2e;border-radius:10px;padding:12px;margin-bottom:12px;font-size:12px;color:#a0a0a0;">
+            <div style="color:#f5f5f7;font-weight:600;margin-bottom:6px;">Assessment Status</div>
+            <div id="guardian-status-line">No active scan. Use Sentinel chat to start.</div>
           </div>
+          <div class="panel-section-title" style="color:#f5f5f7;font-size:11px;letter-spacing:0.05em;margin:8px 0;">System Health</div>
+          <div id="guardian-sys-dashboard" style="background:#141416;border:1px solid #2a2a2e;border-radius:10px;padding:10px;margin-bottom:12px;font-size:11px;color:#a0a0a0;">Loading monitor…</div>
+          <div id="guardian-sys-alerts" style="margin-bottom:12px;font-size:11px;"></div>
+          <div class="panel-section-title" style="color:#f5f5f7;font-size:11px;letter-spacing:0.05em;margin:8px 0;">Findings Center</div>
+          <div id="guardian-findings-main" style="background:#141416;border:1px solid #2a2a2e;border-radius:10px;padding:10px;max-height:220px;overflow-y:auto;font-size:11px;color:#a0a0a0;">
+            Summary view — open ⚙ Settings for full findings list.
+          </div>
+          <div class="panel-section-title" style="color:#f5f5f7;font-size:11px;margin-top:12px;">Diagnostics Log</div>
+          <div id="guardian-log-inline" style="height:100px;overflow-y:auto;background:#0a0a0b;border:1px solid #2a2a2e;padding:8px;font-size:10px;color:#8e8e93;border-radius:8px;"></div>
         </div>
         <div id="guardian-settings-drawer" onclick="if(event.target===this)guardianCloseSettings()">
           <div class="guardian-settings-panel" onclick="event.stopPropagation()">
@@ -3367,26 +4111,15 @@
           </div>
         </div>`;
       window._guardianMode = restoredMode;
-      // Restore saved messages
-      if (savedState && savedState.messagesHTML) {
-        const msgs = document.getElementById('guardian-chat-messages');
-        if (msgs) { msgs.innerHTML = savedState.messagesHTML; msgs.scrollTop = msgs.scrollHeight; }
-      }
-      // Restore saved guardian log entries
       if (savedState && savedState.logEntries && savedState.logEntries.length) {
         savedState.logEntries.forEach(e => appendGuardianLogEntry(e));
-      }
-      // Flush any pending responses that arrived while panel was closed
-      if (panelState.guardian && panelState.guardian.pendingResponses && panelState.guardian.pendingResponses.length) {
-        panelState.guardian.pendingResponses.forEach(data => {
-          _appendGuardianChatMsg('sentinel', data.response || '');
-        });
-        panelState.guardian.pendingResponses = [];
       }
       guardianLoadTools();
       guardianLoadRuntime();
       guardianLoadTrusted();
       guardianLoadOffensiveLab();
+      guardianLoadFindingsMain();
+      guardianLoadDashboard();
       _attachGuardianSocketListener();
       if (window._sharedSocket) {
         window._sharedSocket.off('guardian_bootstrap_update');
@@ -3394,13 +4127,7 @@
         window._sharedSocket.off('guardian_bootstrap_complete');
         window._sharedSocket.on('guardian_bootstrap_complete', () => { guardianLoadTools(); });
       }
-      // Load marked.js for markdown rendering in guardian chat
-      if (!window.marked) {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js';
-        document.head.appendChild(s);
-      }
-      // Re-attach Socket.IO listener for guardian log
+      // Re-attach Socket.IO listener for guardian log (single handler)
       if (window._sharedSocket) {
         if (window._guardianLogHandler) {
           window._sharedSocket.off('log_event', window._guardianLogHandler);
@@ -3430,6 +4157,27 @@
         guardianLoadTools();
       } catch(_) {}
     };
+    async function guardianLoadFindingsMain() {
+      const el = document.getElementById('guardian-findings-main');
+      if (!el) return;
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/guardian/findings/center');
+        const d = await r.json();
+        const sessions = d.sessions || [];
+        if (!sessions.length) { el.innerHTML = 'No findings yet. Run a scan from Sentinel chat.'; return; }
+        const s = sessions[0];
+        const r2 = await fetch('http://127.0.0.1:5001/api/guardian/findings/center?session_id=' + encodeURIComponent(s.session_id));
+        const c = await r2.json();
+        const center = c.center || {};
+        const findings = (center.findings || []).slice(0, 8);
+        el.innerHTML = `<div style="color:#f5f5f7;margin-bottom:6px;"><b>${escapeHtml(center.target||s.target||'')}</b></div>`
+          + `<div>Hosts ${(center.hosts||[]).length} · Subdomains ${(center.subdomains||[]).length} · `
+          + `Endpoints ${(center.endpoints||[]).length} · Findings ${(center.findings||[]).length}</div>`
+          + (findings.length ? findings.map(f => `<div style="margin-top:6px;padding:6px;background:#0a0a0b;border-radius:6px;">
+              <span style="color:#5e9eff;">${escapeHtml(f.severity||'info')}</span> ${escapeHtml(f.title||'')}</div>`).join('') : '');
+      } catch(_) { el.textContent = 'Findings unavailable.'; }
+    }
+
     async function guardianLoadFindingsPreview() {
       const el = document.getElementById('guardian-findings-preview');
       if (!el) return;
@@ -3474,15 +4222,18 @@
     };
 
     function appendGuardianLogEntry(entry) {
-      const el = document.getElementById('guardian-log');
-      if (!el) return;
       const color = { error:'#c88', warning:'#aa8', success:'#A0A0A0', info:'#888', tool:'#999' }[entry.level] || '#888';
-      const line = document.createElement('div');
-      line.style.color = color;
       const time = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
-      line.textContent = `${time} [${(entry.level||'info').toUpperCase()}] ${entry.message}`;
-      el.appendChild(line);
-      el.scrollTop = el.scrollHeight;
+      const text = `${time} [${(entry.level||'info').toUpperCase()}] ${entry.message}`;
+      for (const id of ['guardian-log', 'guardian-log-inline']) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const line = document.createElement('div');
+        line.style.color = color;
+        line.textContent = text;
+        el.appendChild(line);
+        el.scrollTop = el.scrollHeight;
+      }
     }
 
     window.guardianLogClear = function() {
@@ -3642,69 +4393,42 @@
       }
     }
 
-    window.guardianSend = async function() {
-      const inp = document.getElementById('guardian-input');
-      if (!inp || !inp.value.trim()) return;
-      const q = inp.value.trim(); inp.value = '';
-      _appendGuardianChatMsg('user', q);
-      _appendGuardianChatMsg('sentinel', '⟳ Thinking...');
-
-      // Abort after 120s so the UI never truly locks
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 120000);
-
-      function _removeThinking() {
-        const all = document.querySelectorAll('#guardian-chat-messages .g-msg-ai');
-        if (all.length > 0) {
-          const last = all[all.length - 1];
-          if (last && (last.textContent.includes('⟳') || last.textContent.includes('Thinking'))) last.remove();
+    window.guardianSend = function() {
+      const chatInp = document.getElementById('chat-input');
+      if (chatInp) {
+        chatInp.value = 'scan ';
+        chatInp.focus();
+        if (typeof showChatResponse === 'function') {
+          showChatResponse('Use Sentinel chat for security work — e.g. **scan example.com**');
         }
-      }
-
-      try {
-        const r = await fetch('http://127.0.0.1:5001/guardian/chat', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({message: q, mode: window._guardianMode}),
-          signal: ctrl.signal,
-        });
-        clearTimeout(timer);
-        const d = await r.json();
-        _removeThinking();
-        const resp = d.response || d.message || d.result || '';
-        if (resp) _appendGuardianChatMsg('sentinel', resp);
-        // If assessment started, note that results arrive via socket
-        if (d.scanning) {
-          _appendGuardianChatMsg('sentinel', 'I\'ll post progress here as each step finishes.');
-        }
-      } catch(e) {
-        clearTimeout(timer);
-        _removeThinking();
-        const msg = e.name === 'AbortError'
-          ? 'Request timed out (120s). Guardian may still be working — check the Log tab.'
-          : `Error: ${e.message}`;
-        _appendGuardianChatMsg('error', msg);
       }
     };
 
-    // Wire guardian_response socket events into the chat panel (incremental steps)
+    function _onGuardianAssessmentEvent(data) {
+      const st = document.getElementById('guardian-status-line');
+      const resp = data.response || '';
+      if (st && data.step && data.step !== 'final') {
+        st.textContent = (data.chat_line || resp).replace(/\*\*/g, '').slice(0, 120);
+      }
+      if (data.step === 'final') {
+        if (st) st.textContent = 'Assessment complete.';
+        guardianLoadFindingsMain();
+        guardianLoadFindingsPreview();
+        if (typeof showChatResponse === 'function' && resp) {
+          showChatResponse('**Security assessment complete**\n\n' + resp.slice(0, 2500));
+        }
+      }
+      if (!panelState.guardian.pendingResponses) panelState.guardian.pendingResponses = [];
+      if (data.step === 'final') panelState.guardian.pendingResponses.push(data);
+    }
+
     function _attachGuardianSocketListener() {
       if (!window._sharedSocket) return;
-      window._sharedSocket.off('guardian_response');
-      window._sharedSocket.on('guardian_response', (data) => {
-        const msgs = document.getElementById('guardian-chat-messages');
-        const resp = data.response || '';
-        if (!resp) return;
-        if (!msgs) {
-          if (!panelState.guardian.pendingResponses) panelState.guardian.pendingResponses = [];
-          panelState.guardian.pendingResponses.push(data);
-          return;
-        }
-        const line = data.chat_line || resp;
-        const show = (data.step === 'final') ? resp : line;
-        _appendGuardianChatMsg('sentinel', show);
-        if (data.step === 'final') guardianLoadFindingsPreview();
-      });
+      if (window._guardianResponseHandler) {
+        window._sharedSocket.off('guardian_response', window._guardianResponseHandler);
+      }
+      window._guardianResponseHandler = _onGuardianAssessmentEvent;
+      window._sharedSocket.on('guardian_response', window._guardianResponseHandler);
     }
     // Attach once socket is ready (may be called again on panel open)
     document.addEventListener('DOMContentLoaded', () => {
@@ -3776,10 +4500,18 @@
           <button class="panel-btn" onclick="logCopyAll()" id="log-copy-btn" style="padding:4px 10px;font-size:11px;">COPY ALL</button>
         </div>
         <div id="log-panel-filter">
-          <span style="font-size:10px;color:#555;margin-right:4px;">FILTER:</span>
-          ${['all','chat','builder','forge','earn','system','guardian','aider','errors'].map(f =>
-            `<button class="log-filter-btn ${f==='all'?'active':''}" onclick="logSetFilter('${f}')" style="${f==='chat'?'border-color:rgba(0,212,255,0.5);color:#00d4ff;':''}">${f.toUpperCase()}</button>`
+          <span style="font-size:10px;color:#555;margin-right:4px;">LOGS:</span>
+          <button class="log-filter-btn active" onclick="logSetFilter('all')">ALL</button>
+          ${[
+            { label: 'Chat', filter: 'chat' },
+            { label: 'Guardian', filter: 'guardian' },
+            { label: 'Builder', filter: 'builder' },
+            { label: 'Earn', filter: 'earn' },
+            { label: 'System', filter: 'system' },
+          ].map(s =>
+            `<button class="log-filter-btn" onclick="logSetFilter('${s.filter}')" data-log-filter="${s.filter}">${s.label}</button>`
           ).join('')}
+          <button class="log-filter-btn" onclick="logSetFilter('errors')">Errors</button>
         </div>
         <div id="log-panel-xterm"></div>`;
 
@@ -3857,8 +4589,12 @@
 
     window.logSetFilter = function(filter) {
       logActiveFilter = filter;
-      document.querySelectorAll('.log-filter-btn').forEach(b =>
-        b.classList.toggle('active', b.textContent.toLowerCase() === filter));
+      document.querySelectorAll('.log-filter-btn').forEach(b => {
+        const df = b.dataset.logFilter;
+        const match = filter === 'all' ? b.textContent.trim().toUpperCase() === 'ALL'
+          : (df === filter || (filter === 'errors' && b.textContent.trim() === 'Errors'));
+        b.classList.toggle('active', match);
+      });
       // Rewrite terminal with filtered entries
       if (logTerminal) {
         logTerminal.clear();
@@ -3885,7 +4621,7 @@
       ipcRenderer.on('backend-log', (event, data) => {
         const entry = { time: new Date(data.timestamp || Date.now()).toLocaleTimeString(), type: data.type || 'system', level: data.level || 'info', message: data.message || '' };
         logEntries.push(entry);
-        if (logTerminal && currentPanel === 'log' && logMatchesFilter(entry, logActiveFilter)) {
+        if (logTerminal && isSettingsSectionActive('logs') && logMatchesFilter(entry, logActiveFilter)) {
           logWriteToTerm(entry);
         }
       });
@@ -3898,27 +4634,22 @@
     async function loadMemoryPanel(container) {
       container.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <span style="color:#0ff;font-size:13px;font-weight:700;">◈ SENTINEL MEMORY</span>
-          <button class="panel-btn" style="padding:4px 12px;font-size:11px;" onclick="memorySyncNow()">SYNC NOW</button>
+          <span style="color:#f5f5f7;font-size:13px;font-weight:600;">Memory</span>
+          <button class="panel-btn" style="padding:4px 12px;font-size:11px;" onclick="memorySyncNow()">Sync now</button>
         </div>
-        <!-- AI CONNECTIONS section -->
-        <div id="memory-connections" style="border-bottom:1px solid rgba(0,255,255,0.12);padding-bottom:12px;margin-bottom:12px;">
-          <div style="color:#0ff;font-size:11px;font-family:monospace;margin-bottom:8px;letter-spacing:1px;">AI CONNECTIONS</div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <div style="font-family:monospace;font-size:12px;">
-              <span id="claude-status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555;margin-right:6px;"></span>
-              <span style="color:#ccc;">Claude.ai</span>
-            </div>
-            <button id="claude-connect-btn" onclick="connectClaude()" style="background:#0a0a20;border:1px solid #0047FF;color:#0088FF;padding:3px 10px;cursor:pointer;font-family:monospace;font-size:11px;border-radius:3px;">Connect</button>
+        <div id="memory-connections" style="background:#141416;border:1px solid #2a2a2e;border-radius:10px;padding:12px;margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="color:#f5f5f7;font-size:11px;font-weight:600;">Provider sync</span>
+            <button class="panel-btn" style="font-size:10px;padding:2px 8px;" onclick="memoryViewSyncDiagnostics()">View sync status</button>
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-            <div style="font-family:monospace;font-size:12px;">
-              <span id="chatgpt-status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555;margin-right:6px;"></span>
-              <span style="color:#ccc;">ChatGPT</span>
-            </div>
-            <button id="chatgpt-connect-btn" onclick="connectChatGPT()" style="background:#0a0a20;border:1px solid #0047FF;color:#0088FF;padding:3px 10px;cursor:pointer;font-family:monospace;font-size:11px;border-radius:3px;">Connect</button>
+          <div id="memory-provider-claude" style="font-size:11px;color:#8e8e93;margin-bottom:10px;">Claude: loading…</div>
+          <div id="memory-provider-chatgpt" style="font-size:11px;color:#8e8e93;margin-bottom:8px;">ChatGPT: loading…</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button id="claude-connect-btn" onclick="connectClaude()" class="panel-btn" style="font-size:10px;">Connect Claude</button>
+            <button id="chatgpt-connect-btn" onclick="connectChatGPT()" class="panel-btn" style="font-size:10px;">Connect ChatGPT</button>
           </div>
-          <div id="connection-message" style="color:#888;font-size:11px;font-family:monospace;display:none;padding:6px;background:#0a0a1a;border-radius:3px;margin-top:4px;"></div>
+          <div id="connection-message" style="color:#8e8e93;font-size:11px;display:none;margin-top:8px;"></div>
+          <div id="memory-sync-diagnostics" style="display:none;margin-top:10px;font-size:10px;color:#8e8e93;"></div>
         </div>
         <div style="display:flex;gap:6px;margin-bottom:10px;">
           <input id="memory-search" style="flex:1;padding:7px 10px;background:#0a0a0f;border:1px solid rgba(0,255,255,0.15);border-radius:5px;color:#e0e0e0;font-size:12px;outline:none;" placeholder="Search memories..." oninput="memorySearch(this.value)"/>
@@ -3941,38 +4672,51 @@
 
     async function loadMemoryConnectionStatus() {
       try {
-        const r = await fetch('http://127.0.0.1:5001/api/login/status');
+        const r = await fetch('http://127.0.0.1:5001/api/memory/sync/diagnostics');
         const data = await r.json();
-        const claudeDot = document.getElementById('claude-status-dot');
-        const chatgptDot = document.getElementById('chatgpt-status-dot');
+        const providers = data.providers || [];
+        const render = (platform, elId) => {
+          const el = document.getElementById(elId);
+          const p = providers.find(x => x.platform === platform);
+          if (!el || !p) return;
+          const ls = p.last_sync && p.last_sync !== 'never' ? p.last_sync.replace('T',' ').slice(0,19) : 'Never';
+          el.innerHTML = `<div style="color:#f5f5f7;font-weight:600;">${p.provider}</div>`
+            + `<div>State: <span style="color:#5e9eff;">${escapeHtml(p.state)}</span></div>`
+            + `<div>Authenticated: ${p.authenticated ? 'Yes' : 'No'} · Imported: ${p.imported_conversations} conversations · Memories: ${p.memory_count}</div>`
+            + `<div>Last sync: ${escapeHtml(ls)}</div>`;
+        };
+        render('claude', 'memory-provider-claude');
+        render('chatgpt', 'memory-provider-chatgpt');
         const claudeBtn = document.getElementById('claude-connect-btn');
         const chatgptBtn = document.getElementById('chatgpt-connect-btn');
-        // claude_connected = live session validated; claude_creds_saved = creds on disk only
-        const claudeActive  = data.claude_connected;   // true session
-        const claudeHasCreds = data.claude_creds_saved; // creds saved but not yet connected
-        const chatgptActive  = data.chatgpt_connected;
-        const chatgptHasCreds = data.chatgpt_creds_saved;
-
-        if (claudeDot) {
-          claudeDot.style.background = claudeActive ? '#0f0' : (claudeHasCreds ? '#fa0' : '#555');
-          claudeDot.title = claudeActive ? 'Session active' : (claudeHasCreds ? 'Credentials saved — not connected' : 'Not configured');
+        const claudeP = providers.find(x => x.platform === 'claude');
+        const chatgptP = providers.find(x => x.platform === 'chatgpt');
+        if (claudeBtn && claudeP) {
+          claudeBtn.textContent = claudeP.authenticated ? 'Re-authenticate' : 'Connect Claude';
         }
-        if (claudeBtn) {
-          claudeBtn.textContent = claudeActive ? 'Connected ✓' : (claudeHasCreds ? 'Credentials Saved — Connect' : 'Connect');
-          claudeBtn.style.borderColor = claudeActive ? '#0f0' : (claudeHasCreds ? '#fa0' : '#0047FF');
-          claudeBtn.style.color       = claudeActive ? '#0f0' : (claudeHasCreds ? '#fa0' : '#0088FF');
-        }
-        if (chatgptDot) {
-          chatgptDot.style.background = chatgptActive ? '#0f0' : (chatgptHasCreds ? '#fa0' : '#555');
-          chatgptDot.title = chatgptActive ? 'Session active' : (chatgptHasCreds ? 'Credentials saved — not connected' : 'Not configured');
-        }
-        if (chatgptBtn) {
-          chatgptBtn.textContent = chatgptActive ? 'Connected ✓' : (chatgptHasCreds ? 'Credentials Saved — Connect' : 'Connect');
-          chatgptBtn.style.borderColor = chatgptActive ? '#0f0' : (chatgptHasCreds ? '#fa0' : '#0047FF');
-          chatgptBtn.style.color       = chatgptActive ? '#0f0' : (chatgptHasCreds ? '#fa0' : '#0088FF');
+        if (chatgptBtn && chatgptP) {
+          chatgptBtn.textContent = chatgptP.authenticated ? 'Re-authenticate' : 'Connect ChatGPT';
         }
       } catch(e) {}
     }
+
+    window.memoryViewSyncDiagnostics = async function() {
+      const el = document.getElementById('memory-sync-diagnostics');
+      if (!el) return;
+      el.style.display = 'block';
+      try {
+        const r = await fetch('http://127.0.0.1:5001/api/memory/sync/diagnostics');
+        const d = await r.json();
+        el.innerHTML = (d.providers || []).map(p =>
+          `<div style="margin-bottom:8px;padding:8px;background:#0a0a0b;border-radius:6px;">
+            <b style="color:#f5f5f7;">${escapeHtml(p.provider)}</b> — ${escapeHtml(p.state)}<br>
+            Last sync: ${escapeHtml(p.last_sync||'—')} · Memories: ${p.memory_count} · Vault files: ${p.imported_conversations}
+          </div>`
+        ).join('') + `<div style="margin-top:6px;">Total synced conversations: ${d.conversations_synced_total||0}</div>`;
+      } catch(e) {
+        el.textContent = 'Diagnostics failed: ' + e.message;
+      }
+    };
 
     // ── AI Account Setup Modal ────────────────────────────────────────────────
 
@@ -4232,8 +4976,7 @@
       }, 100);
     });
 
-    // Worker status polling
-    const statusLine = document.getElementById('status-line');
+    window._workerDiagnosticsCache = null;
     const responseArea = document.getElementById('response-area');
     const planPreview = document.getElementById('plan-preview');
     const chatInput = document.getElementById('chat-input');
@@ -4244,43 +4987,26 @@
       try {
         const res = await fetch('http://127.0.0.1:5001/api/workers/status');
         const data = await res.json();
-
         if (data && data.data) {
-          const workers = [...(data.data.logical_workers || []), ...(data.data.pool_workers || [])];
-
-          statusLine.innerHTML = workers.map(w => {
-            const state = (w.state || 'idle').toLowerCase();
-            const cls = state.includes('run') || state.includes('execut') ? 'running' :
-                       state.includes('wait') || state.includes('pend') ? 'waiting' : '';
-            return `<div class="worker-badge ${cls}"><span class="dot"></span>${escapeHtml(w.worker_id || w.intent || 'Unknown')}</div>`;
-          }).join('');
+          window._workerDiagnosticsCache = data.data;
+          renderDiagnosticsWorkersPanel();
         }
       } catch (e) {
-        console.error('Status update failed:', e);
+        console.debug('Worker status poll:', e);
       }
     }
+    window.updateWorkerStatus = updateWorkerStatus;
 
     function showPlanPreview(plan) {
       currentPlanId = plan.plan_id;
       const complexity = plan.complexity === 'complex' ? 'Complex' : 'Simple';
-      const subtasksHtml = plan.subtasks.map((st, i) => `
-        <div class="plan-subtask">
-          <span class="plan-subtask-index">#${st.index}</span>
-          <span class="plan-subtask-type">${escapeHtml(st.type)}</span>
-          <div class="plan-subtask-text">${escapeHtml(st.task)}</div>
-        </div>
-      `).join('');
-
-      planPreview.innerHTML = `
-        <h2>Execution Plan</h2>
-        <div class="plan-complexity">${complexity} Task</div>
-        ${subtasksHtml}
-        <div id="plan-controls">
-          <button class="plan-btn" onclick="approvePlan()">Execute Plan</button>
-          <button class="plan-btn deny" onclick="denyPlan()">Cancel</button>
-        </div>
-      `;
-      planPreview.classList.add('visible');
+      const subtasksHtml = (plan.subtasks || []).map((st) =>
+        `• ${escapeHtml(st.type || '')}: ${escapeHtml(st.task || '')}`
+      ).join('\n');
+      const planText = `📋 ${complexity} plan (${(plan.subtasks || []).length} steps)\n${subtasksHtml}\n\nReply APPROVE to run, or DENY to cancel.`;
+      appendDiagnosticsFeed('plan', planText);
+      appendChatPanelMessage('sentinel', planText);
+      FloatingConversationLayer.setVisible(true);
     }
 
     window.approvePlan = async function() {
@@ -4303,11 +5029,8 @@
         const planText = typeof planResp === 'string'
           ? planResp
           : (planResp?.response || planResp?.text || planResp?.message || (planResp != null ? JSON.stringify(planResp) : ''));
-        responseArea.textContent = planText || 'Task completed';
-        responseArea.classList.add('visible');
-
+        showChatResponse(planText || 'Task completed');
         setTimeout(() => {
-          responseArea.classList.remove('visible');
           orbState = 'idle';
           renderOrb();
         }, 5000);
@@ -4332,52 +5055,116 @@
         orbState = 'idle';
         renderOrb();
 
-        responseArea.textContent = 'Plan cancelled';
-        responseArea.classList.add('visible');
-
-        setTimeout(() => {
-          responseArea.classList.remove('visible');
-        }, 3000);
+        showChatResponse('Plan cancelled');
 
       } catch (err) {
         console.error('Plan denial failed:', err);
       }
     };
 
-    setInterval(updateWorkerStatus, 3000);
+    // One initial fetch; subsequent refreshes come from the worker_status
+    // socket event (wired below once the shared socket exists).
     updateWorkerStatus();
-
-    // ── CHAT PANEL (LEFT SIDE) ────────────────────────────────────────────────
-    const SESSION_START = new Date().toISOString();
-    let chatPanelOpen = false;
-    let chatPanelMessages = [];  // {role, content, timestamp} — current session only
-
-    function toggleChatPanel() {
-      chatPanelOpen = !chatPanelOpen;
-      const container = document.getElementById('left-panel-container');
-      const btn = document.getElementById('chat-dock-btn');
-      if (chatPanelOpen) {
-        container.classList.add('open');
-        if (btn) btn.classList.add('active');
-        loadChatHistory();
-      } else {
-        container.classList.remove('open');
-        if (btn) btn.classList.remove('active');
+    (function _bindWorkerStatusSocket() {
+      const tryBind = () => {
+        const s = window._sharedSocket;
+        if (!s) return false;
+        if (s.__updateWorkerStatusBound) return true;
+        s.on('worker_status', () => updateWorkerStatus());
+        s.__updateWorkerStatusBound = true;
+        return true;
+      };
+      if (!tryBind()) {
+        // _sharedSocket is created later by loadSocketIO. Poll briefly until
+        // it shows up, then attach. As a safety net, a slow 30s refresh runs
+        // if the socket never connects (offline backend, etc.).
+        let tries = 0;
+        const iv = setInterval(() => {
+          tries += 1;
+          if (tryBind() || tries > 100) clearInterval(iv);
+        }, 100);
+        const fallback = setInterval(() => {
+          if (!window._sharedSocket || !window._sharedSocket.connected) updateWorkerStatus();
+        }, 30000);
+        window._workerStatusFallback = fallback;
       }
-      setTimeout(() => window.dispatchEvent(new Event('resize')), 350);
+    })();
+
+    // ── Left conversation feed (always visible; orb stays clear) ───────────────
+    const SESSION_START = new Date().toISOString();
+    let chatBubblesVisible = true;
+    let chatPanelMessages = [];
+
+    function isSystemStatusBubble(content) {
+      const c = (content || '').trim();
+      if (!c) return true;
+      if (/^local ai is still setting up/i.test(c)) return true;
+      if (/still setting up local ai/i.test(c)) return true;
+      if (/finish setup in the background/i.test(c)) return true;
+      if (/^sentinel is still setting up/i.test(c)) return true;
+      if (/capability \*\*learned_/i.test(c)) return true;
+      if (/registering capability/i.test(c)) return true;
+      if (/helpdesk|troubleshoot|diagnostic/i.test(c)) return true;
+      if (/^status:\s*/i.test(c)) return true;
+      if (/^initializing/i.test(c)) return true;
+      if (/^ai starting$/i.test(c)) return true;
+      return false;
     }
 
+    const FloatingConversationLayer = {
+      messagesEl: () => document.getElementById('conversation-messages'),
+      setVisible(show) {
+        chatBubblesVisible = !!show;
+        const col = document.getElementById('chat-feed-column');
+        const btn = document.getElementById('chat-dock-btn');
+        if (col) col.style.display = show ? 'flex' : 'none';
+        if (btn) btn.classList.toggle('active', show);
+        if (show) this.scrollToEnd();
+      },
+      toggle() {
+        this.setVisible(!chatBubblesVisible);
+        if (chatBubblesVisible && chatPanelMessages.length === 0) loadChatHistory();
+        else if (chatBubblesVisible) this.scrollToEnd();
+      },
+      scrollToEnd() {
+        const m = this.messagesEl();
+        if (m) requestAnimationFrame(() => { m.scrollTop = m.scrollHeight; });
+      },
+    };
+    window.FloatingConversationLayer = FloatingConversationLayer;
+
+    function toggleChatPanel() {
+      FloatingConversationLayer.toggle();
+    }
+
+    function updateAiStatusLine() {
+      fetch('http://127.0.0.1:5001/api/ai/status')
+        .then(r => r.json())
+        .then(d => {
+          const st = document.getElementById('status-text');
+          if (!st) return;
+          if (d.ollama_running && d.model_loaded) st.textContent = 'AI READY';
+          else if (d.download_progress > 0 && d.download_progress < 100) st.textContent = `MODELS ${d.download_progress}%`;
+          else if (d.provider_ready) st.textContent = 'AI READY (CLOUD)';
+          else st.textContent = 'AI STARTING';
+          st.style.color = d.provider_ready ? '#00ff88' : '#888';
+        })
+        .catch(() => {});
+    }
+    setInterval(updateAiStatusLine, 8000);
+    updateAiStatusLine();
+    FloatingConversationLayer.setVisible(true);
+    loadChatHistory();
+
     async function loadChatHistory() {
-      const historyEl = document.getElementById('chat-history');
-      if (!historyEl) return;
-      // Show already-in-memory messages from this session
+      const messagesEl = FloatingConversationLayer.messagesEl();
+      if (!messagesEl) return;
       if (chatPanelMessages.length > 0) {
-        historyEl.innerHTML = '';
+        messagesEl.innerHTML = '';
         chatPanelMessages.forEach(m => renderChatMsg(m.role, m.content, m.timestamp, false));
-        historyEl.scrollTop = historyEl.scrollHeight;
+        FloatingConversationLayer.scrollToEnd();
         return;
       }
-      // Fresh launch — fetch only messages since SESSION_START
       try {
         const r = await fetch(
           `http://127.0.0.1:5001/api/memory/recent?limit=100&since=${encodeURIComponent(SESSION_START)}`
@@ -4386,103 +5173,120 @@
           const d = await r.json();
           const msgs = d.messages || [];
           msgs.forEach(m => {
-            renderChatMsg(m.role || 'sentinel', m.content || m.message || '', m.timestamp, false);
-            chatPanelMessages.push({role: m.role || 'sentinel', content: m.content || m.message || '', timestamp: m.timestamp});
+            const role = (m.role === 'user') ? 'user' : 'sentinel';
+            const content = m.content || m.message || '';
+            if (role !== 'user' && isSystemStatusBubble(content)) return;
+            renderChatMsg(role, content, m.timestamp, false);
+            chatPanelMessages.push({ role, content, timestamp: m.timestamp });
           });
-          if (historyEl) historyEl.scrollTop = historyEl.scrollHeight;
+          FloatingConversationLayer.scrollToEnd();
         }
-      } catch(_) {}
+      } catch (_) {}
     }
 
     function appendChatPanelMessage(role, content, timestamp) {
+      if (role !== 'user' && isSystemStatusBubble(content)) return;
       const time = timestamp || new Date().toLocaleTimeString();
-      chatPanelMessages.push({role, content, timestamp: time});
-      renderChatMsg(role, content, time, true);
-      // Save to backend session memory
+      const normRole = role === 'user' ? 'user' : 'sentinel';
+      chatPanelMessages.push({ role: normRole, content, timestamp: time });
+      renderChatMsg(normRole, content, time, true);
       try {
         fetch('http://127.0.0.1:5001/api/memory/session', {
           method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({role, content, timestamp: new Date().toISOString()})
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: normRole, content, timestamp: new Date().toISOString() }),
         }).catch(() => {});
-      } catch(_) {}
+      } catch (_) {}
     }
+
+    window._appendChatMsg = function(role, content) {
+      appendChatPanelMessage(role === 'user' ? 'user' : 'sentinel', content);
+    };
 
     function renderChatMsg(role, content, timestamp, scroll) {
-      const historyEl = document.getElementById('chat-history');
-      if (!historyEl) return;
-      const time = timestamp || new Date().toLocaleTimeString();
-      const div = document.createElement('div');
-      div.className = `chat-msg chat-msg-${role}`;
-      div.dataset.role = role;
-      div.dataset.timestamp = time;
-      const label = role === 'user' ? 'You' : 'Sentinel';
-      div.innerHTML = `<span class="chat-time">${escapeHtml(label)} &middot; ${escapeHtml(time)}</span><span class="chat-content">${escapeHtml(content)}</span>`;
-      historyEl.appendChild(div);
-      if (scroll) historyEl.scrollTop = historyEl.scrollHeight;
+      const messagesEl = FloatingConversationLayer.messagesEl();
+      if (!messagesEl) return;
+      const normRole = role === 'user' ? 'user' : 'sentinel';
+      const row = document.createElement('div');
+      row.className = `chat-bubble-row chat-bubble-row-${normRole}`;
+      row.dataset.role = normRole;
+      const bubble = document.createElement('div');
+      bubble.className = `chat-bubble chat-bubble-${normRole}`;
+      bubble.textContent = content;
+      row.appendChild(bubble);
+      messagesEl.appendChild(row);
+      if (scroll) FloatingConversationLayer.scrollToEnd();
     }
 
-    // Input handling
-    chatInput.addEventListener('keydown', async (e) => {
-      if (e.key === 'Enter' && chatInput.value.trim()) {
-        const query = chatInput.value.trim();
-        chatInput.value = '';
+    async function sendChatMessage() {
+      const query = (chatInput.value || '').trim();
+      if (!query) return;
+      chatInput.value = '';
+      const sendBtn = document.getElementById('chat-send-btn');
+      if (sendBtn) sendBtn.disabled = true;
 
-        // Also show in chat panel
-        appendChatPanelMessage('user', query);
+      appendChatPanelMessage('user', query);
+      FloatingConversationLayer.setVisible(true);
 
-        orbState = 'thinking';
-        renderOrb();
+      orbState = 'thinking';
+      renderOrb();
 
+      try {
+        const res = await fetch('http://127.0.0.1:5001/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: query })
+        });
+        let data = {};
         try {
-          // Route the query to the orchestration pipeline
-          const res = await fetch('http://127.0.0.1:5001/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: query })
-          });
+          data = await res.json();
+        } catch (_) {
+          data = {};
+        }
 
-          const data = await res.json();
-
-          // Check if this is a plan preview
-          if (data.type === 'plan_preview') {
-            orbState = 'idle';
-            renderOrb();
-            showPlanPreview(data.plan);
-            return;
-          }
-
-          // Track pending task for APPROVE/DENY flow
-          if (data.pending_task_id) {
-            window.pendingTaskId = data.pending_task_id;
-          }
-
-          orbState = 'speaking';
-          renderOrb();
-
-          // Show response — data.response may be a string, object, or null
-          const rawResp = data.response;
-          const displayText = typeof rawResp === 'string'
-            ? rawResp
-            : (rawResp?.response || rawResp?.text || rawResp?.message || (rawResp != null ? JSON.stringify(rawResp) : ''));
-          responseArea.textContent = displayText || '(no response — check Log panel)';
-          responseArea.classList.add('visible');
-
-          // Also show in chat panel (backend already logged it; just update UI)
-          appendChatPanelMessage('sentinel', displayText || '(no response — check Log panel)');
-
-          setTimeout(() => {
-            responseArea.classList.remove('visible');
-            orbState = 'idle';
-            renderOrb();
-          }, 5000);
-
-        } catch (err) {
-          console.error('Query failed:', err);
-          appendChatPanelMessage('sentinel', `Error: ${err.message}`);
+        if (!res.ok || data.status === 'error') {
+          const errText = data.response || data.error
+            || (res.status === 401 ? 'Session auth failed — restart Sentinel AI.' : `Chat failed (${res.status})`);
+          appendChatPanelMessage('sentinel', errText);
           orbState = 'idle';
           renderOrb();
+          return;
         }
+
+        if (data.type === 'plan_preview') {
+          orbState = 'idle';
+          renderOrb();
+          showPlanPreview(data.plan);
+          return;
+        }
+
+        if (data.pending_task_id) window.pendingTaskId = data.pending_task_id;
+
+        orbState = 'speaking';
+        renderOrb();
+
+        const rawResp = data.response;
+        const displayText = typeof rawResp === 'string'
+          ? rawResp
+          : (rawResp?.response || rawResp?.text || rawResp?.message || (rawResp != null ? JSON.stringify(rawResp) : ''));
+        appendChatPanelMessage('sentinel', displayText || "I'm here — try asking again.");
+
+        setTimeout(() => { orbState = 'idle'; renderOrb(); }, 5000);
+      } catch (err) {
+        console.error('Query failed:', err);
+        appendChatPanelMessage('sentinel', `Error: ${err.message}`);
+        orbState = 'idle';
+        renderOrb();
+      } finally {
+        if (sendBtn) sendBtn.disabled = false;
+      }
+    }
+    window.sendChatMessage = sendChatMessage;
+
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && chatInput.value.trim()) {
+        e.preventDefault();
+        sendChatMessage();
       }
     });
 
@@ -4666,8 +5470,11 @@
     }
 
     // Legacy aliases — now open inline panels
-    window.openWorker = function(worker) { openPanel(worker); };
-    window.openLog    = function()       { openPanel('log'); };
+    window.openWorker = function(worker) {
+      const map = { guardian: 'guardian', earn: 'earn', market: 'market', scalp: 'scalp', log: 'logs', memory: 'memory', tasks: 'tasks', settings: 'general' };
+      openPanel(map[worker] || worker);
+    };
+    window.openLog = function() { openSettingsHub('logs'); };
 
     // ── Status bar: ONLINE / OFFLINE ─────────────────────────────────────────
     const _statusEl = document.getElementById('status-text');
@@ -4730,62 +5537,52 @@
             // If log panel is open and listening, logPanelHandler handles it
           });
 
-          // Guardian tool execution results — buffer when panel is closed, flush when opened
-          window._guardianSocketListenerActive = true;
           window._sharedSocket = socket;
-          socket.on('guardian_response', (data) => {
-            const chatDiv = document.getElementById('guardian-chat-messages');
-            if (chatDiv) {
-              _appendGuardianChatMsg('sentinel', data.response || 'Assessment complete.');
-            } else {
-              // Panel not open — store for when it reopens
-              if (!panelState.guardian) panelState.guardian = { messages: [], logEntries: [], messagesHTML: '' };
-              if (!panelState.guardian.pendingResponses) panelState.guardian.pendingResponses = [];
-              panelState.guardian.pendingResponses.push(data);
+          if (!window._guardianResponseHandler) window._guardianResponseHandler = _onGuardianAssessmentEvent;
+          socket.off('guardian_response', window._guardianResponseHandler);
+          socket.on('guardian_response', window._guardianResponseHandler);
+
+          socket.off('earn_research_progress');
+          socket.on('earn_research_progress', (data) => {
+            if (data.session_id) window._earnResearchSessionId = data.session_id;
+            const summary = data.message || data.stage || data.status || JSON.stringify(data).slice(0, 400);
+            appendDiagnosticsFeed('earn', summary);
+            if (data.session && typeof earnResearchRenderSession === 'function') {
+              earnResearchRenderSession(data.session);
+            } else if (data.session_id && typeof earnResearchPoll === 'function') {
+              earnResearchPoll(data.session_id);
             }
+            const tasksRoot = document.getElementById('tasks-panel-root');
+            if (tasksRoot && typeof refreshTasksPanel === 'function') refreshTasksPanel();
           });
 
           socket.on('forge_complete', (data) => {
             let chatMsg = '';
+            let diagMsg = '';
 
             if (data.success && data.build_complete !== false && data.verification_status !== 'failed') {
+              chatMsg = '✓ Build finished successfully.';
+              diagMsg = `Build OK`;
               if (data.files_modified && data.files_modified.length > 0) {
-                chatMsg = `✓ Build complete — verified, artifact registered, launch ready.\n\nFiles created:\n`;
-                data.files_modified.forEach(f => { chatMsg += `  📄 ${f}\n`; });
-                if (data.entry_point) {
-                  chatMsg += `\nMain file: ${data.entry_point}`;
-                }
-                if (data.launch_command) {
-                  chatMsg += `\nLaunch: ${data.launch_command}`;
-                }
-              } else if (data.output_dir) {
-                chatMsg = `✓ Build complete.\n\nOutput directory: ${data.output_dir}\nCheck the Log tab for created files.`;
-                if (data.entry_point) {
-                  chatMsg += `\nEntry point: ${data.entry_point}`;
-                }
-                if (data.launch_command) {
-                  chatMsg += `\nLaunch: ${data.launch_command}`;
-                }
-              } else {
-                chatMsg = '✓ Build complete. Check the Log tab for details.';
+                diagMsg += `\nFiles:\n` + data.files_modified.map(f => `  ${f}`).join('\n');
               }
+              if (data.output_dir) diagMsg += `\nOutput: ${data.output_dir}`;
+              if (data.entry_point) diagMsg += `\nEntry: ${data.entry_point}`;
+              if (data.launch_command) diagMsg += `\nLaunch: ${data.launch_command}`;
             } else {
-              chatMsg = `✗ Build stopped: ${data.error || 'Unknown error'}\n`;
+              chatMsg = `✗ Build did not complete: ${data.error || 'see Diagnostics for details'}`;
+              diagMsg = `Build failed: ${data.error || 'unknown'}`;
               if (data.files_modified && data.files_modified.length > 0) {
-                chatMsg += `Partial files:\n`;
-                data.files_modified.forEach(f => { chatMsg += `  📄 ${f}\n`; });
-              } else {
-                chatMsg += 'No files created.\n';
+                diagMsg += '\nPartial files:\n' + data.files_modified.map(f => `  ${f}`).join('\n');
               }
-              chatMsg += `\nCheck the LOG → AIDER filter for details.`;
             }
 
+            appendDiagnosticsFeed('forge', diagMsg);
             appendChatPanelMessage('sentinel', chatMsg);
 
-            // Add launch button to last chat message if entry_point is available
             if (data.success && data.entry_point) {
-              const msgs = document.querySelectorAll('#chat-messages .chat-msg');
-              const lastMsg = msgs[msgs.length - 1];
+              const rows = document.querySelectorAll('#conversation-messages .chat-bubble-row-sentinel');
+              const lastMsg = rows[rows.length - 1];
               if (lastMsg) {
                 const btn = document.createElement('button');
                 btn.textContent = '▶ Launch';
@@ -4809,7 +5606,8 @@
                     }
                   } catch (_) { btn.textContent = '✗ Error'; }
                 };
-                lastMsg.appendChild(btn);
+                const bubble = lastMsg && lastMsg.querySelector('.chat-bubble');
+                (bubble || lastMsg).appendChild(btn);
               }
             }
 
@@ -4829,12 +5627,8 @@
     })();
 
     function showChatResponse(msg) {
-      if (responseArea) {
-        responseArea.style.whiteSpace = 'pre-wrap';
-        responseArea.textContent = msg;
-        responseArea.classList.add('visible');
-        setTimeout(() => responseArea.classList.remove('visible'), 8000);
-      }
+      if (!msg) return;
+      appendChatPanelMessage('sentinel', typeof msg === 'string' ? msg : String(msg));
     }
 
     window.saveCredential = async function() {
@@ -5020,10 +5814,8 @@
           return;
         }
 
-        // Consultation status messages (teal, in status line)
-        if (data.status_msg) {
-          document.getElementById('status-line').textContent = data.status_msg;
-          document.getElementById('status-line').style.color = '#00ff88';
+        if (data.status_msg && !isSystemStatusBubble(data.status_msg)) {
+          showChatResponse(data.status_msg);
         }
 
         const rawResp = data.response;
@@ -5529,13 +6321,11 @@
         document.getElementById('purchase-approval')?.remove();
         orbState = result.status === 'success' ? 'speaking' : 'idle';
         renderOrb();
-        responseArea.textContent = result.message || (result.status === 'success' ? 'Purchase complete!' : 'Purchase failed.');
-        responseArea.classList.add('visible');
-        setTimeout(() => { responseArea.classList.remove('visible'); orbState = 'idle'; renderOrb(); }, 8000);
+        showChatResponse(result.message || (result.status === 'success' ? 'Purchase complete!' : 'Purchase failed.'));
+        setTimeout(() => { orbState = 'idle'; renderOrb(); }, 8000);
       } catch(e) {
         document.getElementById('purchase-approval')?.remove();
-        responseArea.textContent = 'Error processing purchase: ' + e.message;
-        responseArea.classList.add('visible');
+        showChatResponse('Error processing purchase: ' + e.message);
       }
     };
   </script>

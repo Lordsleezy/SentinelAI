@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # ── Constants ──────────────────────────────────────────────────────────────────
 _SENTINEL_DIR     = Path.home() / '.sentinelai'
 _OPT_IN_FILE      = _SENTINEL_DIR / 'telemetry_opt_in'
-_INSTALL_ID_FILE  = _SENTINEL_DIR / 'install_id'
+_INSTALL_ID_FILE  = None  # resolved lazily via product_analytics / AppData
 _TELEMETRY_URL    = 'https://sentinelprime.org/api/telemetry'
 _FLUSH_INTERVAL   = 120          # seconds between flushes
 _MAX_QUEUE        = 50           # drop oldest events when queue overflows
@@ -83,18 +83,23 @@ class TelemetryManager:
 
     @staticmethod
     def _load_install_id() -> str:
-        _SENTINEL_DIR.mkdir(parents=True, exist_ok=True)
-        if _INSTALL_ID_FILE.exists():
+        try:
+            from workers.telemetry.product_analytics import get_install_id
+            return get_install_id()
+        except Exception:
+            _SENTINEL_DIR.mkdir(parents=True, exist_ok=True)
+            legacy = _SENTINEL_DIR / 'install_id'
+            if legacy.exists():
+                try:
+                    return legacy.read_text().strip()
+                except Exception:
+                    pass
+            new_id = str(uuid.uuid4())
             try:
-                return _INSTALL_ID_FILE.read_text().strip()
+                legacy.write_text(new_id)
             except Exception:
                 pass
-        new_id = str(uuid.uuid4())
-        try:
-            _INSTALL_ID_FILE.write_text(new_id)
-        except Exception:
-            pass
-        return new_id
+            return new_id
 
     # ── Public API ─────────────────────────────────────────────────────────────
 

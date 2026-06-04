@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard - Sentinel Prime</title>
+<link rel="stylesheet" href="page.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="logo" href="index.html">SENTINELPRIME</a>
+  <div class="nav-links">
+    <a href="download.html">Download</a><a href="pricing.html">Upgrade</a>
+  </div>
+</nav>
+<main>
+  <section class="section">
+    <div class="wrap">
+      <h1>Account dashboard</h1>
+      <p class="copy" id="userLine">Loading…</p>
+      <div class="grid-2" style="margin-top:24px;">
+        <div class="panel">
+          <h2>Subscriptions</h2>
+          <div id="subs">—</div>
+        </div>
+        <div class="panel">
+          <h2>License keys</h2>
+          <div id="licenses">—</div>
+          <p class="copy" style="margin-top:12px;">Enter your key in the Sentinel AI setup wizard after install.</p>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:20px;">
+        <h2>Payment history</h2>
+        <div id="payments">—</div>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+const uid = localStorage.getItem("sentinel_user_id");
+if (!uid) location.href = "login.html";
+document.getElementById("userLine").textContent = "User: " + (localStorage.getItem("sentinel_email") || uid);
+fetch("/api/dashboard?user_id=" + encodeURIComponent(uid)).then(r => r.json()).then(d => {
+  if (!d.ok && d.error) throw new Error(d.error);
+  document.getElementById("subs").innerHTML = (d.subscriptions || []).length
+    ? d.subscriptions.map(s => `<p>${s.plan} — <strong>${s.status}</strong></p>`).join("")
+    : "<p class='copy'>No active subscription</p>";
+  document.getElementById("licenses").innerHTML = (d.licenses || []).length
+    ? d.licenses.map(l => `<p><code>${l.license_key}</code> ${l.activated_at ? "(activated)" : "(pending)"}</p>`).join("")
+    : "<p class='copy'>Purchase a plan to receive a license key by email.</p>";
+  document.getElementById("payments").innerHTML = (d.payments || []).length
+    ? "<ul>" + d.payments.map(p => `<li>${p.plan} $${(p.amount_cents/100).toFixed(2)} — ${p.status}</li>`).join("") + "</ul>"
+    : "<p class='copy'>No payments yet</p>";
+}).catch(e => {
+  document.getElementById("subs").textContent = e.message;
+});
+</script>
+<script src="nav.js"></script>
+</body>
+</html>

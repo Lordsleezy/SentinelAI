@@ -132,6 +132,8 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   </style>
+  <script src="auth_shim.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -550,14 +552,51 @@ async function pollWorkers() {
   await refreshWorkerCards();
 }
 
-setInterval(pollAll, 3000);
-setInterval(pollRevenue, 3000);
-setInterval(pollWorkers, 5000);
+// ── Live updates via Socket.IO (replaces the previous setInterval polls) ────
+// The backend emits worker_status / task_update / approval_needed / log_event /
+// log_line / system_stats events. The auth_shim wraps `io()` so this connect
+// carries the bearer token automatically.
+function _initLiveUpdates() {
+  if (typeof io !== 'function') {
+    console.warn('[index] Socket.IO unavailable — falling back to a slow 10s poll.');
+    // Slow fallback so the dashboard isn't frozen if socket.io.js never loads.
+    setInterval(() => { pollAll(); pollRevenue(); pollWorkers(); }, 10000);
+    return;
+  }
+  const socket = io(API, { transports: ['websocket', 'polling'], reconnection: true });
+  window._indexSocket = socket;
+  socket.on('connect',    () => appendLog('[Socket] connected', 'event'));
+  socket.on('disconnect', () => appendLog('[Socket] disconnected', 'event'));
 
-// Initial load
+  // Worker/task/approval updates re-render the relevant slice only.
+  socket.on('worker_status',  () => refreshWorkerCards());
+  socket.on('task_update',    () => refreshTasksTable());
+  socket.on('approval_needed',() => refreshApprovals());
+  socket.on('plan_executed',  () => refreshTasksTable());
+  socket.on('plan_cancelled', () => refreshTasksTable());
+
+  // Log events stream into the log panel directly.
+  socket.on('log_event', (d) => {
+    const msg = (d && d.message) ? d.message : JSON.stringify(d);
+    appendLog(msg, (d && d.level) || 'event');
+  });
+  socket.on('log_line', (d) => {
+    const msg = (d && d.detail) ? d.detail : ((d && d.event) || JSON.stringify(d));
+    appendLog(msg, 'event');
+  });
+
+  // forge_complete updates both tasks and revenue (a finished build may have produced earnings).
+  socket.on('forge_complete', () => {
+    refreshTasksTable();
+    refreshRevenue();
+  });
+}
+
+// One initial fetch on page load. Subsequent updates come from socket events.
 pollAll();
 pollRevenue();
 pollWorkers();
+_initLiveUpdates();
 
 // Re-poll when switching tabs to make sure data is fresh
 document.querySelectorAll('.tab').forEach(tab => {

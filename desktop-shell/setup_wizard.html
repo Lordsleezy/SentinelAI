@@ -85,6 +85,7 @@
     .scan-anim .pulse { width: 64px; height: 64px; border-radius: 50%; border: 2px solid rgba(0,255,136,0.3); border-top-color: #00ff88; animation: spin 1s linear infinite; margin: 0 auto 16px; }
     .scan-msg { color: #666; font-size: 13px; font-family: monospace; }
   </style>
+  <script src="auth_shim.js"></script>
 </head>
 <body>
   <div id="titlebar"><span>SENTINELAI &mdash; FIRST RUN SETUP</span></div>
@@ -95,12 +96,14 @@
         <div class="dot" id="dot1"></div>
         <div class="dot" id="dot2"></div>
         <div class="dot" id="dot3"></div>
+        <div class="dot" id="dot4"></div>
       </div>
 
       <!-- SCREEN 0: Scanning -->
       <div class="screen active" id="screen-0">
         <h2>Scanning your machine</h2>
         <p class="sub">Checking hardware, GPU, and installed tools...</p>
+        <div class="prog-bar"><div class="prog-fill" id="scan-fill"></div></div>
         <div class="scan-anim">
           <div class="pulse"></div>
           <p class="scan-msg" id="scan-msg">Initializing scan...</p>
@@ -136,13 +139,22 @@
         </div>
         <p class="prog-msg" id="dl-msg"></p>
         <div class="btn-row">
-          <button class="btn btn-primary" id="btn-prereq" onclick="handlePrereq()" disabled>Continue</button>
-          <button class="btn btn-skip" onclick="goToIntent()">Skip</button>
+          <button class="btn btn-primary" id="btn-prereq" onclick="continueToIntent()">Continue to Sentinel</button>
         </div>
       </div>
 
-      <!-- SCREEN 2: Intent -->
+      <!-- SCREEN 2: Validation -->
       <div class="screen" id="screen-2">
+        <h2>Verifying Sentinel AI</h2>
+        <p class="sub">Running a quick local inference test before chat is enabled.</p>
+        <div class="scan-anim">
+          <div class="pulse"></div>
+          <p class="scan-msg" id="validate-msg">Preparing test…</p>
+        </div>
+      </div>
+
+      <!-- SCREEN 3: Intent -->
+      <div class="screen" id="screen-3">
         <h2>What will you use Sentinel for?</h2>
         <p class="sub">Personalises your experience. You can change this later.</p>
         <div class="intent-grid">
@@ -172,8 +184,8 @@
         </div>
       </div>
 
-      <!-- SCREEN 3: Telemetry -->
-      <div class="screen" id="screen-3">
+      <!-- SCREEN 4: Telemetry -->
+      <div class="screen" id="screen-4">
         <h2>Help improve Sentinel</h2>
         <p class="sub">Share anonymous usage data? No chat content, no personal info &mdash; ever.</p>
         <div style="margin:18px 0;padding:14px 16px;background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.12);border-radius:8px;font-size:12px;color:#888;line-height:1.7;">
@@ -192,13 +204,15 @@
   <script>
     const { ipcRenderer } = require('electron');
     const BACKEND = 'http://127.0.0.1:5001';
+    const STEP_COUNT = 5;
+    const FETCH_TIMEOUT_MS = 12000;
 
     let scanProfile = null;
     let selectedIntent = null;
-    let modelReady = false;
+    let progressTimer = null;
 
     function setDot(idx) {
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < STEP_COUNT; i++) {
         const d = document.getElementById('dot' + i);
         d.className = 'dot' + (i < idx ? ' done' : i === idx ? ' active' : '');
       }
@@ -211,23 +225,87 @@
       setDot(n);
     }
 
-    async function runScan() {
-      const msg = document.getElementById('scan-msg');
-      msg.textContent = 'Scanning GPU and memory...';
-      try {
-        const r = await fetch(BACKEND + '/api/setup/scan', { method: 'POST' });
-        scanProfile = await r.json();
-        msg.textContent = 'Scan complete';
-        await new Promise(function(res) { setTimeout(res, 600); });
-        populateProfile();
-        showScreen(1);
-      } catch (e) {
-        msg.textContent = 'Backend not ready - retrying...';
-        setTimeout(runScan, 2000);
+    function fetchJson(url, options) {
+      const ctrl = new AbortController();
+      const t = setTimeout(function() { ctrl.abort(); }, FETCH_TIMEOUT_MS);
+      return fetch(url, Object.assign({}, options || {}, { signal: ctrl.signal }))
+        .then(function(r) { return r.json(); })
+        .finally(function() { clearTimeout(t); });
+    }
+
+    function startProgressPoll() {
+      if (progressTimer) clearInterval(progressTimer);
+      progressTimer = setInterval(async function() {
+        try {
+          const d = await fetchJson(BACKEND + '/api/onboarding/progress');
+          const p = d.progress || {};
+          const pct = p.percent || 0;
+          const fill = document.getElementById('dl-fill') || document.getElementById('scan-fill');
+          if (fill) fill.style.width = pct + '%';
+          const msgEl = document.getElementById('dl-msg') || document.getElementById('scan-msg');
+          if (msgEl && p.message) msgEl.textContent = p.message + ' (' + pct + '%)';
+          updateBadges(d.readiness || {});
+        } catch (_) {}
+      }, 2000);
+    }
+
+    function updateBadges(readiness) {
+      const ollBadge = document.getElementById('badge-ollama');
+      const modBadge = document.getElementById('badge-model');
+      if (!ollBadge || !modBadge) return;
+      if (readiness.ollama_running) {
+        ollBadge.textContent = 'ready'; ollBadge.className = 'badge ok';
+      } else if (readiness.ollama_installed) {
+        ollBadge.textContent = 'starting'; ollBadge.className = 'badge spin';
+      } else {
+        ollBadge.textContent = 'needs repair'; ollBadge.className = 'badge miss';
+      }
+      if (readiness.all_required_models) {
+        modBadge.textContent = 'ready'; modBadge.className = 'badge ok';
+      } else if (readiness.degraded) {
+        modBadge.textContent = 'downloading'; modBadge.className = 'badge spin';
+      } else {
+        modBadge.textContent = 'needs repair'; modBadge.className = 'badge miss';
       }
     }
 
-    function populateProfile() {
+    async function runScan() {
+      const msg = document.getElementById('scan-msg');
+      const fill = document.getElementById('scan-fill');
+      msg.textContent = 'Scanning GPU and memory (non-blocking)…';
+      try {
+        scanProfile = await fetchJson(BACKEND + '/api/setup/scan', { method: 'POST' });
+        const readiness = scanProfile.readiness || {};
+        if (fill) fill.style.width = '15%';
+        msg.textContent = 'Scan complete — setup continues in background';
+        populateProfile(readiness);
+        startProgressPoll();
+        triggerBackgroundSetup();
+        await new Promise(function(res) { setTimeout(res, 400); });
+        showScreen(1);
+        document.getElementById('btn-prereq').disabled = false;
+      } catch (e) {
+        msg.textContent = 'Using CPU profile — continuing…';
+        if (fill) fill.style.width = '10%';
+        scanProfile = { gpu_name: 'CPU inference', ram_gb: 8, vram_gb: 0, allow_chat: true };
+        populateProfile({ ollama_installed: false, ollama_running: false, all_required_models: false, required: { llama: 'llama3.2:3b' } });
+        startProgressPoll();
+        showScreen(1);
+        document.getElementById('btn-prereq').disabled = false;
+      }
+    }
+
+    function triggerBackgroundSetup() {
+      fetch(BACKEND + '/api/setup/install-ollama', { method: 'POST' }).catch(function() {});
+      fetch(BACKEND + '/api/setup/pull-model', { method: 'POST' }).catch(function() {});
+    }
+
+    function continueToIntent() {
+      showScreen(3);
+      tryQuickValidate();
+    }
+
+    function populateProfile(readiness) {
       const p = scanProfile;
       const rows = [
         ['GPU',  p.gpu_name || 'Unknown'],
@@ -239,85 +317,32 @@
         return '<div class="spec-row"><span class="label">' + row[0] + '</span><span class="value">' + row[1] + '</span></div>';
       }).join('');
 
-      const rec = p.recommended_model || 'qwen2.5-coder:7b';
-      document.getElementById('rec-model').textContent = rec;
-      document.getElementById('model-detail').textContent = rec;
+      const llama = (readiness.required && readiness.required.llama) || p.recommended_model || 'llama3.2:3b';
+      const dolphin = readiness.required && readiness.required.dolphin;
+      const recText = dolphin ? (llama + ' + ' + dolphin) : llama;
+      document.getElementById('rec-model').textContent = recText;
+      document.getElementById('model-detail').textContent = recText;
 
       const ollBadge = document.getElementById('badge-ollama');
       const modBadge = document.getElementById('badge-model');
-
-      if (p.ollama_installed && p.ollama_running) {
-        ollBadge.textContent = 'installed'; ollBadge.className = 'badge ok';
+      if (readiness.ollama_installed && readiness.ollama_running) {
+        ollBadge.textContent = 'ready'; ollBadge.className = 'badge ok';
+      } else if (readiness.ollama_installed) {
+        ollBadge.textContent = 'starting'; ollBadge.className = 'badge spin';
       } else {
-        ollBadge.textContent = 'missing'; ollBadge.className = 'badge miss';
+        ollBadge.textContent = 'installing'; ollBadge.className = 'badge spin';
       }
-
-      modBadge.textContent = 'checking...'; modBadge.className = 'badge spin';
-      checkModelDownloaded(rec);
+      if (readiness.all_required_models) {
+        modBadge.textContent = 'ready'; modBadge.className = 'badge ok';
+      } else {
+        modBadge.textContent = 'pending'; modBadge.className = 'badge spin';
+      }
     }
 
-    async function checkModelDownloaded(model) {
+    async function tryQuickValidate() {
       try {
-        const r = await fetch(BACKEND + '/api/setup/status');
-        const d = await r.json();
-        const modBadge = document.getElementById('badge-model');
-        const btn = document.getElementById('btn-prereq');
-        if (d.model_downloaded) {
-          modBadge.textContent = 'ready'; modBadge.className = 'badge ok';
-          modelReady = true;
-          btn.textContent = 'Continue'; btn.disabled = false;
-        } else {
-          modBadge.textContent = 'not downloaded'; modBadge.className = 'badge miss';
-          btn.textContent = 'Download model'; btn.disabled = false;
-        }
-      } catch (_) {
-        setTimeout(function() { checkModelDownloaded(model); }, 2000);
-      }
-    }
-
-    window.handlePrereq = async function() {
-      if (modelReady) { goToIntent(); return; }
-      const btn = document.getElementById('btn-prereq');
-      btn.textContent = 'Downloading...'; btn.disabled = true;
-
-      const bar  = document.getElementById('dl-bar');
-      const fill = document.getElementById('dl-fill');
-      const msg  = document.getElementById('dl-msg');
-      bar.style.display = 'block';
-
-      const model = (scanProfile && scanProfile.recommended_model) || 'qwen2.5-coder:7b';
-      await fetch(BACKEND + '/api/setup/pull-model', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: model })
-      });
-
-      let pct = 5;
-      const poll = setInterval(async function() {
-        try {
-          const r = await fetch(BACKEND + '/api/setup/status');
-          const d = await r.json();
-          pct = Math.min(pct + 8, 95);
-          fill.style.width = pct + '%';
-          msg.textContent = 'Downloading ' + model + '... ' + pct + '%';
-          if (d.model_downloaded) {
-            clearInterval(poll);
-            fill.style.width = '100%';
-            msg.textContent = model + ' ready';
-            document.getElementById('badge-model').textContent = 'ready';
-            document.getElementById('badge-model').className = 'badge ok';
-            modelReady = true;
-            btn.textContent = 'Continue'; btn.disabled = false;
-          }
-        } catch (_) {}
-      }, 3000);
-    };
-
-    function goToIntent() {
-      fetch(BACKEND + '/api/setup/intent', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: scanProfile && scanProfile.recommended_model })
-      }).catch(function() {});
-      showScreen(2);
+        await fetchJson(BACKEND + '/api/setup/validate', { method: 'POST' });
+      } catch (_) {}
     }
 
     window.selectIntent = function(el, intent) {
@@ -328,7 +353,7 @@
     };
 
     function goToTelemetry() {
-      showScreen(3);
+      showScreen(4);
     }
 
     window.finish = async function(optInTelemetry) {
@@ -345,6 +370,10 @@
           await fetch(BACKEND + '/api/telemetry/opt-out', { method: 'POST' });
         }
       } catch (_) {}
+      try {
+        await fetchJson(BACKEND + '/api/setup/complete', { method: 'POST' });
+      } catch (_) {}
+      if (progressTimer) clearInterval(progressTimer);
       ipcRenderer.send('setup-wizard-done');
     };
 

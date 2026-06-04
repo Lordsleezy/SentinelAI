@@ -12,7 +12,7 @@ import queue_manager as qm
 from internet_runtime import get_research_runtime
 from memory.filesystem_index import get_filesystem_indexer
 from memory.persistent_memory import initialize_memory
-from model_router import get_model_router
+from workers.sentinel.model_router import get_model_router
 from reflection import ReflectionEngine
 from tool_registry import get_tool_registry
 
@@ -56,7 +56,7 @@ def main():
     print("  OK")
 
     print("[4/8] Model routing")
-    route = get_model_router().route("coding", "patch a Python workflow bug")
+    route = get_model_router().route_for_task("coding", "patch a Python workflow bug")
     assert_true(route["provider"] == "ollama", "coding route should prefer local ollama")
     assert_true(route["model"], "model route missing model")
     print("  OK")

@@ -406,19 +406,32 @@ class MemoryManagerV2:
     def recall_from_chatgpt(self, topic: str = "") -> List[MemoryEntry]:
         return self.recall_from_source("chatgpt", topic)
 
-    def get_context_for_prompt(self, prompt: str, max_tokens: int = 2000) -> str:
+    def get_context_for_prompt(self, prompt: str, max_tokens: int = 2000, *, chat_mode: bool = False) -> str:
         """Get relevant memory context string to prepend to any prompt."""
-        memories = self.recall(prompt, limit=5)
-        if not memories:
-            # Fall back to recent memories
+        stripped = (prompt or "").strip()
+        if chat_mode and len(stripped) < 12:
+            return ""
+
+        memories = self.recall(prompt, limit=8 if chat_mode else 5)
+        if chat_mode:
+            memories = [m for m in memories if (m.source or "").lower() not in {
+                "forge", "earn", "system", "log", "guardian", "diagnostic", "setup",
+                "aider", "worker", "pipeline", "onboarding",
+            }]
+        if not memories and not chat_mode:
             memories = self._hot_recent(5)
+        elif not memories and chat_mode:
+            return ""
         if not memories:
             return ""
 
         lines = []
         total = 0
         for m in memories:
-            entry = f"[{m.source}] {m.topic or 'note'}: {m.content[:300]}"
+            if chat_mode:
+                entry = (m.content or "")[:300]
+            else:
+                entry = f"[{m.source}] {m.topic or 'note'}: {m.content[:300]}"
             total += len(entry)
             if total > max_tokens * 4:
                 break

@@ -31,15 +31,18 @@ REM Step 2: Create icon
 echo [2/3] Creating application icon...
 echo.
 
-cd desktop-shell
-node ..\create_icon.js
+python scripts\generate_installer_icons.py
 if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: Icon creation failed!
-    cd ..
+    echo ERROR: Icon creation failed! pip install Pillow
     pause
     exit /b 1
 )
-cd ..
+python scripts\generate_installer_icons.py --validate-only
+if %ERRORLEVEL% NEQ 0 (
+    echo ERROR: Icon validation failed!
+    pause
+    exit /b 1
+)
 
 echo.
 echo [2/3] Icon creation complete

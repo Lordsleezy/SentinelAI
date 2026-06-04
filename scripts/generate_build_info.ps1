@@ -12,12 +12,12 @@
     .\generate_build_info.ps1 -BuildType owner -Version 1.0.2
 #>
 param(
-    [Parameter(Mandatory)][ValidateSet('consumer','owner')][string]$BuildType,
-    [string]$Version = "1.0.0"
+    [Parameter(Mandatory)][ValidateSet('consumer','owner','beta')][string]$BuildType,
+    [string]$Version = "1.0.0-beta.1"
 )
 
 $OwnerMode  = if ($BuildType -eq 'owner') { 'True'  } else { 'False' }
-$TrialDays  = if ($BuildType -eq 'owner') { '0'     } else { '7'     }
+$TrialDays  = if ($BuildType -eq 'owner') { '0'     } elseif ($BuildType -eq 'beta') { '14' } else { '7' }
 $IncludeEarn = if ($BuildType -eq 'owner') { 'True' } else { 'False' }
 
 $Timestamp = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ')

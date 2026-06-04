@@ -146,7 +146,7 @@ except Exception as e:
 # ---------------------------------------------------------------------------
 print("\n=== TEST 3: Build -- artifact registered after build ===")
 try:
-    import artifact_registry as ar
+    import workers.artifacts.artifact_registry as ar
 
     art = ar.register_artifact(
         task="calculator",
@@ -171,7 +171,7 @@ except Exception as e:
 # ---------------------------------------------------------------------------
 print("\n=== TEST 4: Launch -- missing file returns error (no crash) ===")
 try:
-    import artifact_registry as ar
+    import workers.artifacts.artifact_registry as ar
 
     r = ar.launch_artifact({
         "task": "calculator",

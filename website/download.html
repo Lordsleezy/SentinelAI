@@ -29,7 +29,16 @@
     <div class="wrap narrow">
       <p class="eyebrow">Download</p>
       <h1>Install SentinelAI on Windows.</h1>
-      <p class="lead">No account required. No email. Just download and run the free local desktop app. Pro unlocks with an activation code after purchase.</p>
+      <p class="lead">No account required for Free tier. Pro unlocks with an activation code after purchase. Closed beta builds include auto-update and setup wizard.</p>
+      <div id="betaRelease" class="panel" style="margin-top:16px;display:none;">
+        <p class="eyebrow">Beta Downloads</p>
+        <h2 id="betaVersion">Sentinel AI Beta</h2>
+        <p class="copy" id="betaNotes"></p>
+        <p class="copy" id="betaReq"></p>
+        <div class="buttons">
+          <a class="button" id="betaDownloadBtn" href="/api/download/sentinelai?channel=beta">Download SentinelAISetup.exe</a>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -40,7 +49,7 @@
         <h2>SentinelAI Free - Windows x64</h2>
         <p class="copy">Download the latest public release from GitHub. The free tier includes the core orb interface, Forge, memory, web search, calendar, notes, and local automations.</p>
         <div class="buttons">
-          <a class="button" href="https://github.com/Lordsleezy/SentinelAI/releases/latest" target="_blank" rel="noopener">Download SentinelAI Free - Windows x64</a>
+          <a class="button" href="/api/download/sentinelai?channel=free">Download SentinelAI Free - Windows x64</a>
         </div>
         <ul class="plain-list">
           <li>Windows 10/11 x64</li>
@@ -61,7 +70,7 @@
           <div class="form-status" id="activateStatus"></div>
         </form>
         <div id="proLink" style="display:none" class="buttons">
-          <a class="button" href="https://github.com/Lordsleezy/SentinelAI/releases/latest" target="_blank" rel="noopener">Download Pro Installer</a>
+          <a class="button" href="/api/download/sentinelai?channel=pro">Download Pro Installer</a>
         </div>
         <p class="copy">Purchase Pro on the pricing page to get an activation code.</p>
       </div>
@@ -120,6 +129,18 @@ document.getElementById("activateForm").addEventListener("submit", async functio
     status.textContent = "Activation server unavailable. Try again later.";
   }
 });
+fetch("/api/beta/release").then(r => r.json()).then(data => {
+  const box = document.getElementById("betaRelease");
+  if (!box || !data.version) return;
+  box.style.display = "block";
+  document.getElementById("betaVersion").textContent = "Current beta: " + data.version;
+  document.getElementById("betaNotes").textContent = data.releaseNotes || "";
+  const req = data.requirements || {};
+  document.getElementById("betaReq").textContent = "Requires: " + (req.os || "Windows") + ", " + (req.ram_gb || 16) + "GB RAM, " + (req.disk_gb || 20) + "GB disk.";
+  const btn = document.getElementById("betaDownloadBtn");
+  if (btn && data.version) btn.href = "/api/download/sentinelai?channel=beta&version=" + encodeURIComponent(data.version);
+  if (btn && data.installerName) btn.textContent = "Download " + data.installerName;
+}).catch(() => {});
 </script>
 <script src="nav.js"></script>
 </body>

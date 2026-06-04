@@ -8,11 +8,17 @@ import json
 import logging
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_GUARDIAN_TOOLS = {
+    "httpx", "subfinder", "katana", "nuclei", "dnsx", "naabu",
+    "ffuf", "assetfinder", "amass", "gowitness", "zap",
+}
 
 try:
     from workers.guardian.guardian_ux import GUARDIAN_CHAT_PERSONALITY
@@ -673,7 +679,8 @@ class GuardianBrain:
 
             try:
                 from workers.guardian.tools.tool_registry import ToolRegistry
-                tools = ToolRegistry(self.socketio)
+                # Pipeline stages emit via _stage_log only — avoid duplicate tool log_event spam
+                tools = ToolRegistry(None)
                 tool_summary = tools.status_summary()
                 self._stage_log(f"Pipeline started: {target}")
                 self._stage_log(f"Tools: {tool_summary}")
@@ -1355,10 +1362,20 @@ class GuardianBrain:
             tool = tool.strip()
             args = args.strip().splitlines()[0].strip()
             self._guardian_log(f"[TOOL] {tool} {args}", 'tool')
+            if tool not in ALLOWED_GUARDIAN_TOOLS:
+                self._guardian_log(f"[BLOCKED] {tool} not in allowlist", 'error')
+                results.append({"tool": tool, "args": args, "output": f"Tool not in allowlist: {tool}", "exit_code": -1})
+                continue
             try:
-                cmd = f"wsl {tool} {args}"
+                try:
+                    arg_list = shlex.split(args) if args else []
+                except ValueError as e:
+                    self._guardian_log(f"[ERROR] arg parse failed: {e}", 'error')
+                    results.append({"tool": tool, "args": args, "output": f"Invalid args: {e}", "exit_code": -1})
+                    continue
                 proc = subprocess.run(
-                    cmd, shell=True, capture_output=True, text=True, timeout=60
+                    ["wsl", tool, *arg_list],
+                    shell=False, capture_output=True, text=True, timeout=60,
                 )
                 output = (proc.stdout or proc.stderr or "No output")[:5000]
                 level = 'success' if proc.returncode == 0 else 'warning'
@@ -1385,9 +1402,18 @@ class GuardianBrain:
         if target:
             self.authorized_targets.add(target)
         self._guardian_log(f"[TOOL] {tool} {args} → {target}", 'tool')
+        if tool not in ALLOWED_GUARDIAN_TOOLS:
+            self._guardian_log(f"[BLOCKED] {tool} not in allowlist", 'error')
+            return {"status": "error", "tool": tool, "output": f"Tool not in allowlist: {tool}"}
         try:
-            cmd = f"wsl {tool} {args}"
-            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
+            try:
+                arg_list = shlex.split(args) if args else []
+            except ValueError as e:
+                return {"status": "error", "tool": tool, "output": f"Invalid args: {e}"}
+            proc = subprocess.run(
+                ["wsl", tool, *arg_list],
+                shell=False, capture_output=True, text=True, timeout=120,
+            )
             output = (proc.stdout or proc.stderr or "No output")[:8000]
             level = 'success' if proc.returncode == 0 else 'warning'
             self._guardian_log(f"[RESULT] exit={proc.returncode} {output[:200]}", level)

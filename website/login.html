@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login - Sentinel Prime</title>
+<link rel="stylesheet" href="page.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="logo" href="index.html">SENTINELPRIME</a>
+  <div class="nav-links">
+    <a href="signup.html">Sign up</a><a href="download.html">Download</a>
+  </div>
+</nav>
+<main>
+  <section class="section">
+    <div class="wrap narrow form-panel">
+      <h1>Login</h1>
+      <form id="loginForm">
+        <input required type="email" name="email" placeholder="Email">
+        <input required type="password" name="password" placeholder="Password">
+        <button class="button" type="submit">Login</button>
+        <div class="form-status" id="status"></div>
+      </form>
+      <p class="copy" style="margin-top:16px;"><a href="signup.html">Create account</a> · <a href="pricing.html">Purchase</a></p>
+    </div>
+  </section>
+</main>
+<script>
+document.getElementById("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const st = document.getElementById("status");
+  const body = Object.fromEntries(new FormData(e.target));
+  try {
+    const r = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Login failed");
+    localStorage.setItem("sentinel_user_id", d.user_id);
+    localStorage.setItem("sentinel_email", d.email);
+    location.href = "dashboard.html";
+  } catch (err) {
+    st.className = "form-status error";
+    st.textContent = err.message;
+  }
+});
+</script>
+<script src="nav.js"></script>
+</body>
+</html>

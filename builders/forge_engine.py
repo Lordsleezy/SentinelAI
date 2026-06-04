@@ -10,7 +10,9 @@ from typing import Any, Callable, Optional
 
 from builders.build_tracker import update_build
 from builders.common.logging_util import log_builder
-from builders.common.openhands_worker import run_openhands_session
+# OpenHands integration was removed in the 2026 audit — the stub at
+# builders/common/openhands_worker.py always returned None. If/when a real
+# OpenHands path is wired, gate it behind shutil.which("openhands") here.
 from builders.common.types import BuildResult, VerificationResult
 from builders.common.verify import verify_build
 from builders.router import BuildType, engine_for_route, route_build
@@ -97,19 +99,11 @@ class ForgeBuildEngine:
         gen_label = "Generating Scenes" if build_type == BuildType.GAME else "Generating"
         self._stage(4, gen_label, 30, on_progress)
 
+        # OpenHands integration not yet available — native builders only.
         result: BuildResult
-        # OpenHands can override specialized scaffolds — skip for GAME (Godot).
-        oh = None
-        if build_type != BuildType.GAME:
-            oh = run_openhands_session(description, output_dir or "", self.socketio)
-
-        if oh and oh.success:
-            result = oh
-            log_builder(f"Engine: {result.builder} (OpenHands)", "info", self.socketio)
-        else:
-            builder = self._builders.get(build_type, self._builders[BuildType.UNKNOWN])
-            result = builder.build(description, output_dir)
-            log_builder(f"Engine: {result.builder}", "info", self.socketio)
+        builder = self._builders.get(build_type, self._builders[BuildType.UNKNOWN])
+        result = builder.build(description, output_dir)
+        log_builder(f"Engine: {result.builder}", "info", self.socketio)
 
         if result.files:
             self._log_created_files(result.files)

@@ -7,10 +7,11 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "nodemailer": "^8.0.10",
-    "sqlite3": "^6.0.1",
+    "sqlite3": "^5.1.7",
     "stripe": "^16.2.0"
   }
 }

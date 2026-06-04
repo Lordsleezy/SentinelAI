@@ -1,11 +1,14 @@
 {
   "name": "sentinelai",
-  "version": "1.0.1",
+  "version": "1.0.0-beta.1",
   "description": "SentinelAI - Intelligent Desktop Assistant",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win --publish never",
+    "dist:publish": "electron-builder --win --publish always",
+    "dist:linux": "electron-builder --linux AppImage deb --publish never",
+    "dist:linux-deb": "electron-builder --linux deb --publish never",
     "dist:dir": "electron-builder --win --dir"
   },
   "keywords": [
@@ -14,7 +17,10 @@
     "desktop",
     "automation"
   ],
-  "author": "Sentinel Prime Inc.",
+  "author": {
+    "name": "Sentinel Prime Inc.",
+    "email": "support@sentinelprime.org"
+  },
   "license": "ISC",
   "repository": {
     "type": "git",
@@ -82,16 +88,39 @@
       ],
       "icon": "assets/icon.ico"
     },
+    "artifactName": "SentinelAISetup.${ext}",
     "nsis": {
       "oneClick": false,
+      "perMachine": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "SentinelAI",
+      "shortcutName": "Sentinel AI",
       "runAfterFinish": true,
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
-      "installerHeaderIcon": "assets/icon.ico"
+      "installerHeaderIcon": "assets/icon.ico",
+      "uninstallDisplayName": "Sentinel AI",
+      "guid": "8f3c2a1e-9b4d-4e6f-a1c2-5d7e9f0b3a4c",
+      "include": "installer.nsh"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "maintainer": "Sentinel Prime Inc. <support@sentinelprime.org>",
+      "icon": "assets/icons",
+      "category": "Utility",
+      "artifactName": "SentinelAI.${ext}",
+      "desktop": {
+        "Name": "Sentinel AI",
+        "Comment": "SentinelAI personal assistant",
+        "StartupWMClass": "sentinelai",
+        "Categories": "Utility;"
+      },
+      "synopsis": "SentinelAI desktop assistant",
+      "description": "SentinelAI — local-first AI assistant by Sentinel Prime Inc."
     }
   },
   "dependencies": {

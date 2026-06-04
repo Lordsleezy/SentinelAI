@@ -37,6 +37,51 @@ def _emit(socketio: Any, msg: str, level: str = "info") -> None:
             pass
 
 
+def _progress(
+    session_id: str,
+    stage: str,
+    percent: int,
+    socketio: Any,
+    *,
+    status: Optional[str] = None,
+) -> None:
+    session = load_session(session_id)
+    if session:
+        session.current_stage = stage
+        session.progress_percent = max(0, min(100, percent))
+        if status:
+            session.status = status
+        save_session(session)
+    if socketio:
+        try:
+            payload: Dict[str, Any] = {
+                "session_id": session_id,
+                "stage": stage,
+                "progress": percent,
+                "status": (session.status if session else status) or "running",
+            }
+            if session:
+                payload["session"] = session.to_dict()
+            socketio.emit("earn_research_progress", payload)
+            socketio.emit("earn_research_update", {"message": stage, "session_id": session_id})
+        except Exception:
+            pass
+    if task_id:
+        try:
+            from workers.task_manager import update_task, RUNNING, COMPLETED, FAILED
+            st = RUNNING
+            if status == "complete":
+                st = COMPLETED
+            elif status == "error":
+                st = FAILED
+            update_task(
+                task_id, status=st, progress=percent,
+                current_stage=stage, result_summary=stage,
+            )
+        except Exception:
+            pass
+
+
 def run_research_pipeline(
     program_data: Dict[str, Any],
     socketio: Any = None,
@@ -58,7 +103,18 @@ def run_research_pipeline(
 
     def _run() -> None:
         try:
-            _execute_pipeline(session.id, program_data, socketio)
+            from workers.task_manager import TaskContext
+            with TaskContext(
+                f"Research {title[:50]}", source="earn",
+                metadata={"session_id": session.id, "program": handle},
+            ) as ctx:
+                _execute_pipeline(session.id, program_data, socketio, task_id=ctx.task_id)
+                s = load_session(session.id)
+                if s and s.status == "complete":
+                    ctx.complete(
+                        result_summary=f"{s.program_title} — {len(s.potential_findings)} findings",
+                        metadata={"session_id": session.id},
+                    )
         except Exception as e:
             s = load_session(session.id)
             if s:
@@ -66,6 +122,7 @@ def run_research_pipeline(
                 s.error = str(e)
                 append_log(s, f"Pipeline error: {e}")
                 save_session(s)
+            _progress(session.id, "Failed", 0, socketio, status="error")
             _emit(socketio, f"Research failed: {e}", "error")
 
     if background:
@@ -78,15 +135,19 @@ def run_research_pipeline(
     return session
 
 
-def _execute_pipeline(session_id: str, program_data: Dict[str, Any], socketio: Any) -> None:
+def _execute_pipeline(
+    session_id: str, program_data: Dict[str, Any], socketio: Any, task_id: str = "",
+) -> None:
     session = load_session(session_id)
     if not session:
         return
 
     _emit(socketio, f"Accept Program: {session.program_title}")
+    _progress(session_id, "Accept Program", 5, socketio)
     append_log(session, "Phase 1: Program accepted")
 
-    _emit(socketio, "Analyze Scope…")
+    _emit(socketio, "Parsing Scope…")
+    _progress(session_id, "Parsing Scope", 12, socketio)
     intel, summary, targets = analyze_scope(program_data)
     session.scope_summary = summary
     session.in_scope_assets = [a.identifier for a in intel.in_scope if a.eligible_for_bounty]
@@ -96,7 +157,8 @@ def _execute_pipeline(session_id: str, program_data: Dict[str, Any], socketio: A
 
     add_evidence(session, "note", json.dumps(intel.to_dict(), indent=2)[:50_000], "scope_intel.json")
 
-    _emit(socketio, "Launch Research Pipeline — Guardian recon (in-scope only)…")
+    _emit(socketio, "Recon — Guardian tools (in-scope only)…")
+    _progress(session_id, "Recon", 30, socketio)
     recon = run_controlled_recon(session_id, intel, targets, socketio)
     session.recon_outputs = recon
     append_log(session, f"Phase 3: Recon complete — tools: {recon.get('tools_run')}")
@@ -104,19 +166,22 @@ def _execute_pipeline(session_id: str, program_data: Dict[str, Any], socketio: A
 
     add_evidence(session, "log", json.dumps(recon, indent=2)[:100_000], "recon_summary.json")
 
-    _emit(socketio, "Technology detection…")
+    _emit(socketio, "Technology Detection…")
+    _progress(session_id, "Technology Detection", 50, socketio)
     host_tech = detect_host_technologies(recon.get("hosts") or [])
     session.technologies = [h.to_dict() for h in host_tech]
     append_log(session, f"Phase 4: {len(host_tech)} host(s) fingerprinted")
     save_session(session)
 
-    _emit(socketio, "Generating Research Plan…")
+    _emit(socketio, "Research Plan…")
+    _progress(session_id, "Research Plan", 65, socketio)
     plans = build_research_plan(intel, host_tech)
     session.research_plan = [p.to_dict() for p in plans]
     append_log(session, f"Phase 5: {len(plans)} research plan item(s)")
     save_session(session)
 
-    _emit(socketio, "Creating Potential Findings…")
+    _emit(socketio, "Potential Findings…")
+    _progress(session_id, "Potential Findings", 82, socketio)
     pfindings = findings_from_plan(plans, recon.get("nuclei_findings") or [])
     session.potential_findings = [f.to_dict() for f in pfindings]
     append_log(session, f"Phase 6: {len(pfindings)} potential finding(s) — NOT auto-submitted")
@@ -131,6 +196,7 @@ def _execute_pipeline(session_id: str, program_data: Dict[str, Any], socketio: A
     session.updated_at = datetime.now(timezone.utc).isoformat()
     append_log(session, "Pipeline complete — awaiting human review")
     save_session(session)
+    _progress(session_id, "Complete", 100, socketio, status="complete")
     _emit(socketio, f"Research complete: {len(pfindings)} potential finding(s)", "success")
 
 

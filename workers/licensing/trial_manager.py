@@ -10,8 +10,18 @@ from datetime import datetime, timedelta
 class TrialManager:
     """Manages the 7-day free trial. No credit card, no signup."""
 
-    TRIAL_FILE = os.path.expanduser("~/.sentinelai/trial.json")
     TRIAL_DAYS = 7
+
+    @staticmethod
+    def _trial_file() -> str:
+        try:
+            from core.app_paths import resolve_user_data_dir
+            return str(resolve_user_data_dir() / "trial.json")
+        except ImportError:
+            appdata = os.environ.get("APPDATA", "").strip()
+            if appdata:
+                return os.path.join(appdata, "SentinelAI", "trial.json")
+            return os.path.expanduser("~/.sentinelai/trial.json")
 
     def start_trial(self) -> dict | None:
         """Start trial if not already started. Returns trial data or None."""
@@ -24,15 +34,22 @@ class TrialManager:
             'trial_id': uuid.uuid4().hex,
         }
 
-        os.makedirs(os.path.dirname(self.TRIAL_FILE), exist_ok=True)
-        with open(self.TRIAL_FILE, 'w') as f:
+        trial_path = self._trial_file()
+        os.makedirs(os.path.dirname(trial_path), exist_ok=True)
+        with open(trial_path, 'w') as f:
             json.dump(trial_data, f, indent=2)
+
+        try:
+            from workers.telemetry.product_analytics import report_trial_start
+            report_trial_start(trial_data['started_at'])
+        except Exception:
+            pass
 
         return trial_data
 
     def get_trial_data(self) -> dict | None:
         try:
-            with open(self.TRIAL_FILE) as f:
+            with open(self._trial_file()) as f:
                 return json.load(f)
         except Exception:
             return None

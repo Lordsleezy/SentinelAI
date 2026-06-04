@@ -415,8 +415,8 @@ def _correction_prompt(bad_response: str, original_task_snippet: str) -> str:
 def get_routed_model(task_type: str = "fix") -> str:
     """Return the best available local model for a task type via ModelRouter."""
     try:
-        from model_router.router import get_model_router
-        selection = get_model_router().route(task_type, "", prefer_local=True)
+        from workers.sentinel.model_router import get_model_router
+        selection = get_model_router().route_for_task(task_type, "", prefer_local=True)
         return selection.get("model") or OLLAMA_MODEL
     except Exception:
         return OLLAMA_MODEL

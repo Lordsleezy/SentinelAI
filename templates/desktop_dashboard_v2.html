@@ -456,15 +456,18 @@ const HUD = (function(){
     // Ollama offline warning in chat
     if(ollamaStatus!=='running'&&!ollamaWarnShown){
       ollamaWarnShown=true;
-      addMsg('sentinel','&#x26A0; Ollama offline — using basic routing');
+      // Use the literal warning glyph so addMsg can escape the whole string
+      // safely. Earlier this passed a `&#x26A0;` entity, which is broken once
+      // addMsg switched to plain-text escaping (the `&` gets entity-escaped).
+      addMsg('sentinel','⚠ Ollama offline — using basic routing');
     }
   }
 
   // ── ISSUE 7: System Monitor bars ─────────────────────────────────────────
-  async function refreshSysmon(){
-    const r=await getJSON('/api/system/stats');
-    if(!r)return;
-    const d=r.data||r;
+  // DOM writer for system_stats payloads. Used by both the initial
+  // /api/system/stats fetch and the live `system_stats` socket event.
+  function applySysmon(d){
+    if(!d)return;
     if(d.cpu){
       const pct=d.cpu.percent||0;
       const el1=$('#sysmon-cpu-pct');const el2=$('#sysmon-cpu-fill');
@@ -494,6 +497,12 @@ const HUD = (function(){
     } else {
       if(gpuRow)gpuRow.style.display='none';
     }
+  }
+
+  async function refreshSysmon(){
+    const r=await getJSON('/api/system/stats');
+    if(!r)return;
+    applySysmon(r.data||r);
   }
 
   function renderDock(statuses){
@@ -538,18 +547,24 @@ const HUD = (function(){
     while(box.children.length>40) box.removeChild(box.lastChild);
   }
   function escHtml(s){
-    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
+  // Restrict colors to a safelist (hex, rgb/rgba, named) so server-supplied
+  // strings cannot break out of the style attribute or load url() resources.
+  var _CSS_COLOR_RE=/^(?:#[0-9a-fA-F]{3,8}|rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)|rgba\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*(?:0|1|0?\.\d+)\s*\)|[a-zA-Z]{1,32})$/;
+  function safeCssColor(c){return (typeof c==='string'&&_CSS_COLOR_RE.test(c))?c:'';}
+
   // ── ISSUE 5: renderLogs with same parser ──────────────────────────────────
   function renderLogs(logs){
     if(!logs)return;
     const box=$('#telemetry');box.innerHTML='';
     logs.slice(0,20).forEach(function(l){
       var parsed=parseTelemetryEntry(l);
-      var ts=parsed.ts||now();
-      var colorStyle=parsed.color?'color:'+parsed.color+';':'';
+      var ts=escHtml(parsed.ts||now());
+      var col=safeCssColor(parsed.color);
+      var colorStyle=col?'color:'+col+';':'';
       var html='<span class="t-time">['+ts+']</span> '+
-               '<span style="'+colorStyle+'">'+parsed.eventType+' &#x2014; '+escHtml(parsed.text)+'</span>';
+               '<span style="'+colorStyle+'">'+escHtml(parsed.eventType)+' &#x2014; '+escHtml(parsed.text)+'</span>';
       box.appendChild(el('div',null,html));
     });
   }
@@ -560,15 +575,26 @@ const HUD = (function(){
   }
 
   // ── ISSUE 8: addMsg and chat helpers ──────────────────────────────────────
+  // addMsg treats `text` as plain text and escapes it. Callers that need to
+  // inject controlled HTML (loading dots, formatted markup) use addMsgHtml.
   function addMsg(who,text){
     const log=$('#chat-log');
-    const m=el('div','msg '+who,'<b>'+(who==='user'?'YOU':'SENTINEL')+'</b>'+text);
+    const who_safe=(who==='user'?'YOU':'SENTINEL');
+    const m=el('div','msg '+who,'<b>'+who_safe+'</b>'+escHtml(text));
+    log.appendChild(m);log.scrollTop=log.scrollHeight;
+    while(log.children.length>40)log.removeChild(log.firstChild);
+    return m;
+  }
+  function addMsgHtml(who,html){
+    const log=$('#chat-log');
+    const who_safe=(who==='user'?'YOU':'SENTINEL');
+    const m=el('div','msg '+who,'<b>'+who_safe+'</b>'+html);
     log.appendChild(m);log.scrollTop=log.scrollHeight;
     while(log.children.length>40)log.removeChild(log.firstChild);
     return m;
   }
   function addThinkingMsg(){
-    var m=addMsg('sentinel','<span class="thinking-dots">thinking<span>.</span><span>.</span><span>.</span></span>');
+    var m=addMsgHtml('sentinel','<span class="thinking-dots">thinking<span>.</span><span>.</span><span>.</span></span>');
     return m;
   }
   function updateMsg(node,text){
@@ -719,15 +745,22 @@ const HUD = (function(){
     if(id==='earn'){
       setOrb('earn');
       renderEarn();
-      // Start earn auto-refresh every 10s
+      // Live refresh is driven by the `earn_update` socket event (see
+      // initSocket). The interval below is a 30s fallback that only fires
+      // when the socket has disconnected — it is NOT a poll.
       if(earnRefreshInterval)clearInterval(earnRefreshInterval);
-      earnRefreshInterval=setInterval(function(){if(currentWorker==='earn')loadEarnData();},10000);
+      earnRefreshInterval=setInterval(function(){
+        if(currentWorker==='earn'&&!wsConnected)loadEarnData();
+      },30000);
     } else {
       setOrb('idle');
       renderWorkerDetail(id);
-      // Start panel auto-refresh every 5s
+      // Live refresh is driven by the `worker_status` socket event. The
+      // interval below is a 30s fallback for the disconnected case.
       if(panelRefreshInterval)clearInterval(panelRefreshInterval);
-      panelRefreshInterval=setInterval(function(){if(currentWorker&&currentWorker!=='earn')refreshWorkerPanel();},5000);
+      panelRefreshInterval=setInterval(function(){
+        if(currentWorker&&currentWorker!=='earn'&&!wsConnected)refreshWorkerPanel();
+      },30000);
     }
   }
 
@@ -1210,6 +1243,10 @@ const HUD = (function(){
           var statusEl=$('#wd-status');if(statusEl)statusEl.textContent=d.status||'idle';
           var taskEl=$('#wd-task');if(taskEl)taskEl.textContent=d.current_task||'none';
         }
+        // Any non-earn open worker panel re-renders on its own events.
+        if(currentWorker&&currentWorker!=='earn'&&typeof refreshWorkerPanel==='function'){
+          refreshWorkerPanel();
+        }
       });
       socket.on('task_update',function(d){
         pushTelemetry({event:'task_update',detail:'TASK '+(d.task_id||'')+': '+(d.status||'')+' ('+(d.worker||'')+')'});
@@ -1234,6 +1271,14 @@ const HUD = (function(){
       socket.on('earn_update',function(d){
         if(currentWorker==='earn')loadEarnData();
         renderObjective();
+      });
+      // System monitor — server-side cadence replaces the renderer 5s poll.
+      socket.on('system_stats',function(d){
+        var data=d&&d.data?d.data:d;
+        if(!data)return;
+        window.__lastSysmon=data;
+        // Reuse the same DOM writer the initial /api/system/stats fetch uses.
+        if(typeof applySysmon==='function')applySysmon(data);
       });
     }catch(e){pushTelemetry('Socket init failed: '+e.message);}
   }
@@ -1307,11 +1352,15 @@ const HUD = (function(){
     initSession();renderDock(HUD._lastWorkers);renderVitals({});
     wire();initSocket();
     tick();setInterval(tick,1000);
-    pollAll();setInterval(pollAll,2000);
-    // System monitor every 5s
-    refreshSysmon();setInterval(refreshSysmon,5000);
-    // Session refresh every 30s
+    // Initial fetches; subsequent updates arrive via Socket.IO listeners
+    // wired in initSocket (worker_status / task_update / approval_needed /
+    // earn_update / log_line / system_stats). A 30s fallback poll runs only
+    // when the socket has not connected, so the HUD is not frozen if the
+    // backend is unreachable.
+    pollAll();
+    refreshSysmon();
     refreshSession();setInterval(refreshSession,30000);
+    setInterval(function(){if(!wsConnected){pollAll();refreshSysmon();}},30000);
     pushTelemetry('SENTINEL PRIME HUD initialized.');
     addMsg('sentinel','Systems online. Hold SPACE or type to issue a command.');
   }

@@ -59,6 +59,12 @@ def validate_capability(capability_id: str) -> ValidationResult:
     if cid == "sqlite":
         return ValidationResult(cid, True, True, "", "stdlib sqlite3", "", ts)
     if cid == "venv":
+        if getattr(sys, "frozen", False):
+            return ValidationResult(
+                cid, True, True, "",
+                "bundled PyInstaller runtime (no project venv required)",
+                sys.executable, ts,
+            )
         root = Path(__file__).resolve().parents[2]
         venv_py = root / "venv" / ("Scripts" if sys.platform == "win32" else "bin") / (
             "python.exe" if sys.platform == "win32" else "python"

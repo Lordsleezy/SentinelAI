@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-02  
 **Scope:** Read-only audit of Connected AI / multi-provider infrastructure in SentinelAI  
-**Constraint:** No code changes were made. Findings are evidence-based from repository search and trace-through.
+**Constraint:** Original audit was read-only. **Update 2026-06-02:** `conversation_sync._process_into_memory` now calls **Memory V2** `process_conversation()` first; legacy fallback retained. Federation merge index still not implemented — see `ARCHITECTURE_AUDIT_REPORT.md`.
 
 ---
 

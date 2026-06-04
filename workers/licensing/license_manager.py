@@ -43,7 +43,19 @@ PRO_FEATURES = [
 ]
 
 VALIDATION_SERVER = "https://sentinelprime.org/api/validate"
+ACTIVATION_SERVER = "https://sentinelprime.org/api/activate"
 GRACE_PERIOD_DAYS = 7
+BETA_GRACE_PERIOD_DAYS = 3
+
+# Routes always allowed in restricted mode (beta expired)
+RESTRICTED_ALLOW_PREFIXES = (
+    "/license/",
+    "/api/trial/",
+    "/api/updates/",
+    "/api/version",
+    "/api/health/",
+    "/api/status",
+)
 
 
 class LicenseManager:
@@ -90,6 +102,10 @@ class LicenseManager:
             "activated_at": None,
             "machine_id": self.get_machine_id(),
             "last_validated_at": None,
+            "beta_expires_at": None,
+            "subscription_valid": False,
+            "remote_features_disabled": [],
+            "offline_cache": {},
             "usage": {
                 "forge_tasks": 0,
                 "web_searches": 0,
@@ -112,16 +128,25 @@ class LicenseManager:
         except Exception as e:
             logger.error(f"Failed to save license: {e}")
 
+    @staticmethod
+    def _install_id() -> str:
+        try:
+            from workers.telemetry.product_analytics import get_install_id
+            return get_install_id()
+        except Exception:
+            return ""
+
     def get_machine_id(self) -> str:
         """Generate stable machine ID"""
         if self._machine_id_cache:
             return self._machine_id_cache
 
-        try:
-            # Hash username + hostname + CPU info for stable ID
-            username = os.getlogin() if hasattr(os, 'getlogin') else 'unknown'
-        except:
-            username = 'unknown'
+        # Never use os.getlogin() — it can block indefinitely on Windows services/GUI shells.
+        username = (
+            os.environ.get("USERNAME")
+            or os.environ.get("USER")
+            or "unknown"
+        )
 
         try:
             hostname = socket.gethostname()
@@ -153,13 +178,14 @@ class LicenseManager:
             {success: bool, message: str, tier?: str}
         """
         machine_id = self.get_machine_id()
+        install_id = self._install_id()
 
-        # Validate key with server
+        # Activate key with server
         try:
             with httpx.Client(timeout=10.0) as client:
                 response = client.post(
-                    VALIDATION_SERVER,
-                    json={"key": key, "machine_id": machine_id},
+                    ACTIVATION_SERVER,
+                    json={"code": key, "machine_id": machine_id, "install_id": install_id},
                     follow_redirects=True
                 )
 
@@ -173,6 +199,9 @@ class LicenseManager:
                         self.license['machine_id'] = machine_id
                         self.license['activated_at'] = datetime.utcnow().isoformat()
                         self.license['last_validated_at'] = datetime.utcnow().isoformat()
+                        self.license['subscription_valid'] = bool(data.get('subscription_valid', True))
+                        self.license['restricted_mode'] = False
+                        self.apply_remote_policy(data.get('policy') or data)
                         self.save_license(self.license)
 
                         return {
@@ -219,22 +248,15 @@ class LicenseManager:
             "tier": "free"
         }
 
-    def check_feature(self, feature_name: str) -> Dict[str, Any]:
-        """Check if feature is allowed for current tier"""
-        if self.is_pro():
-            return {"allowed": True}
-
-        if feature_name in PRO_FEATURES:
-            return {
-                "allowed": False,
-                "reason": "pro_required",
-                "message": f"This feature requires SentinelAI Pro. Activate your license key to unlock it."
-            }
-
-        return {"allowed": True}
-
     def check_limit(self, limit_name: str) -> Dict[str, Any]:
         """Check if usage limit is available"""
+        if self.is_restricted_mode():
+            return {
+                "allowed": False,
+                "remaining": 0,
+                "reason": "restricted_mode",
+                "message": "Beta period ended. Activate your license to continue.",
+            }
         if self.is_pro():
             return {"allowed": True, "remaining": -1}
 
@@ -273,6 +295,111 @@ class LicenseManager:
         self.license['usage'][limit_name] += 1
         self.save_license(self.license)
 
+    def is_restricted_mode(self) -> bool:
+        """Beta expired or remote disable without valid subscription — non-destructive lock."""
+        if self.is_pro() and self.subscription_valid():
+            return False
+        try:
+            import build_info as bi
+            if getattr(bi, "OWNER_MODE", False):
+                return False
+            build_type = getattr(bi, "BUILD_TYPE", "dev")
+            if build_type not in ("beta", "consumer"):
+                return False
+        except ImportError:
+            return False
+        if self.beta_expired():
+            return True
+        if self.license.get("restricted_mode"):
+            return True
+        return False
+
+    def beta_expired(self) -> bool:
+        expires = self.license.get("beta_expires_at")
+        if not expires:
+            try:
+                import build_info as bi
+                if getattr(bi, "BUILD_TYPE", "") != "beta":
+                    return False
+                days = int(getattr(bi, "TRIAL_DAYS", 7) or 7)
+                activated = self.license.get("beta_started_at")
+                if not activated:
+                    return False
+                start = datetime.fromisoformat(activated.replace("Z", ""))
+                if datetime.utcnow() > start + timedelta(days=days):
+                    return True
+                return False
+            except Exception:
+                return False
+        try:
+            return datetime.utcnow() > datetime.fromisoformat(expires.replace("Z", ""))
+        except Exception:
+            return False
+
+    def subscription_valid(self) -> bool:
+        if self.license.get("subscription_valid"):
+            return True
+        return self.is_pro() and bool(self.validate_pro_offline())
+
+    def start_beta_period(self) -> None:
+        if self.license.get("beta_started_at"):
+            return
+        self.license["beta_started_at"] = datetime.utcnow().isoformat()
+        try:
+            import build_info as bi
+            days = int(getattr(bi, "TRIAL_DAYS", 14) or 14)
+            self.license["beta_expires_at"] = (
+                datetime.utcnow() + timedelta(days=days)
+            ).isoformat()
+        except Exception:
+            pass
+        self.save_license(self.license)
+
+    def check_feature(self, feature_name: str) -> Dict[str, Any]:
+        """Check if feature is allowed for current tier"""
+        disabled = self.license.get("remote_features_disabled") or []
+        if feature_name in disabled:
+            return {
+                "allowed": False,
+                "reason": "remote_disabled",
+                "message": "This feature is disabled for your account. Contact support.",
+            }
+        if self.is_restricted_mode():
+            return {
+                "allowed": False,
+                "reason": "restricted_mode",
+                "message": "Beta period ended. Activate your license to continue.",
+            }
+        if self.is_pro():
+            return {"allowed": True}
+
+        if feature_name in PRO_FEATURES:
+            return {
+                "allowed": False,
+                "reason": "pro_required",
+                "message": "This feature requires SentinelAI Pro. Activate your license key to unlock it.",
+            }
+
+        return {"allowed": True}
+
+    def apply_remote_policy(self, payload: Dict[str, Any]) -> None:
+        """Apply server policy without deleting local data."""
+        cache = dict(self.license.get("offline_cache") or {})
+        cache["last_policy"] = payload
+        cache["fetched_at"] = datetime.utcnow().isoformat()
+        self.license["offline_cache"] = cache
+        if "beta_expires_at" in payload:
+            self.license["beta_expires_at"] = payload["beta_expires_at"]
+        if "features_disabled" in payload:
+            self.license["remote_features_disabled"] = list(payload["features_disabled"])
+        if payload.get("restricted_mode") is True:
+            self.license["restricted_mode"] = True
+        elif payload.get("restricted_mode") is False:
+            self.license["restricted_mode"] = False
+        if payload.get("subscription_valid") is True:
+            self.license["subscription_valid"] = True
+        self.save_license(self.license)
+
     def get_status(self) -> Dict[str, Any]:
         """Get license status for API response"""
         return {
@@ -283,6 +410,11 @@ class LicenseManager:
             "machine_id": self.get_machine_id(),
             "usage": self.license.get('usage', {}),
             "limits": FREE_LIMITS if not self.is_pro() else {},
+            "restricted_mode": self.is_restricted_mode(),
+            "beta_expires_at": self.license.get("beta_expires_at"),
+            "beta_expired": self.beta_expired(),
+            "subscription_valid": self.subscription_valid(),
+            "remote_features_disabled": self.license.get("remote_features_disabled", []),
         }
 
     def revalidate(self) -> bool:
@@ -291,18 +423,24 @@ class LicenseManager:
         if not key or not self.is_pro():
             return False
         machine_id = self.get_machine_id()
+        install_id = self._install_id()
         try:
             with httpx.Client(timeout=10.0) as client:
                 response = client.post(
                     VALIDATION_SERVER,
-                    json={"key": key, "machine_id": machine_id},
+                    json={"key": key, "machine_id": machine_id, "install_id": install_id},
                     follow_redirects=True,
                 )
-                if response.status_code == 200 and response.json().get('valid'):
-                    self.license['last_validated_at'] = datetime.utcnow().isoformat()
-                    self.save_license(self.license)
-                    logger.info("License revalidated successfully")
-                    return True
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get('valid'):
+                        self.license['last_validated_at'] = datetime.utcnow().isoformat()
+                        self.license['subscription_valid'] = bool(data.get('subscription_valid', True))
+                        policy = data.get('policy') or data
+                        self.apply_remote_policy(policy)
+                        self.save_license(self.license)
+                        logger.info("License revalidated successfully")
+                        return True
                 else:
                     logger.warning("License revalidation rejected — downgrading to free")
                     self.license['tier'] = 'free'
