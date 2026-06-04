@@ -76,8 +76,11 @@ backend_dist/
 backend_dist_consumer/
 backend_dist_owner/
 installer_dist/
+installer_dist*/
 installer_dist_consumer/
 installer_dist_owner/
+build_backend_log.txt
+electron_build_log.txt
 build_tmp/
 build_info.py
 *.exe
